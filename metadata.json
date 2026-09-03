@@ -1,0 +1,7 @@
+{
+  "name": "HomeFin Control",
+  "description": "Aplicativo completo de controle financeiro residencial com suporte a PWA, gestão de contas mensais, patrimônio e metas.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

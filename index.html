@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://lucide.dev/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HomeFin Control</title>
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="description" content="Controle Financeiro Residencial Completo" />
+    <link rel="manifest" href="/manifest.json" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                50: 'var(--primary-50, #eef2ff)',
+                100: 'var(--primary-100, #e0e7ff)',
+                500: 'var(--primary-500, #6366f1)',
+                600: 'var(--primary-600, #4f46e5)',
+                700: 'var(--primary-700, #4338ca)',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <!-- Script para evitar flash de tema claro ao carregar -->
+    <script>
+      (function() {
+        try {
+          const colors = {
+            slate: '#64748b', zinc: '#71717a', neutral: '#737373', stone: '#78716c',
+            red: '#ef4444', orange: '#f97316', amber: '#f59e0b', yellow: '#eab308',
+            lime: '#84cc16', green: '#22c55e', emerald: '#10b981', teal: '#14b8a6',
+            cyan: '#06b6d4', sky: '#0ea5e9', blue: '#3b82f6', indigo: '#6366f1',
+            violet: '#8b5cf6', purple: '#a855f7', fuchsia: '#d946ef', pink: '#ec4899', rose: '#f43f5e',
+          };
+          const storedData = localStorage.getItem('homefin_data_v1');
+          if (storedData) {
+            const data = JSON.parse(storedData);
+            if (data.settings) {
+              if (data.settings.theme === 'dark') {
+                document.documentElement.classList.add('dark');
+              }
+              if (data.settings.primaryColor) {
+                const hex = colors[data.settings.primaryColor] || colors.indigo;
+                document.documentElement.style.setProperty('--primary-50', hex + '1a');
+                document.documentElement.style.setProperty('--primary-100', hex + '33');
+                document.documentElement.style.setProperty('--primary-500', hex);
+                document.documentElement.style.setProperty('--primary-600', hex);
+                document.documentElement.style.setProperty('--primary-700', hex);
+              }
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
