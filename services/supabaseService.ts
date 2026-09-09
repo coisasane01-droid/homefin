@@ -1,9 +1,17 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AppData } from '../types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+console.log('=== SUPABASE DEBUG ===');
+console.log('URL:', SUPABASE_URL);
+console.log(
+  'KEY:',
+  SUPABASE_ANON_KEY
+    ? `${SUPABASE_ANON_KEY.substring(0, 20)}...`
+    : 'NÃO CONFIGURADA'
+);
 // ============================================================
 // SUPABASE CLIENT
 // ============================================================

@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, Star, Shield, Zap, X, CreditCard, QrCode, ArrowLeft, Copy, Tag, Loader2 } from 'lucide-react';
@@ -83,7 +84,7 @@ const Planos: React.FC = () => {
       );
       setMercadoPagoPayment(payment);
     } catch (error) {
-      alert('Erro ao gerar PIX. Tente novamente.');
+      showNotification('Erro ao gerar PIX. Tente novamente.', 'error');
       console.error(error);
     } finally {
       setIsGeneratingPix(false);
@@ -129,10 +130,10 @@ const Planos: React.FC = () => {
       if (payment.status === 'approved') {
         handleConfirmPayment();
       } else {
-        alert(`Pagamento não aprovado: ${payment.status_detail}`);
+        showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
     } catch (error) {
-      alert('Erro ao processar pagamento com cartão. Verifique os dados e tente novamente.');
+      showNotification('Erro ao processar pagamento com cartão. Verifique os dados e tente novamente.', 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -141,7 +142,7 @@ const Planos: React.FC = () => {
 
   const handleCopyPix = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('Código PIX copiado!');
+    showNotification('Código PIX copiado!', 'success');
   };
 
   return (

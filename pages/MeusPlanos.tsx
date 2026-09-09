@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, Family, Plan, PaymentConfig } from '../services/saasDb';
@@ -72,7 +73,7 @@ const MeusPlanos: React.FC = () => {
       );
       setMercadoPagoPayment(payment);
     } catch (error) {
-      alert('Erro ao gerar PIX. Tente novamente.');
+      showNotification('Erro ao gerar PIX. Tente novamente.', 'error');
       console.error(error);
     } finally {
       setIsGeneratingPix(false);
@@ -93,7 +94,7 @@ const MeusPlanos: React.FC = () => {
             status: 'active'
         });
         
-        alert('Pagamento confirmado! Seu plano foi renovado.');
+        showNotification('Pagamento confirmado! Seu plano foi renovado.', 'success');
         setLoading(false);
         setIsCheckoutOpen(false);
         // Refresh page or update state to reflect new expiry
@@ -121,10 +122,10 @@ const MeusPlanos: React.FC = () => {
       if (payment.status === 'approved') {
         handleConfirmPayment();
       } else {
-        alert(`Pagamento não aprovado: ${payment.status_detail}`);
+        showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
     } catch (error) {
-      alert('Erro ao processar pagamento com cartão. Verifique os dados e tente novamente.');
+      showNotification('Erro ao processar pagamento com cartão. Verifique os dados e tente novamente.', 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -133,7 +134,7 @@ const MeusPlanos: React.FC = () => {
 
   const handleCopyPix = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('Código PIX copiado!');
+    showNotification('Código PIX copiado!', 'success');
   };
 
   if (!family || !currentPlan) {

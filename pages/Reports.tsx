@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Download, FileSpreadsheet, Printer, Info, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -50,7 +51,7 @@ const Reports: React.FC = () => {
 
   const handleExportCSV = () => {
     if (rawData.length === 0) {
-        alert("Sem dados para exportar.");
+        showNotification('Sem dados para exportar.', 'warning');
         return;
     }
 

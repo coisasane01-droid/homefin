@@ -1,6 +1,9 @@
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+
 import Layout from './components/Layout';
+import NotificationModal from './components/NotificationModal';
+
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Bills from './pages/Bills';
@@ -28,23 +31,120 @@ const App: React.FC = () => {
         <Route path="/setup" element={<PreConfiguracaoFamilia />} />
         <Route path="/plans" element={<Planos />} />
         <Route path="/admin" element={<SuperAdmin />} />
-        
-        {/* Protected Routes Wrapper */}
-        <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
-        <Route path="/bills" element={<Layout><Bills /></Layout>} />
-        <Route path="/shopping" element={<Layout><Shopping /></Layout>} />
-        <Route path="/calendar" element={<Layout><Calendar /></Layout>} />
-        <Route path="/wallets" element={<Layout><Wallets /></Layout>} />
-        <Route path="/goals" element={<Layout><Goals /></Layout>} />
-        <Route path="/assets" element={<Layout><Assets /></Layout>} />
-        <Route path="/reports" element={<Layout><Reports /></Layout>} />
-        <Route path="/ranking" element={<Layout><Ranking /></Layout>} />
-        <Route path="/debts" element={<Layout><Debts /></Layout>} />
-        <Route path="/settings" element={<Layout><Settings /></Layout>} />
-        <Route path="/my-plan" element={<Layout><MeusPlanos /></Layout>} />
-        
+
+        <Route
+          path="/dashboard"
+          element={
+            <Layout>
+              <Dashboard />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/bills"
+          element={
+            <Layout>
+              <Bills />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/shopping"
+          element={
+            <Layout>
+              <Shopping />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/calendar"
+          element={
+            <Layout>
+              <Calendar />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/wallets"
+          element={
+            <Layout>
+              <Wallets />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/goals"
+          element={
+            <Layout>
+              <Goals />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/assets"
+          element={
+            <Layout>
+              <Assets />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/reports"
+          element={
+            <Layout>
+              <Reports />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/ranking"
+          element={
+            <Layout>
+              <Ranking />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/debts"
+          element={
+            <Layout>
+              <Debts />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            <Layout>
+              <Settings />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/my-plan"
+          element={
+            <Layout>
+              <MeusPlanos />
+            </Layout>
+          }
+        />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      {/* Sistema global de notificações */}
+      <NotificationModal />
     </HashRouter>
   );
 };

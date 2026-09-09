@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
@@ -107,7 +108,7 @@ const LandingHomeFin: React.FC = () => {
     if (adminPassword === currentPassword) {
       navigate('/admin');
     } else {
-      alert('Acesso negado.');
+      showNotification('Acesso negado.', 'error');
       setAdminPassword('');
     }
   };
@@ -118,17 +119,17 @@ const LandingHomeFin: React.FC = () => {
     const currentKeyword = currentConfig?.recoveryKeyword || 'admin';
 
     if (recoveryKeyword !== currentKeyword) {
-      alert('Palavra-chave incorreta.');
+      showNotification('Palavra-chave incorreta.', 'error');
       return;
     }
 
     if (!newPassword || newPassword !== confirmPassword) {
-      alert('As senhas não coincidem ou estão vazias.');
+      showNotification('As senhas não coincidem ou estão vazias.', 'error');
       return;
     }
 
     saasDb.updateAdminConfig({ password: newPassword });
-    alert('Senha atualizada com sucesso! Use a nova senha para entrar.');
+    showNotification('Senha atualizada com sucesso! Use a nova senha para entrar.', 'success');
     setIsRecoveryMode(false);
     setAdminPassword('');
     setRecoveryKeyword('');

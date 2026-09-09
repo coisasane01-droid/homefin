@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   format, 
@@ -304,11 +305,11 @@ const CalendarPage: React.FC = () => {
               console.log('Events reloaded.');
           } catch (error) {
               console.error('Error deleting series:', error);
-              alert('Erro ao excluir série: ' + error);
+              showNotification('Erro ao excluir série: ' + error, 'error');
           }
       } else {
           console.error('No groupId found for series deletion');
-          alert('Erro: Identificador da série não encontrado.');
+          showNotification('Erro: Identificador da série não encontrado.', 'error');
       }
   };
 

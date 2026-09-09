@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
@@ -100,7 +101,7 @@ const Settings: React.FC = () => {
 
   const handleToggleNotifications = async () => {
     if (!('Notification' in window)) {
-        alert('Seu navegador não suporta notificações.');
+        showNotification('Seu navegador não suporta notificações.', 'warning');
         return;
     }
 
@@ -109,14 +110,14 @@ const Settings: React.FC = () => {
     // If turning ON, check permission
     if (newState) {
         if (Notification.permission === 'denied') {
-            alert('As notificações estão bloqueadas pelo navegador.\n\nPara ativar:\n1. Clique no ícone de cadeado 🔒 ou configurações ao lado da URL.\n2. Encontre "Notificações" e mude para "Permitir".\n3. Recarregue a página.');
+            showNotification('As notificações estão bloqueadas pelo navegador. Para ativar, permita as notificações nas configurações do navegador e recarregue a página.', 'warning');
             return;
         }
 
         if (Notification.permission !== 'granted') {
             const permission = await Notification.requestPermission();
             if (permission !== 'granted') {
-                alert('Para receber alertas, você precisa clicar em "Permitir" quando o navegador solicitar.');
+                showNotification('Para receber alertas, você precisa clicar em "Permitir" quando o navegador solicitar.', 'info');
                 return;
             }
         }

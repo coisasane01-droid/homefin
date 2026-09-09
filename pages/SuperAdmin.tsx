@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBannerConfig } from '../services/saasDb';
@@ -66,7 +67,7 @@ const SuperAdmin: React.FC = () => {
     e.preventDefault();
     
     if (securityConfig.newPassword && securityConfig.newPassword !== securityConfig.confirmPassword) {
-        alert('As novas senhas não coincidem.');
+        showNotification('As novas senhas não coincidem.', 'error');
         return;
     }
 
@@ -198,7 +199,7 @@ const SuperAdmin: React.FC = () => {
         document.body.removeChild(textArea);
         
         if (successful) {
-          alert('Link de acesso copiado!');
+          showNotification('Link de acesso copiado!', 'success');
         } else {
           throw new Error('Comando de cópia falhou');
         }
@@ -211,7 +212,7 @@ const SuperAdmin: React.FC = () => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try {
         await navigator.clipboard.writeText(link);
-        alert('Link de acesso copiado!');
+        showNotification('Link de acesso copiado!', 'success');
       } catch (err) {
         console.warn('Clipboard API falhou, tentando fallback...', err);
         fallbackCopy();
@@ -1246,7 +1247,7 @@ const SuperAdmin: React.FC = () => {
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(`${window.location.origin}/api/webhook`);
-                          alert('URL copiada!');
+                          showNotification('URL copiada!', 'success');
                         }}
                         className="text-blue-600 hover:text-blue-800 p-1"
                         title="Copiar URL"

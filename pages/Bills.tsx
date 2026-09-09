@@ -1,3 +1,4 @@
+import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Bill, TransactionType, Attachment, UserSettings } from '../types';
@@ -287,7 +288,7 @@ const Bills: React.FC = () => {
                 }
             } catch (error) {
                 console.error("Erro ao ler comprovante:", error);
-                alert("Não foi possível ler os dados do comprovante automaticamente.");
+                showNotification('Não foi possível ler os dados...', 'error');
             } finally {
                 setIsScanning(false);
             }
@@ -369,13 +370,13 @@ const Bills: React.FC = () => {
                                 addedCount++;
                             }
                         }
-                        alert(`${addedCount} transações importadas com sucesso!`);
+                        showNotification(`${addedCount} transações importadas com sucesso!`);
                         loadBills();
                     }
                 }
             } catch (error) {
                 console.error("Erro ao importar extrato:", error);
-                alert("Não foi possível importar o extrato. Verifique o arquivo e tente novamente.");
+                showNotification("Não foi possível importar o extrato. Verifique o arquivo e tente novamente.");
             } finally {
                 setIsImporting(false);
                 if (importInputRef.current) importInputRef.current.value = '';
