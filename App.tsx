@@ -21,8 +21,15 @@ import PreConfiguracaoFamilia from './pages/PreConfiguracaoFamilia';
 import Planos from './pages/Planos';
 import MeusPlanos from './pages/MeusPlanos';
 import SuperAdmin from './pages/SuperAdmin';
+import { saasDb } from './services/saasDb';
 
 const App: React.FC = () => {
+  React.useEffect(() => {
+    saasDb.syncFromSupabase().catch((error) => {
+      console.error('Erro ao sincronizar dados SaaS:', error);
+    });
+  }, []);
+
   return (
     <HashRouter>
       <Routes>

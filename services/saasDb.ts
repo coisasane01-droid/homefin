@@ -1,13 +1,14 @@
 import { UserSettings } from '../types';
+import { supabaseService } from './supabaseService';
 
 export interface AccessCode {
   code: string;
   maxUses: number;
   usedCount: number;
-  expiresAt?: string; // ISO Date
+  expiresAt?: string;
   status: 'active' | 'inactive';
-  usedBy: string[]; // Family IDs
-  discountPercent?: number; // 0-100
+  usedBy: string[];
+  discountPercent?: number;
 }
 
 export interface Family {
@@ -68,88 +69,318 @@ export interface AppBannerConfig {
   altText: string;
 }
 
+export interface SaasData {
+  codes: AccessCode[];
+  families: Family[];
+  plans: Plan[];
+  landingConfig: LandingConfig;
+  paymentConfig: PaymentConfig;
+  adminConfig: AdminConfig;
+  appBannerConfig: AppBannerConfig;
+}
+
 const SAAS_STORAGE_KEY = 'homefin_saas_data_v1';
 
-const initialSaasData = {
-  codes: [] as AccessCode[],
-  families: [] as Family[],
+const initialSaasData: SaasData = {
+  codes: [],
+
+  families: [],
+
   plans: [
-    { 
-      id: 'free', 
-      name: 'Básico', 
-      price: 0, 
+    {
+      id: 'free',
+      name: 'Básico',
+      price: 0,
       period: '/mês',
-      features: ['Gestão de Contas', 'Lista de Compras', '1 Usuário', 'Relatórios Simples'],
+      features: [
+        'Gestão de Contas',
+        'Lista de Compras',
+        '1 Usuário',
+        'Relatórios Simples'
+      ],
       cta: 'Começar Grátis',
       popular: false
     },
-    { 
-      id: 'premium', 
-      name: 'Família Pro', 
-      price: 29.90, 
+    {
+      id: 'premium',
+      name: 'Família Pro',
+      price: 29.90,
       period: '/mês',
-      features: ['Tudo do Básico', 'Metas e Sonhos', 'Patrimônio', 'Multi-usuários', 'Relatórios Avançados', 'Suporte Prioritário'],
+      features: [
+        'Tudo do Básico',
+        'Metas e Sonhos',
+        'Patrimônio',
+        'Multi-usuários',
+        'Relatórios Avançados',
+        'Suporte Prioritário'
+      ],
       cta: 'Assinar Agora',
       popular: true
     }
-  ] as Plan[],
+  ],
+
   landingConfig: {
     title: 'Suas Finanças,\nSimplificadas.',
-    subtitle: 'Gerencie contas, metas e sonhos da sua família em um só lugar. Simples, seguro e feito para você.',
+    subtitle:
+      'Gerencie contas, metas e sonhos da sua família em um só lugar. Simples, seguro e feito para você.',
     buttonText: 'Criar Conta Grátis',
     bannerImage: '',
     logoImage: '',
     pwaIcon: '',
     pwaName: 'HomeFin',
-    bgColorStart: '#312e81', // indigo-900
-    bgColorEnd: '#3730a3',   // indigo-800
+    bgColorStart: '#312e81',
+    bgColorEnd: '#3730a3',
     textColor: '#ffffff',
     titleColor: '#ffffff',
-    accentColorStart: '#818cf8', // indigo-400
-    accentColorEnd: '#c084fc',   // purple-400
-    logoWidth: '128', // Default width in pixels (or tailwind class if we decide) - let's use pixels for finer control or just a number
-    logoRadius: '16'  // Default radius in pixels
-  } as LandingConfig,
+    accentColorStart: '#818cf8',
+    accentColorEnd: '#c084fc',
+    logoWidth: '128',
+    logoRadius: '16'
+  },
+
   paymentConfig: {
     pixKey: 'chave-pix-exemplo',
     pixQrCodeUrl: ''
-  } as PaymentConfig,
+  },
+
   adminConfig: {
     password: 'admin123',
     recoveryKeyword: 'admin'
-  } as AdminConfig,
+  },
+
   appBannerConfig: {
     enabled: true,
-    imageUrl: "https://picsum.photos/seed/ads/800/100",
-    linkUrl: "https://google.com",
-    altText: "Banner Publicitário"
-  } as AppBannerConfig
+    imageUrl: 'https://picsum.photos/seed/ads/800/100',
+    linkUrl: 'https://google.com',
+    altText: 'Banner Publicitário'
+  }
 };
 
-const getSaasData = () => {
-  const data = localStorage.getItem(SAAS_STORAGE_KEY);
-  if (!data) return initialSaasData;
-  
-  const parsed = JSON.parse(data);
-  // Merge with initial to ensure new fields exist if storage is old
-  return { 
-    ...initialSaasData, 
-    ...parsed, 
-    landingConfig: { ...initialSaasData.landingConfig, ...parsed.landingConfig },
-    paymentConfig: { ...initialSaasData.paymentConfig, ...parsed.paymentConfig },
-    adminConfig: { ...initialSaasData.adminConfig, ...parsed.adminConfig },
-    appBannerConfig: { ...initialSaasData.appBannerConfig, ...parsed.appBannerConfig }
-  };
+// ============================================================
+// LEITURA LOCAL
+// ============================================================
+
+const getSaasData = (): SaasData => {
+  try {
+    const data = localStorage.getItem(SAAS_STORAGE_KEY);
+
+    if (!data) {
+      return structuredClone(initialSaasData);
+    }
+
+    const parsed = JSON.parse(data);
+
+    return {
+      ...initialSaasData,
+      ...parsed,
+
+      landingConfig: {
+        ...initialSaasData.landingConfig,
+        ...(parsed.landingConfig || {})
+      },
+
+      paymentConfig: {
+        ...initialSaasData.paymentConfig,
+        ...(parsed.paymentConfig || {})
+      },
+
+      adminConfig: {
+        ...initialSaasData.adminConfig,
+        ...(parsed.adminConfig || {})
+      },
+
+      appBannerConfig: {
+        ...initialSaasData.appBannerConfig,
+        ...(parsed.appBannerConfig || {})
+      },
+
+      codes: Array.isArray(parsed.codes)
+        ? parsed.codes
+        : initialSaasData.codes,
+
+      families: Array.isArray(parsed.families)
+        ? parsed.families
+        : initialSaasData.families,
+
+      plans: Array.isArray(parsed.plans)
+        ? parsed.plans
+        : initialSaasData.plans
+    };
+  } catch (error) {
+    console.error('Erro ao ler dados SaaS locais:', error);
+    return structuredClone(initialSaasData);
+  }
 };
 
-const saveSaasData = (data: any) => {
-  localStorage.setItem(SAAS_STORAGE_KEY, JSON.stringify(data));
+// ============================================================
+// SALVAMENTO LOCAL + SUPABASE
+// ============================================================
+
+const saveSaasData = (data: SaasData) => {
+  try {
+    localStorage.setItem(
+      SAAS_STORAGE_KEY,
+      JSON.stringify(data)
+    );
+  } catch (error) {
+    console.error('Erro ao salvar dados SaaS localmente:', error);
+  }
+
+  // Salva também no Supabase sem bloquear a interface.
+  void supabaseService
+    .saveSaasData(data)
+    .then(() => {
+      console.log('=== HOMEFIN SaaS ===');
+      console.log('Dados SaaS sincronizados com Supabase.');
+    })
+    .catch((error) => {
+      console.error(
+        'Erro ao sincronizar dados SaaS com Supabase:',
+        error
+      );
+    });
 };
+
+// ============================================================
+// SINCRONIZAÇÃO SUPABASE → LOCAL
+// ============================================================
+
+const syncFromSupabase = async (): Promise<SaasData> => {
+  try {
+    console.log('=== HOMEFIN SaaS SYNC ===');
+    console.log('Buscando dados SaaS no Supabase...');
+
+    const remoteData = await supabaseService.getSaasData();
+
+    // --------------------------------------------------------
+    // PRIMEIRO ACESSO / MIGRAÇÃO
+    // --------------------------------------------------------
+
+    if (!remoteData) {
+      const localData = getSaasData();
+
+      console.log(
+        'Nenhum dado SaaS encontrado no Supabase.'
+      );
+
+      console.log(
+        'Enviando dados locais atuais para o Supabase...'
+      );
+
+      await supabaseService.saveSaasData(localData);
+
+      console.log(
+        'Dados locais migrados para o Supabase.'
+      );
+
+      return localData;
+    }
+
+    // --------------------------------------------------------
+    // SUPABASE É A FONTE PRINCIPAL
+    // --------------------------------------------------------
+
+    const parsed = remoteData as Partial<SaasData>;
+
+    const mergedData: SaasData = {
+      ...initialSaasData,
+      ...parsed,
+
+      landingConfig: {
+        ...initialSaasData.landingConfig,
+        ...(parsed.landingConfig || {})
+      },
+
+      paymentConfig: {
+        ...initialSaasData.paymentConfig,
+        ...(parsed.paymentConfig || {})
+      },
+
+      adminConfig: {
+        ...initialSaasData.adminConfig,
+        ...(parsed.adminConfig || {})
+      },
+
+      appBannerConfig: {
+        ...initialSaasData.appBannerConfig,
+        ...(parsed.appBannerConfig || {})
+      },
+
+      codes: Array.isArray(parsed.codes)
+        ? parsed.codes
+        : [],
+
+      families: Array.isArray(parsed.families)
+        ? parsed.families
+        : [],
+
+      plans: Array.isArray(parsed.plans)
+        ? parsed.plans
+        : initialSaasData.plans
+    };
+
+    localStorage.setItem(
+      SAAS_STORAGE_KEY,
+      JSON.stringify(mergedData)
+    );
+
+    console.log(
+      'Dados SaaS carregados do Supabase.'
+    );
+
+    console.log(
+      'Famílias:',
+      mergedData.families.length
+    );
+
+    console.log(
+      'Planos:',
+      mergedData.plans.length
+    );
+
+    return mergedData;
+  } catch (error) {
+    console.error(
+      'Erro na sincronização SaaS com Supabase:',
+      error
+    );
+
+    // Se o Supabase estiver indisponível,
+    // mantém o funcionamento pelo cache local.
+    return getSaasData();
+  }
+};
+
+// ============================================================
+// BANCO SaaS
+// ============================================================
 
 export const saasDb = {
-  // --- Codes ---
-  createCode: (code: string, maxUses: number = 1, expiresAt?: string, discountPercent?: number) => {
+
+  // ==========================================================
+  // SINCRONIZAÇÃO
+  // ==========================================================
+
+  /**
+   * Sincroniza os dados SaaS com o Supabase.
+   *
+   * Deve ser chamado quando o aplicativo iniciar,
+   * antes de consultar famílias, landing, planos etc.
+   */
+  syncFromSupabase,
+
+  // ==========================================================
+  // CÓDIGOS
+  // ==========================================================
+
+  createCode: (
+    code: string,
+    maxUses: number = 1,
+    expiresAt?: string,
+    discountPercent?: number
+  ) => {
     const data = getSaasData();
+
     const newCode: AccessCode = {
       code,
       maxUses,
@@ -159,64 +390,139 @@ export const saasDb = {
       usedBy: [],
       discountPercent
     };
+
     data.codes.push(newCode);
+
     saveSaasData(data);
+
     return newCode;
   },
 
-  validateCode: (code: string): { valid: boolean; message?: string; discountPercent?: number } => {
+  validateCode: (
+    code: string
+  ): {
+    valid: boolean;
+    message?: string;
+    discountPercent?: number;
+  } => {
     const data = getSaasData();
-    const found = data.codes.find((c: AccessCode) => c.code === code);
-    
-    if (!found) return { valid: false, message: 'Código inválido.' };
-    if (found.status !== 'active') return { valid: false, message: 'Código inativo.' };
-    
-    // Check usage limit (skip if -1)
-    if (found.maxUses !== -1 && found.usedCount >= found.maxUses) {
-        return { valid: false, message: 'Código esgotado.' };
-    }
-    
-    if (found.expiresAt && new Date() > new Date(found.expiresAt)) return { valid: false, message: 'Código expirado.' };
 
-    return { valid: true, discountPercent: found.discountPercent };
+    const found = data.codes.find(
+      (c: AccessCode) => c.code === code
+    );
+
+    if (!found) {
+      return {
+        valid: false,
+        message: 'Código inválido.'
+      };
+    }
+
+    if (found.status !== 'active') {
+      return {
+        valid: false,
+        message: 'Código inativo.'
+      };
+    }
+
+    if (
+      found.maxUses !== -1 &&
+      found.usedCount >= found.maxUses
+    ) {
+      return {
+        valid: false,
+        message: 'Código esgotado.'
+      };
+    }
+
+    if (
+      found.expiresAt &&
+      new Date() > new Date(found.expiresAt)
+    ) {
+      return {
+        valid: false,
+        message: 'Código expirado.'
+      };
+    }
+
+    return {
+      valid: true,
+      discountPercent: found.discountPercent
+    };
   },
 
-  useCode: (code: string, familyId: string) => {
+  useCode: (
+    code: string,
+    familyId: string
+  ) => {
     const data = getSaasData();
-    const idx = data.codes.findIndex((c: AccessCode) => c.code === code);
+
+    const idx = data.codes.findIndex(
+      (c: AccessCode) => c.code === code
+    );
+
     if (idx >= 0) {
       data.codes[idx].usedCount += 1;
       data.codes[idx].usedBy.push(familyId);
+
       saveSaasData(data);
     }
   },
 
-  getCodes: () => getSaasData().codes,
-  
-  updateCodeStatus: (code: string, status: 'active' | 'inactive') => {
+  getCodes: () => {
+    return getSaasData().codes;
+  },
+
+  updateCodeStatus: (
+    code: string,
+    status: 'active' | 'inactive'
+  ) => {
     const data = getSaasData();
-    const idx = data.codes.findIndex((c: AccessCode) => c.code === code);
+
+    const idx = data.codes.findIndex(
+      (c: AccessCode) => c.code === code
+    );
+
     if (idx >= 0) {
       data.codes[idx].status = status;
+
       saveSaasData(data);
     }
   },
 
   deleteCode: (code: string) => {
     const data = getSaasData();
-    data.codes = data.codes.filter((c: AccessCode) => c.code !== code);
+
+    data.codes = data.codes.filter(
+      (c: AccessCode) => c.code !== code
+    );
+
     saveSaasData(data);
   },
 
-  // --- Families ---
-  createFamily: (name: string, plan: 'free' | 'premium', settings: any) => {
+  // ==========================================================
+  // FAMÍLIAS
+  // ==========================================================
+
+  createFamily: (
+    name: string,
+    plan: 'free' | 'premium',
+    settings: any
+  ) => {
     const data = getSaasData();
-    const baseId = name.toLowerCase().replace(/\s+/g, '-');
+
+    const baseId = name
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+
     let id = baseId;
     let counter = 1;
-    
-    // Ensure unique ID
-    while (data.families.some((f: Family) => f.id === id)) {
+
+    while (
+      data.families.some(
+        (f: Family) => f.id === id
+      )
+    ) {
       id = `${baseId}-${counter}`;
       counter++;
     }
@@ -229,87 +535,176 @@ export const saasDb = {
       createdAt: new Date().toISOString(),
       settings
     };
+
     data.families.push(newFamily);
+
     saveSaasData(data);
+
+    console.log(
+      'Família criada e enviada ao Supabase:',
+      newFamily
+    );
+
     return newFamily;
   },
 
-  updateFamily: (id: string, updates: Partial<Family>) => {
+  updateFamily: (
+    id: string,
+    updates: Partial<Family>
+  ) => {
     const data = getSaasData();
-    const idx = data.families.findIndex((f: Family) => f.id === id);
+
+    const idx = data.families.findIndex(
+      (f: Family) => f.id === id
+    );
+
     if (idx >= 0) {
-      data.families[idx] = { ...data.families[idx], ...updates };
+      data.families[idx] = {
+        ...data.families[idx],
+        ...updates
+      };
+
       saveSaasData(data);
     }
   },
 
   deleteFamily: (id: string) => {
     const data = getSaasData();
-    data.families = data.families.filter((f: Family) => f.id !== id);
+
+    data.families = data.families.filter(
+      (f: Family) => f.id !== id
+    );
+
     saveSaasData(data);
   },
 
-  getFamilies: () => getSaasData().families,
+  getFamilies: () => {
+    return getSaasData().families;
+  },
 
-  // --- Plans ---
-  getPlans: () => getSaasData().plans,
-  
+  // ==========================================================
+  // PLANOS
+  // ==========================================================
+
+  getPlans: () => {
+    return getSaasData().plans;
+  },
+
   createPlan: (plan: Plan) => {
     const data = getSaasData();
+
     data.plans.push(plan);
+
     saveSaasData(data);
   },
 
   savePlan: (plan: Plan) => {
     const data = getSaasData();
-    const idx = data.plans.findIndex((p: Plan) => p.id === plan.id);
+
+    const idx = data.plans.findIndex(
+      (p: Plan) => p.id === plan.id
+    );
+
     if (idx >= 0) {
       data.plans[idx] = plan;
     } else {
       data.plans.push(plan);
     }
+
     saveSaasData(data);
   },
 
   deletePlan: (id: string) => {
     const data = getSaasData();
-    data.plans = data.plans.filter((p: Plan) => p.id !== id);
+
+    data.plans = data.plans.filter(
+      (p: Plan) => p.id !== id
+    );
+
     saveSaasData(data);
   },
 
-  // --- Landing Config ---
-  getLandingConfig: () => getSaasData().landingConfig,
+  // ==========================================================
+  // LANDING CONFIG
+  // ==========================================================
 
-  updateLandingConfig: (config: LandingConfig) => {
+  getLandingConfig: () => {
+    return getSaasData().landingConfig;
+  },
+
+  updateLandingConfig: (
+    config: LandingConfig
+  ) => {
     const data = getSaasData();
-    data.landingConfig = config;
+
+    data.landingConfig = {
+      ...data.landingConfig,
+      ...config
+    };
+
     saveSaasData(data);
   },
 
-  // --- Payment Config ---
-  getPaymentConfig: () => getSaasData().paymentConfig,
+  // ==========================================================
+  // PAYMENT CONFIG
+  // ==========================================================
 
-  updatePaymentConfig: (config: PaymentConfig) => {
+  getPaymentConfig: () => {
+    return getSaasData().paymentConfig;
+  },
+
+  updatePaymentConfig: (
+    config: PaymentConfig
+  ) => {
     const data = getSaasData();
-    data.paymentConfig = config;
+
+    data.paymentConfig = {
+      ...data.paymentConfig,
+      ...config
+    };
+
     saveSaasData(data);
   },
 
-  // --- Admin Config ---
-  getAdminConfig: () => getSaasData().adminConfig,
+  // ==========================================================
+  // ADMIN CONFIG
+  // ==========================================================
 
-  updateAdminConfig: (config: AdminConfig) => {
+  getAdminConfig: () => {
+    return getSaasData().adminConfig;
+  },
+
+  updateAdminConfig: (
+    config: AdminConfig
+  ) => {
     const data = getSaasData();
-    data.adminConfig = { ...data.adminConfig, ...config };
+
+    data.adminConfig = {
+      ...data.adminConfig,
+      ...config
+    };
+
     saveSaasData(data);
   },
 
-  // --- App Banner Config ---
-  getAppBannerConfig: () => getSaasData().appBannerConfig,
+  // ==========================================================
+  // APP BANNER
+  // ==========================================================
 
-  updateAppBannerConfig: (config: AppBannerConfig) => {
+  getAppBannerConfig: () => {
+    return getSaasData().appBannerConfig;
+  },
+
+  updateAppBannerConfig: (
+    config: AppBannerConfig
+  ) => {
     const data = getSaasData();
-    data.appBannerConfig = config;
+
+    data.appBannerConfig = {
+      ...data.appBannerConfig,
+      ...config
+    };
+
     saveSaasData(data);
   }
 };

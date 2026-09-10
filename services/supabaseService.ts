@@ -12,6 +12,7 @@ console.log(
     ? `${SUPABASE_ANON_KEY.substring(0, 20)}...`
     : 'NÃO CONFIGURADA'
 );
+
 // ============================================================
 // SUPABASE CLIENT
 // ============================================================
@@ -28,6 +29,12 @@ export const supabase: SupabaseClient | null =
 export interface HomeFinDataRow {
   family_id: string;
   data: AppData;
+  updated_at: string;
+}
+
+export interface HomeFinSaasRow {
+  id: string;
+  data: any;
   updated_at: string;
 }
 
@@ -50,6 +57,10 @@ function getSupabase(): SupabaseClient {
 // ============================================================
 
 export const supabaseService = {
+
+  // ==========================================================
+  // DADOS FINANCEIROS DAS FAMÍLIAS
+  // ==========================================================
 
   /**
    * Busca todos os dados de uma família.
@@ -81,10 +92,6 @@ export const supabaseService = {
 
   /**
    * Salva ou atualiza todos os dados de uma família.
-   *
-   * Usa family_id como chave primária.
-   * Se a família ainda não existir, cria.
-   * Se já existir, atualiza.
    */
   saveFamilyData: async (
     familyId: string,
@@ -218,6 +225,78 @@ export const supabaseService = {
 
     return data?.updated_at ?? null;
   },
+
+  // ==========================================================
+  // DADOS SaaS GLOBAIS
+  // ==========================================================
+
+  /**
+   * Busca a configuração global do HomeFin.
+   *
+   * Essa tabela guarda:
+   * - famílias
+   * - planos
+   * - códigos
+   * - landing page
+   * - configuração de pagamento
+   * - configuração de administrador
+   * - banner
+   */
+  getSaasData: async (): Promise<any | null> => {
+    const client = getSupabase();
+
+    const { data, error } = await client
+      .from('homefin_saas')
+      .select('data')
+      .eq('id', 'global')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Erro ao buscar dados SaaS:', error);
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return data.data;
+  },
+
+  /**
+   * Salva ou atualiza toda a configuração SaaS.
+   *
+   * Usa uma única linha com id = "global".
+   */
+  saveSaasData: async (saasData: any): Promise<HomeFinSaasRow> => {
+    const client = getSupabase();
+
+    const { data, error } = await client
+      .from('homefin_saas')
+      .upsert(
+        {
+          id: 'global',
+          data: saasData,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'id',
+        }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Erro ao salvar dados SaaS:', error);
+      throw error;
+    }
+
+    return data as HomeFinSaasRow;
+  },
+
+  // ==========================================================
+  // STORAGE / ANEXOS
+  // ==========================================================
 
   /**
    * Upload de anexos para o Storage.
