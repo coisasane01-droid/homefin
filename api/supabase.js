@@ -70,7 +70,7 @@ export default async function handler(req, res) {
 
     const cause = error?.cause;
 
-     return res.status(500).json({
+    return res.status(500).json({
       error: 'Erro ao conectar ao Supabase',
       details: error instanceof Error ? error.message : String(error),
       cause: cause
@@ -85,3 +85,4 @@ export default async function handler(req, res) {
         : null
     });
   }
+}
