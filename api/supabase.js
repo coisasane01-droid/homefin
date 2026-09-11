@@ -1,6 +1,28 @@
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+
 export default async function handler(req, res) {
   try {
-    const { path, method = 'GET', body } = req.body || {};
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', ['POST']);
+      return res.status(405).json({
+        error: 'Método não permitido'
+      });
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.status(500).json({
+        error: 'Variáveis do Supabase não configuradas na Vercel',
+        urlConfigured: !!SUPABASE_URL,
+        keyConfigured: !!SUPABASE_KEY
+      });
+    }
+
+    const {
+      path,
+      method = 'GET',
+      body
+    } = req.body || {};
 
     if (!path) {
       return res.status(400).json({
@@ -8,54 +30,47 @@ export default async function handler(req, res) {
       });
     }
 
-    const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-    const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+    const cleanPath = String(path).replace(/^\/+/, '');
 
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return res.status(500).json({
-        error: 'Supabase não configurado na Vercel'
-      });
-    }
+    const url = `${SUPABASE_URL}/rest/v1/${cleanPath}`;
 
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/${path}`,
-      {
-        method,
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: body ? JSON.stringify(body) : undefined
-      }
-    );
+    const headers = {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'Accept-Profile': 'public',
+      'Content-Profile': 'public'
+    };
+
+    const response = await fetch(url, {
+      method: String(method).toUpperCase(),
+      headers,
+      body:
+        body !== undefined &&
+        String(method).toUpperCase() !== 'GET' &&
+        String(method).toUpperCase() !== 'HEAD'
+          ? JSON.stringify(body)
+          : undefined
+    });
 
     const text = await response.text();
 
-    res.status(response.status);
+    let responseData;
 
     try {
-      return res.json(text ? JSON.parse(text) : {});
+      responseData = text ? JSON.parse(text) : null;
     } catch {
-      return res.send(text);
+      responseData = text;
     }
 
+    return res.status(response.status).json(responseData);
   } catch (error) {
-    console.error('Erro no proxy Supabase:', error);
+    console.error('ERRO NO PROXY SUPABASE:', error);
 
     return res.status(500).json({
-    error: 'Erro ao conectar ao Supabase',
-    details: error?.message || 'Erro desconhecido',
-    cause: error?.cause
-      ? {
-          name: error.cause.name,
-          message: error.cause.message,
-          code: error.cause.code,
-          errno: error.cause.errno,
-          syscall: error.cause.syscall
-        }
-      : null
-  });
+      error: 'Erro ao conectar ao Supabase',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
 }
