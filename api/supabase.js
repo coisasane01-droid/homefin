@@ -31,7 +31,6 @@ export default async function handler(req, res) {
     }
 
     const cleanPath = String(path).replace(/^\/+/, '');
-
     const url = `${SUPABASE_URL}/rest/v1/${cleanPath}`;
 
     const headers = {
@@ -65,12 +64,25 @@ export default async function handler(req, res) {
     }
 
     return res.status(response.status).json(responseData);
+
   } catch (error) {
     console.error('ERRO NO PROXY SUPABASE:', error);
 
+    const cause = error?.cause;
+
     return res.status(500).json({
       error: 'Erro ao conectar ao Supabase',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
+      cause: cause
+        ? {
+            name: cause.name,
+            message: cause.message,
+            code: cause.code,
+            errno: cause.errno,
+            syscall: cause.syscall,
+            hostname: cause.hostname
+          }
+        : null
     });
   }
 }
