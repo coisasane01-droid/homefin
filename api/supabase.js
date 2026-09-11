@@ -46,8 +46,16 @@ export default async function handler(req, res) {
     console.error('Erro no proxy Supabase:', error);
 
     return res.status(500).json({
-      error: 'Erro ao conectar ao Supabase',
-      details: error.message
-    });
-  }
+    error: 'Erro ao conectar ao Supabase',
+    details: error?.message || 'Erro desconhecido',
+    cause: error?.cause
+      ? {
+          name: error.cause.name,
+          message: error.cause.message,
+          code: error.cause.code,
+          errno: error.cause.errno,
+          syscall: error.cause.syscall
+        }
+      : null
+  });
 }
