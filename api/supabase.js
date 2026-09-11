@@ -70,9 +70,27 @@ export default async function handler(req, res) {
 
     const cause = error?.cause;
 
+    let dnsTest = null;
+
+    try {
+      const dns = await import('node:dns/promises');
+
+      dnsTest = {
+        supabase: await dns.lookup('oyjtlanvozjbppvosbya.supabase.co'),
+        google: await dns.lookup('google.com')
+      };
+    } catch (dnsError) {
+      dnsTest = {
+        error: dnsError instanceof Error
+          ? dnsError.message
+          : String(dnsError)
+      };
+    }
+
     return res.status(500).json({
       error: 'Erro ao conectar ao Supabase',
       details: error instanceof Error ? error.message : String(error),
+
       cause: cause
         ? {
             name: cause.name,
@@ -82,7 +100,10 @@ export default async function handler(req, res) {
             syscall: cause.syscall,
             hostname: cause.hostname
           }
-        : null
+        : null,
+
+      dnsTest,
+
+      vercelRegion: process.env.VERCEL_REGION || null
     });
   }
-}
