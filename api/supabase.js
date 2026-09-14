@@ -4,13 +4,28 @@ export const config = {
 
 export default async function handler(req) {
   try {
+    const url = process.env.VITE_SUPABASE_URL;
+    const key = process.env.VITE_SUPABASE_ANON_KEY;
+
+    const response = await fetch(
+      `${url}/rest/v1/homefin_saas?select=id`,
+      {
+        method: 'GET',
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Accept: 'application/json'
+        }
+      }
+    );
+
+    const text = await response.text();
+
     return new Response(
       JSON.stringify({
-        ok: true,
-        runtime: 'edge',
-        method: req.method,
-        envUrl: !!process.env.VITE_SUPABASE_URL,
-        envKey: !!process.env.VITE_SUPABASE_ANON_KEY
+        ok: response.ok,
+        status: response.status,
+        response: text
       }),
       {
         status: 200,
@@ -19,6 +34,7 @@ export default async function handler(req) {
         }
       }
     );
+
   } catch (error) {
     return new Response(
       JSON.stringify({
@@ -28,7 +44,7 @@ export default async function handler(req) {
           : String(error)
       }),
       {
-        status: 500,
+        status: 200,
         headers: {
           'Content-Type': 'application/json'
         }
