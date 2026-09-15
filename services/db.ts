@@ -1,6 +1,6 @@
 import { AppData, Bill, ShoppingItem, Goal, Asset, UserSettings, KnownProduct, CalendarEvent, Debt } from '../types';
 import { supabase } from './supabaseService';
-
+import { homefinProxy } from './homefinProxy';
 /*
   Persistência: Supabase (com cache local para funcionamento offline).
   A tabela esperada é public.homefin_data.
@@ -56,17 +56,16 @@ const getLocalData = (): AppData => {
 const saveLocalData = (data: AppData) => {
   cachedData = normalizeData(data);
   localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
-  if (supabase) {
+   if (navigator.onLine) {
     const snapshot = JSON.parse(JSON.stringify(cachedData));
     syncPromise = syncPromise
       .catch(() => undefined)
       .then(async () => {
-        const { error } = await supabase.from('homefin_data').upsert({
-          family_id: currentFamilyId,
-          data: snapshot,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'family_id' });
-        if (error) console.error('HomeFin: erro ao sincronizar com Supabase:', error);
+        try {
+          await homefinProxy.saveFamilyData(currentFamilyId, snapshot);
+        } catch (error) {
+          console.error('HomeFin: erro ao sincronizar com Supabase:', error);
+        }
       });
   }
 };
