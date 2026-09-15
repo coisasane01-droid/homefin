@@ -1,7 +1,13 @@
 export default async function handler(req, res) {
   try {
     const response = await fetch(
-      'https://oyjtlanvozjbppvosbya.supabase.co/rest/v1/homefin_saas?select=id'
+      'https://oyjtlanvozjbppvosbya.supabase.co/rest/v1/homefin_saas?select=id',
+      {
+        headers: {
+          apikey: process.env.VITE_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`
+        }
+      }
     );
 
     const text = await response.text();
@@ -21,4 +27,3 @@ export default async function handler(req, res) {
     });
   }
 }
-
