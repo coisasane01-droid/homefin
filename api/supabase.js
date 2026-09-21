@@ -33,17 +33,24 @@ export default async function handler(req, res) {
     const cleanPath = String(path).replace(/^\/+/, '');
     const url = `${SUPABASE_URL}/rest/v1/${cleanPath}`;
 
+    const requestMethod = String(method).toUpperCase();
+
     const headers = {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'Accept-Profile': 'public',
-      'Content-Profile': 'public'
+      'Content-Profile': 'public',
+      ...(requestMethod === 'POST'
+        ? {
+            Prefer: 'resolution=merge-duplicates,return=representation'
+          }
+        : {})
     };
 
     const response = await fetch(url, {
-      method: String(method).toUpperCase(),
+      method: requestMethod,
       headers,
       body:
         body !== undefined &&

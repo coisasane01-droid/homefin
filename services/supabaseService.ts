@@ -65,165 +65,174 @@ export const supabaseService = {
   /**
    * Busca todos os dados de uma família.
    */
-  getFamilyData: async (familyId: string): Promise<AppData | null> => {
-    const client = getSupabase();
-
+    getFamilyData: async (familyId: string): Promise<AppData | null> => {
     if (!familyId) {
       throw new Error('familyId não informado.');
     }
 
-    const { data, error } = await client
-      .from('homefin_data')
-      .select('data')
-      .eq('family_id', familyId)
-      .maybeSingle();
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: `homefin_data?select=data&family_id=eq.${encodeURIComponent(familyId)}`,
+        method: 'GET',
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao buscar dados da família:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao buscar dados da família:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao buscar dados da família.');
     }
 
-    if (!data) {
-      return null;
-    }
-
-    return data.data as AppData;
+    return data?.[0]?.data ?? null;
   },
 
-  /**
-   * Salva ou atualiza todos os dados de uma família.
-   */
   saveFamilyData: async (
     familyId: string,
     appData: AppData
   ): Promise<HomeFinDataRow> => {
-    const client = getSupabase();
-
     if (!familyId) {
       throw new Error('familyId não informado.');
     }
 
-    const { data, error } = await client
-      .from('homefin_data')
-      .upsert(
-        {
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: 'homefin_data?on_conflict=family_id',
+        method: 'POST',
+        body: {
           family_id: familyId,
           data: appData,
           updated_at: new Date().toISOString(),
         },
-        {
-          onConflict: 'family_id',
-        }
-      )
-      .select()
-      .single();
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao salvar dados da família:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao salvar dados da família:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao salvar dados da família.');
     }
 
-    return data as HomeFinDataRow;
+    return data?.[0] as HomeFinDataRow;
   },
 
-  /**
-   * Cria uma família no Supabase caso ela ainda não exista.
-   */
   createFamilyData: async (
     familyId: string,
     appData: AppData
   ): Promise<HomeFinDataRow> => {
-    const client = getSupabase();
-
     if (!familyId) {
       throw new Error('familyId não informado.');
     }
 
-    const { data, error } = await client
-      .from('homefin_data')
-      .insert({
-        family_id: familyId,
-        data: appData,
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: 'homefin_data',
+        method: 'POST',
+        body: {
+          family_id: familyId,
+          data: appData,
+          updated_at: new Date().toISOString(),
+        },
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao criar dados da família:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao criar dados da família:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao criar dados da família.');
     }
 
-    return data as HomeFinDataRow;
+    return data?.[0] as HomeFinDataRow;
   },
 
-  /**
-   * Verifica se uma família já possui dados no Supabase.
-   */
   familyExists: async (familyId: string): Promise<boolean> => {
-    const client = getSupabase();
-
     if (!familyId) {
       return false;
     }
 
-    const { data, error } = await client
-      .from('homefin_data')
-      .select('family_id')
-      .eq('family_id', familyId)
-      .maybeSingle();
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: `homefin_data?select=family_id&family_id=eq.${encodeURIComponent(familyId)}`,
+        method: 'GET',
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao verificar família:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao verificar família:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao verificar família.');
     }
 
-    return !!data;
+    return Array.isArray(data) && data.length > 0;
   },
 
-  /**
-   * Exclui todos os dados de uma família.
-   */
   deleteFamilyData: async (familyId: string): Promise<void> => {
-    const client = getSupabase();
-
     if (!familyId) {
       throw new Error('familyId não informado.');
     }
 
-    const { error } = await client
-      .from('homefin_data')
-      .delete()
-      .eq('family_id', familyId);
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: `homefin_data?family_id=eq.${encodeURIComponent(familyId)}`,
+        method: 'DELETE',
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao excluir dados da família:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao excluir dados da família:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao excluir dados da família.');
     }
   },
 
-  /**
-   * Retorna a data da última sincronização.
-   */
   getLastUpdate: async (familyId: string): Promise<string | null> => {
-    const client = getSupabase();
-
     if (!familyId) {
       return null;
     }
 
-    const { data, error } = await client
-      .from('homefin_data')
-      .select('updated_at')
-      .eq('family_id', familyId)
-      .maybeSingle();
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: `homefin_data?select=updated_at&family_id=eq.${encodeURIComponent(familyId)}`,
+        method: 'GET',
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao buscar última atualização:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao buscar última atualização:', data);
+      throw new Error(data?.error || data?.message || 'Erro ao buscar última atualização.');
     }
 
-    return data?.updated_at ?? null;
+    return data?.[0]?.updated_at ?? null;
   },
 
   // ==========================================================
@@ -242,25 +251,30 @@ export const supabaseService = {
    * - configuração de administrador
    * - banner
    */
-  getSaasData: async (): Promise<any | null> => {
-    const client = getSupabase();
+    getSaasData: async (): Promise<any | null> => {
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: 'homefin_saas?select=data&id=eq.global',
+        method: 'GET',
+      }),
+    });
 
-    const { data, error } = await client
-      .from('homefin_saas')
-      .select('data')
-      .eq('id', 'global')
-      .maybeSingle();
+    const data = await response.json();
 
-    if (error) {
-      console.error('Erro ao buscar dados SaaS:', error);
-      throw error;
+    if (!response.ok) {
+      console.error('Erro ao buscar dados SaaS:', data);
+      throw new Error(
+        data?.error ||
+        data?.message ||
+        'Erro ao buscar dados SaaS.'
+      );
     }
 
-    if (!data) {
-      return null;
-    }
-
-    return data.data;
+    return data?.[0]?.data ?? null;
   },
 
   /**
@@ -269,30 +283,36 @@ export const supabaseService = {
    * Usa uma única linha com id = "global".
    */
   saveSaasData: async (saasData: any): Promise<HomeFinSaasRow> => {
-    const client = getSupabase();
-
-    const { data, error } = await client
-      .from('homefin_saas')
-      .upsert(
-        {
+    const response = await fetch('/api/supabase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        path: 'homefin_saas?on_conflict=id',
+        method: 'POST',
+        body: {
           id: 'global',
           data: saasData,
           updated_at: new Date().toISOString(),
         },
-        {
-          onConflict: 'id',
-        }
-      )
-      .select()
-      .single();
+      }),
+    });
 
-    if (error) {
-      console.error('Erro ao salvar dados SaaS:', error);
-      throw error;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Erro ao salvar dados SaaS:', data);
+      throw new Error(
+        data?.error ||
+        data?.message ||
+        'Erro ao salvar dados SaaS.'
+      );
     }
 
-    return data as HomeFinSaasRow;
+    return data?.[0] as HomeFinSaasRow;
   },
+
 
   // ==========================================================
   // STORAGE / ANEXOS
