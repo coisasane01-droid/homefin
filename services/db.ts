@@ -77,11 +77,11 @@ const loadLocalCache = () => {
 loadLocalCache();
 
 const loadFromSupabase = async () => {
-  if (!supabase || !navigator.onLine) return;
-  const { data, error } = await supabase.from('homefin_data').select('data').eq('family_id', currentFamilyId).maybeSingle();
-  if (error) { console.error('HomeFin: erro ao carregar Supabase:', error); return; }
-  if (data?.data) {
-    cachedData = normalizeData(data.data as Partial<AppData>);
+  if (!navigator.onLine) return;
+  const data = await homefinProxy.getFamilyData(currentFamilyId);
+
+  if (data) {
+    cachedData = normalizeData(data);
     localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
   }
 };
