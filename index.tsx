@@ -13,13 +13,23 @@ if (container) {
 }
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then((registration) => {
-        console.log('HomeFin Service Worker registrado:', registration.scope);
-      })
-      .catch((error) => {
-        console.error('Erro ao registrar Service Worker:', error);
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+
+      console.log('HomeFin Service Worker registrado:', registration.scope);
+
+      await registration.update();
+
+      if (registration.waiting) {
+        registration.waiting.postMessage('SKIP_WAITING');
+      }
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
       });
+    } catch (error) {
+      console.error('Erro ao registrar/atualizar Service Worker:', error);
+    }
   });
 }
