@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 import Layout from './components/Layout';
 import NotificationModal from './components/NotificationModal';
+import LoadingScreen from './components/LoadingScreen';
 
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
@@ -24,11 +25,21 @@ import SuperAdmin from './pages/SuperAdmin';
 import { saasDb } from './services/saasDb';
 
 const App: React.FC = () => {
+  const [isLoading, setIsLoading] = React.useState(true);
+
   React.useEffect(() => {
-    saasDb.syncFromSupabase().catch((error) => {
-      console.error('Erro ao sincronizar dados SaaS:', error);
-    });
+    saasDb.syncFromSupabase()
+      .catch((error) => {
+        console.error('Erro ao sincronizar dados SaaS:', error);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
 
   return (
     <HashRouter>
