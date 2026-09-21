@@ -14,20 +14,44 @@ if (container) {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
+    let refreshing = false;
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      const registration = await navigator.serviceWorker.register('/sw.js', {
+        updateViaCache: 'none',
+      });
 
       console.log('HomeFin Service Worker registrado:', registration.scope);
 
-      await registration.update();
+      const activateUpdate = (worker: ServiceWorker | null) => {
+        if (worker && navigator.serviceWorker.controller) {
+          worker.postMessage('SKIP_WAITING');
+        }
+      };
 
       if (registration.waiting) {
-        registration.waiting.postMessage('SKIP_WAITING');
+        activateUpdate(registration.waiting);
       }
 
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+
+        if (!newWorker) return;
+
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed') {
+            activateUpdate(newWorker);
+          }
+        });
       });
+
+      await registration.update();
     } catch (error) {
       console.error('Erro ao registrar/atualizar Service Worker:', error);
     }
