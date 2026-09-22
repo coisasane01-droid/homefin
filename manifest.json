@@ -7,12 +7,12 @@
   "theme_color": "#4f46e5",
   "icons": [
     {
-      "src": "https://via.placeholder.com/192.png?text=App",
+      "src": "/homefin-icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "https://via.placeholder.com/512.png?text=App",
+      "src": "/homefin-icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
