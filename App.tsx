@@ -32,7 +32,12 @@ const App: React.FC = () => {
 
   const hashPath = window.location.hash.split('?')[0];
 
-  if (familyId && familyId !== 'v1' && (hashPath === '#' || hashPath === '#/') ) {
+  if (
+    familyId &&
+    familyId !== 'v1' &&
+    (hashPath === '#' || hashPath === '#/') &&
+    hashPath !== '#/admin'
+  ) {
     window.location.hash = `/login?family=${familyId}`;
     setIsLoading(false);
     return;
