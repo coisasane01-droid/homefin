@@ -47,7 +47,7 @@ const App: React.FC = () => {
     return <LoadingScreen />;
   }
 if (redirectToFamily && !window.location.hash.includes('/login')) {
-  window.location.href = `${window.location.origin}/#/login?family=${redirectToFamily}`;
+  window.location.hash = `/login?family=${redirectToFamily}`;
   return <LoadingScreen />;
 }
   return (
