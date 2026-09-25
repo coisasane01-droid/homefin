@@ -32,6 +32,7 @@ const App: React.FC = () => {
 
   if (familyId && familyId !== 'v1' && !window.location.hash.includes('/login')) {
     window.location.hash = `/login?family=${familyId}`;
+    setIsLoading(false);
     return;
   }
 
