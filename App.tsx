@@ -29,18 +29,17 @@ const App: React.FC = () => {
   const [redirectToFamily, setRedirectToFamily] = React.useState<string | null>(null);
 
  React.useEffect(() => {
+  const familyId = localStorage.getItem('homefin_current_family_id');
+
+  if (familyId && familyId !== 'v1') {
+    setRedirectToFamily(familyId);
+  }
+
+  setIsLoading(false);
+
   saasDb.syncFromSupabase()
     .catch((error) => {
       console.error('Erro ao sincronizar dados SaaS:', error);
-    })
-    .finally(() => {
-      const familyId = localStorage.getItem('homefin_current_family_id');
-
-      if (familyId && familyId !== 'v1') {
-        setRedirectToFamily(familyId);
-      }
-
-      setIsLoading(false);
     });
 }, []);
 
