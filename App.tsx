@@ -26,21 +26,31 @@ import { saasDb } from './services/saasDb';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
+  const [redirectToFamily, setRedirectToFamily] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    saasDb.syncFromSupabase()
-      .catch((error) => {
-        console.error('Erro ao sincronizar dados SaaS:', error);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+ React.useEffect(() => {
+  saasDb.syncFromSupabase()
+    .catch((error) => {
+      console.error('Erro ao sincronizar dados SaaS:', error);
+    })
+    .finally(() => {
+      const familyId = localStorage.getItem('homefin_current_family_id');
+
+      if (familyId && familyId !== 'v1') {
+        setRedirectToFamily(familyId);
+      }
+
+      setIsLoading(false);
+    });
+}, []);
 
   if (isLoading) {
     return <LoadingScreen />;
   }
-
+if (redirectToFamily && !window.location.hash.includes('/login')) {
+  window.location.href = `${window.location.origin}/#/login?family=${redirectToFamily}`;
+  return <LoadingScreen />;
+}
   return (
     <HashRouter>
       <Routes>
