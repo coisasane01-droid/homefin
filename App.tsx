@@ -30,7 +30,9 @@ const App: React.FC = () => {
  React.useEffect(() => {
   const familyId = localStorage.getItem('homefin_current_family_id');
 
-  if (familyId && familyId !== 'v1' && !window.location.hash.includes('/login')) {
+  const hashPath = window.location.hash.split('?')[0];
+
+  if (familyId && familyId !== 'v1' && (hashPath === '#' || hashPath === '#/') ) {
     window.location.hash = `/login?family=${familyId}`;
     setIsLoading(false);
     return;
@@ -55,7 +57,7 @@ const App: React.FC = () => {
         <Route path="/login" element={<Auth />} />
         <Route path="/setup" element={<PreConfiguracaoFamilia />} />
         <Route path="/plans" element={<Planos />} />
-        <Route path="/admin" element={<SuperAdmin />} />
+        <Route path="/admin" element={sessionStorage.getItem("homefin_super_admin_authenticated") === "true" ? <SuperAdmin /> : <Navigate to="/" replace />} />
 
         <Route
           path="/dashboard"
