@@ -107,7 +107,7 @@ const LandingHomeFin: React.FC = () => {
     
     if (adminPassword === currentPassword) {
       sessionStorage.setItem('homefin_super_admin_authenticated', 'true');
-      window.location.assign(window.location.origin + '/#/admin');
+      window.location.hash = '/admin';
     } else {
       showNotification('Acesso negado.', 'error');
       setAdminPassword('');
