@@ -106,6 +106,7 @@ const LandingHomeFin: React.FC = () => {
     const currentPassword = currentConfig?.password || 'admin123';
     
     if (adminPassword === currentPassword) {
+      sessionStorage.setItem('homefin_super_admin_authenticated', 'true');
       navigate('/admin');
     } else {
       showNotification('Acesso negado.', 'error');
@@ -247,6 +248,7 @@ const LandingHomeFin: React.FC = () => {
       {/* Footer / Secret Admin Access */}
       <footer className="w-full text-center py-6 shrink-0 relative z-10">
         <button 
+          type="button"
           onClick={handleSuperAdmin} 
           className="transition-opacity cursor-pointer p-4 text-xs font-medium hover:opacity-100 opacity-60"
           style={{ color: config.textColor || '#ffffff' }}
