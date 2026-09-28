@@ -21,6 +21,7 @@ import LandingHomeFin from './pages/LandingHomeFin';
 import PreConfiguracaoFamilia from './pages/PreConfiguracaoFamilia';
 import Planos from './pages/Planos';
 import MeusPlanos from './pages/MeusPlanos';
+import Share from './pages/Share';
 import SuperAdmin from './pages/SuperAdmin';
 import { saasDb } from './services/saasDb';
 
@@ -168,6 +169,15 @@ const App: React.FC = () => {
           element={
             <Layout>
               <MeusPlanos />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/share"
+          element={
+            <Layout>
+              <Share />
             </Layout>
           }
         />
