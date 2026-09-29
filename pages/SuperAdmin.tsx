@@ -1,5 +1,5 @@
 import { showNotification } from '../services/utils/notifications';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBannerConfig } from '../services/saasDb';
 import { supportService, SupportMessage } from '../services/supportService';
@@ -57,6 +57,69 @@ const SuperAdmin: React.FC = () => {
   const [supportResolved, setSupportResolved] = useState(false);
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportSending, setSupportSending] = useState(false);
+  const notifiedSupportMessageIds = useRef<Set<string>>(new Set());
+  const supportNotificationsInitialized = useRef(false);
+
+  const notifyAdminSupportMessage = (messageText: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      new Notification('Suporte HomeFin', {
+        body: messageText || 'Uma família enviou uma nova mensagem.',
+        icon: '/icons/icon-192.png',
+      });
+    }
+  };
+
+  const checkUnreadSupportMessages = async () => {
+    try {
+      const unreadMessages = await supportService.getUnreadFamilyMessages();
+
+      if (!supportNotificationsInitialized.current) {
+        unreadMessages.forEach((item) => {
+          notifiedSupportMessageIds.current.add(item.id);
+        });
+
+        supportNotificationsInitialized.current = true;
+        return;
+      }
+
+      unreadMessages.forEach((item) => {
+        if (!notifiedSupportMessageIds.current.has(item.id)) {
+          notifiedSupportMessageIds.current.add(item.id);
+          notifyAdminSupportMessage(item.message);
+        }
+      });
+    } catch (error) {
+      console.error('Erro ao verificar novas mensagens do suporte:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'support') {
+      return;
+    }
+
+    checkUnreadSupportMessages();
+
+    const interval = window.setInterval(() => {
+      checkUnreadSupportMessages();
+    }, 5000);
+
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch((error) => {
+        console.error('Erro ao solicitar permissão de notificações:', error);
+      });
+    }
+
+    return () => window.clearInterval(interval);
+  }, [activeTab]);
 
   useEffect(() => {
     loadData();

@@ -125,6 +125,22 @@ export const supportService = {
     return data;
   },
 
+  async getUnreadFamilyMessages(): Promise<SupportMessage[]> {
+    const { data, error } = await supabase
+      .from('homefin_support_messages')
+      .select('*')
+      .eq('sender_type', 'family')
+      .is('read_at', null)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Erro ao buscar mensagens não lidas do suporte:', error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
   async markMessagesAsRead(
     familyId: string,
     senderType: 'family' | 'admin'

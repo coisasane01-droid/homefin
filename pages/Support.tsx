@@ -14,6 +14,43 @@ const Support: React.FC = () => {
 
   const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
 
+  const notifySupportReply = (messageText: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      new Notification('Suporte HomeFin', {
+        body: messageText || 'O suporte respondeu à sua mensagem.',
+        icon: '/icons/icon-192.png',
+      });
+    }
+  };
+
+  const requestSupportNotifications = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Seu navegador não oferece suporte a notificações.');
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission === 'granted') {
+        new Notification('Notificações ativadas', {
+          body: 'Você será avisado quando o suporte responder.',
+          icon: '/icons/icon-192.png',
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao solicitar permissão para notificações:', error);
+    }
+  };
+
   const loadSupport = async () => {
     try {
       const [loadedMessages, settings] = await Promise.all([
@@ -21,7 +58,23 @@ const Support: React.FC = () => {
         supportService.getSupportSettings(familyId),
       ]);
 
-      setMessages(loadedMessages);
+      setMessages((currentMessages) => {
+        if (currentMessages.length > 0 && loadedMessages.length > currentMessages.length) {
+          const previousIds = new Set(currentMessages.map((item) => item.id));
+
+          const newAdminMessage = loadedMessages.find(
+            (item) =>
+              item.sender_type === 'admin' && !previousIds.has(item.id)
+          );
+
+          if (newAdminMessage) {
+            notifySupportReply(newAdminMessage.message);
+          }
+        }
+
+        return loadedMessages;
+      });
+
       setBlocked(settings.blocked);
 
       await supportService.markMessagesAsRead(familyId, 'admin');
@@ -107,7 +160,7 @@ const Support: React.FC = () => {
               />
             </div>
 
-            <div>
+            <div className="flex-1">
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 Suporte
               </h1>
@@ -115,6 +168,19 @@ const Support: React.FC = () => {
                 Converse com a equipe do HomeFin
               </p>
             </div>
+
+            {typeof window !== 'undefined' &&
+              'Notification' in window &&
+              Notification.permission !== 'granted' && (
+                <button
+                  type="button"
+                  onClick={requestSupportNotifications}
+                  className="shrink-0 px-3 py-2 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors"
+                  title="Ativar notificações do suporte"
+                >
+                  🔔 Ativar
+                </button>
+              )}
           </div>
 
           {blocked && (
