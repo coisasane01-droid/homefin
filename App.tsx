@@ -37,8 +37,7 @@ const App: React.FC = () => {
   if (
     familyId &&
     familyId !== 'v1' &&
-    (hashPath === '#' || hashPath === '#/') &&
-    hashPath !== '#/admin'
+    (hashPath === '#' || hashPath === '#/')
   ) {
     window.location.hash = `/login?family=${familyId}`;
     setIsLoading(false);

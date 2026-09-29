@@ -51,6 +51,8 @@ export const supportService = {
       return {
         family_id: familyId,
         blocked: false,
+        resolved: false,
+        resolved_at: null,
         updated_at: new Date().toISOString(),
       };
     }

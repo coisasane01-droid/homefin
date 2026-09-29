@@ -1,4 +1,5 @@
 import { showNotification } from '../services/utils/notifications';
+import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotifications';
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
@@ -99,38 +100,89 @@ const Settings: React.FC = () => {
       setNotificationsEnabled(!!s.notificationsEnabled);
   };
 
-  const handleToggleNotifications = async () => {
+    const handleToggleNotifications = async () => {
     if (!('Notification' in window)) {
-        showNotification('Seu navegador não suporta notificações.', 'warning');
-        return;
+      showNotification(
+        'Seu navegador não suporta notificações.',
+        'warning'
+      );
+      return;
     }
 
     const newState = !notificationsEnabled;
 
-    // If turning ON, check permission
     if (newState) {
-        if (Notification.permission === 'denied') {
-            showNotification('As notificações estão bloqueadas pelo navegador. Para ativar, permita as notificações nas configurações do navegador e recarregue a página.', 'warning');
-            return;
-        }
+      if (Notification.permission === 'denied') {
+        showNotification(
+          'As notificações estão bloqueadas pelo navegador. Para ativar, permita as notificações nas configurações do navegador e recarregue a página.',
+          'warning'
+        );
+        return;
+      }
 
-        if (Notification.permission !== 'granted') {
-            const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                showNotification('Para receber alertas, você precisa clicar em "Permitir" quando o navegador solicitar.', 'info');
-                return;
-            }
-        }
-        
-        // Permission granted, send test
-        new Notification('Notificações Ativadas', { body: 'Você receberá alertas sobre novas atividades.' });
+      try {
+        const familyId =
+          localStorage.getItem('homefin_current_family_id') || 'v1';
+
+        await subscribeToPush(familyId, 'family');
+
+        const updatedSettings = {
+          ...settings,
+          notificationsEnabled: true,
+        };
+
+        setNotificationsEnabled(true);
+        setSettings(updatedSettings);
+        await db.updateSettings(updatedSettings);
+
+        new Notification('Notificações Ativadas', {
+          body: 'Você receberá alertas do HomeFin mesmo quando o aplicativo estiver em segundo plano.',
+          icon: '/pwa-192x192.png',
+        });
+
+        showNotification(
+          'Notificações em segundo plano ativadas.',
+          'success'
+        );
+      } catch (error) {
+        console.error(
+          'Erro ao ativar notificações Push:',
+          error
+        );
+
+        showNotification(
+          error instanceof Error
+            ? error.message
+            : 'Não foi possível ativar as notificações em segundo plano.',
+          'warning'
+        );
+      }
+
+      return;
     }
 
-    // Update state and persist
-    setNotificationsEnabled(newState);
-    const updatedSettings = { ...settings, notificationsEnabled: newState };
+    try {
+      await unsubscribeFromPush();
+    } catch (error) {
+      console.error(
+        'Erro ao desativar notificações Push:',
+        error
+      );
+    }
+
+    const updatedSettings = {
+      ...settings,
+      notificationsEnabled: false,
+    };
+
+    setNotificationsEnabled(false);
     setSettings(updatedSettings);
     await db.updateSettings(updatedSettings);
+
+    showNotification(
+      'Notificações desativadas.',
+      'info'
+    );
   };
 
   useEffect(() => {
