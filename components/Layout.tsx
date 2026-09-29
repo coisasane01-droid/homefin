@@ -17,7 +17,8 @@ import {
   Trophy,
   Wallet,
   Landmark,
-  Share2
+  Share2,
+  Headphones
 } from 'lucide-react';
 import { db } from '../services/db';
 import { saasDb } from '../services/saasDb';
@@ -113,6 +114,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { icon: BarChart3, label: 'Relatórios', path: '/reports' },
     { icon: Trophy, label: 'Ranking Familiar', path: '/ranking' },
     { icon: Share2, label: 'Compartilhar / Indicar', path: '/share' },
+    { icon: Headphones, label: 'Suporte', path: '/support' },
     { icon: Settings, label: 'Configurações', path: '/settings' },
   ];
 

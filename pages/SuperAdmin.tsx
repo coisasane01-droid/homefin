@@ -2,7 +2,8 @@ import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBannerConfig } from '../services/saasDb';
-import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay } from 'lucide-react';
+import { supportService, SupportMessage } from '../services/supportService';
+import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send } from 'lucide-react';
 
 const SuperAdmin: React.FC = () => {
   const navigate = useNavigate();
@@ -12,7 +13,7 @@ const SuperAdmin: React.FC = () => {
   const [landingConfig, setLandingConfig] = useState<LandingConfig>(saasDb.getLandingConfig());
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>(saasDb.getPaymentConfig());
   const [appBannerConfig, setAppBannerConfig] = useState<AppBannerConfig>(saasDb.getAppBannerConfig());
-  const [activeTab, setActiveTab] = useState<'codes' | 'families' | 'plans' | 'landing' | 'payments' | 'security' | 'banner'>('codes');
+  const [activeTab, setActiveTab] = useState<'codes' | 'families' | 'support' | 'plans' | 'landing' | 'payments' | 'security' | 'banner'>('codes');
   
   // Security State
   const [securityConfig, setSecurityConfig] = useState({
@@ -47,6 +48,14 @@ const SuperAdmin: React.FC = () => {
   const [newPlanName, setNewPlanName] = useState('');
   const [planToDelete, setPlanToDelete] = useState<string | null>(null);
   const [familyToDelete, setFamilyToDelete] = useState<string | null>(null);
+
+  // Support State
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
+  const [selectedSupportFamily, setSelectedSupportFamily] = useState<string | null>(null);
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportBlocked, setSupportBlocked] = useState(false);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportSending, setSupportSending] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -222,6 +231,73 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
+  const loadSupportConversation = async (familyId: string) => {
+    try {
+      setSupportLoading(true);
+      const [messages, settings] = await Promise.all([
+        supportService.getMessages(familyId),
+        supportService.getSupportSettings(familyId),
+      ]);
+
+      setSupportMessages(messages);
+      setSupportBlocked(settings.blocked);
+      setSelectedSupportFamily(familyId);
+      await supportService.markMessagesAsRead(familyId, 'family');
+    } catch (error) {
+      console.error('Erro ao carregar conversa do suporte:', error);
+      showNotification('Não foi possível carregar a conversa.', 'error');
+    } finally {
+      setSupportLoading(false);
+    }
+  };
+
+  const handleSupportSend = async () => {
+    if (!selectedSupportFamily || !supportMessage.trim() || supportSending) {
+      return;
+    }
+
+    try {
+      setSupportSending(true);
+
+      const newMessage = await supportService.sendMessage(
+        selectedSupportFamily,
+        supportMessage,
+        'admin'
+      );
+
+      setSupportMessages(current => [...current, newMessage]);
+      setSupportMessage('');
+    } catch (error) {
+      console.error('Erro ao responder suporte:', error);
+      showNotification('Não foi possível enviar a resposta.', 'error');
+    } finally {
+      setSupportSending(false);
+    }
+  };
+
+  const handleSupportBlock = async () => {
+    if (!selectedSupportFamily) return;
+
+    try {
+      const newSettings = await supportService.setFamilyBlocked(
+        selectedSupportFamily,
+        !supportBlocked
+      );
+
+      setSupportBlocked(newSettings.blocked);
+
+      showNotification(
+        newSettings.blocked
+          ? 'Envio de mensagens bloqueado para esta família.'
+          : 'Envio de mensagens desbloqueado para esta família.',
+        'success'
+      );
+    } catch (error) {
+      console.error('Erro ao alterar bloqueio do suporte:', error);
+      showNotification('Não foi possível alterar o bloqueio.', 'error');
+    }
+  };
+
   const handleToggleStatus = (code: string, currentStatus: 'active' | 'inactive') => {
     saasDb.updateCodeStatus(code, currentStatus === 'active' ? 'inactive' : 'active');
     loadData();
@@ -245,6 +321,12 @@ const SuperAdmin: React.FC = () => {
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'families' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Famílias
+              </button>
+              <button 
+                onClick={() => setActiveTab('support')}
+                className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'support' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                Suporte
               </button>
               <button 
                 onClick={() => setActiveTab('plans')}
@@ -558,6 +640,192 @@ const SuperAdmin: React.FC = () => {
                   Sim, Excluir
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'support' && (
+          <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
+
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="p-4 border-b">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <MessageCircle className="text-indigo-600" />
+                  Conversas
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Selecione uma família para abrir o atendimento.
+                </p>
+              </div>
+
+              <div className="max-h-[600px] overflow-y-auto">
+                {families.map((family, index) => (
+                  <button
+                    key={`${family.id}-${index}`}
+                    type="button"
+                    onClick={() => loadSupportConversation(family.id)}
+                    className={`w-full text-left p-4 border-b hover:bg-gray-50 transition-colors ${
+                      selectedSupportFamily === family.id
+                        ? 'bg-indigo-50 border-l-4 border-l-indigo-600'
+                        : ''
+                    }`}
+                  >
+                    <div className="font-bold text-gray-900">
+                      {family.name}
+                    </div>
+                    <div className="text-xs text-gray-500 font-mono mt-1">
+                      ID: {family.id}
+                    </div>
+                  </button>
+                ))}
+
+                {families.length === 0 && (
+                  <div className="p-6 text-center text-gray-400">
+                    Nenhuma família cadastrada.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[650px]">
+              {!selectedSupportFamily ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                  <MessageCircle size={48} className="text-gray-300 mb-4" />
+                  <h3 className="text-lg font-bold text-gray-700">
+                    Selecione uma conversa
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Escolha uma família ao lado para visualizar e responder as mensagens.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">
+                        {families.find(f => f.id === selectedSupportFamily)?.name || selectedSupportFamily}
+                      </h2>
+                      <p className="text-xs text-gray-500 font-mono">
+                        ID: {selectedSupportFamily}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSupportBlock}
+                      className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm ${
+                        supportBlocked
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                          : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                    >
+                      {supportBlocked ? (
+                        <>
+                          <Unlock size={17} />
+                          Desbloquear envio
+                        </>
+                      ) : (
+                        <>
+                          <Lock size={17} />
+                          Bloquear envio
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {supportBlocked && (
+                    <div className="mx-4 mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 flex items-center gap-2">
+                      <Lock size={17} />
+                      Esta família está bloqueada para enviar novas mensagens.
+                    </div>
+                  )}
+
+                  <div className="flex-1 p-4 overflow-y-auto bg-gray-50 min-h-[400px]">
+                    {supportLoading ? (
+                      <div className="h-full flex items-center justify-center text-gray-500">
+                        Carregando conversa...
+                      </div>
+                    ) : supportMessages.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-center text-gray-400">
+                        <div>
+                          <MessageCircle size={40} className="mx-auto mb-3" />
+                          <p>Nenhuma mensagem nesta conversa.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {supportMessages.map((item) => {
+                          const isAdmin = item.sender_type === 'admin';
+
+                          return (
+                            <div
+                              key={item.id}
+                              className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div className="max-w-[85%] md:max-w-[70%]">
+                                <div
+                                  className={`rounded-2xl px-4 py-3 ${
+                                    isAdmin
+                                      ? 'bg-indigo-600 text-white rounded-br-md'
+                                      : 'bg-white text-gray-800 border border-gray-200 rounded-bl-md'
+                                  }`}
+                                >
+                                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                    {item.message}
+                                  </p>
+                                </div>
+
+                                <div
+                                  className={`text-[11px] text-gray-400 mt-1 ${
+                                    isAdmin ? 'text-right' : 'text-left'
+                                  }`}
+                                >
+                                  {isAdmin ? 'Você' : 'Família'} ·{' '}
+                                  {new Date(item.created_at).toLocaleString('pt-BR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4 border-t bg-white">
+                    <div className="flex items-end gap-3">
+                      <textarea
+                        value={supportMessage}
+                        onChange={(e) => setSupportMessage(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSupportSend();
+                          }
+                        }}
+                        placeholder="Digite sua resposta..."
+                        rows={2}
+                        disabled={supportSending}
+                        className="flex-1 resize-none rounded-xl border border-gray-300 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleSupportSend}
+                        disabled={!supportMessage.trim() || supportSending}
+                        className="shrink-0 w-12 h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex items-center justify-center"
+                        title="Enviar resposta"
+                      >
+                        <Send size={20} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
