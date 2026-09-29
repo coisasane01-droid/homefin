@@ -12,6 +12,8 @@ export interface SupportMessage {
 export interface SupportSettings {
   family_id: string;
   blocked: boolean;
+  resolved: boolean;
+  resolved_at: string | null;
   updated_at: string;
 }
 
@@ -139,6 +141,56 @@ export const supportService = {
     if (error) {
       console.error('Erro ao marcar mensagens como lidas:', error);
       throw error;
+    }
+  },
+
+  async setConversationResolved(
+    familyId: string,
+    resolved: boolean
+  ): Promise<SupportSettings> {
+    const { data, error } = await supabase
+      .from('homefin_support_settings')
+      .upsert(
+        {
+          family_id: familyId,
+          resolved,
+          resolved_at: resolved ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'family_id',
+        }
+      )
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Erro ao alterar status da conversa:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  async deleteConversation(familyId: string): Promise<void> {
+    const { error: messagesError } = await supabase
+      .from('homefin_support_messages')
+      .delete()
+      .eq('family_id', familyId);
+
+    if (messagesError) {
+      console.error('Erro ao excluir mensagens do suporte:', messagesError);
+      throw messagesError;
+    }
+
+    const { error: settingsError } = await supabase
+      .from('homefin_support_settings')
+      .delete()
+      .eq('family_id', familyId);
+
+    if (settingsError) {
+      console.error('Erro ao excluir configuração do suporte:', settingsError);
+      throw settingsError;
     }
   },
 };

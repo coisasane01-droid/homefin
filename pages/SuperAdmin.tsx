@@ -54,6 +54,7 @@ const SuperAdmin: React.FC = () => {
   const [selectedSupportFamily, setSelectedSupportFamily] = useState<string | null>(null);
   const [supportMessage, setSupportMessage] = useState('');
   const [supportBlocked, setSupportBlocked] = useState(false);
+  const [supportResolved, setSupportResolved] = useState(false);
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportSending, setSupportSending] = useState(false);
 
@@ -241,6 +242,7 @@ const SuperAdmin: React.FC = () => {
 
       setSupportMessages(messages);
       setSupportBlocked(settings.blocked);
+      setSupportResolved(settings.resolved);
       setSelectedSupportFamily(familyId);
       await supportService.markMessagesAsRead(familyId, 'family');
     } catch (error) {
@@ -295,6 +297,57 @@ const SuperAdmin: React.FC = () => {
     } catch (error) {
       console.error('Erro ao alterar bloqueio do suporte:', error);
       showNotification('Não foi possível alterar o bloqueio.', 'error');
+    }
+  };
+
+  const handleSupportResolve = async () => {
+    if (!selectedSupportFamily) return;
+
+    try {
+      const newSettings = await supportService.setConversationResolved(
+        selectedSupportFamily,
+        !supportResolved
+      );
+
+      setSupportResolved(newSettings.resolved);
+
+      showNotification(
+        newSettings.resolved
+          ? 'Conversa marcada como solucionada.'
+          : 'Conversa reaberta.',
+        'success'
+      );
+    } catch (error) {
+      console.error('Erro ao alterar status da conversa:', error);
+      showNotification('Não foi possível alterar o status da conversa.', 'error');
+    }
+  };
+
+  const handleSupportDelete = async () => {
+    if (!selectedSupportFamily) return;
+
+    const familyName =
+      families.find(f => f.id === selectedSupportFamily)?.name ||
+      selectedSupportFamily;
+
+    const confirmed = window.confirm(
+      `Excluir toda a conversa de suporte de "${familyName}"?\n\nEssa ação apagará todas as mensagens e não poderá ser desfeita.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await supportService.deleteConversation(selectedSupportFamily);
+
+      setSupportMessages([]);
+      setSupportBlocked(false);
+      setSupportResolved(false);
+      setSelectedSupportFamily(null);
+
+      showNotification('Conversa excluída com sucesso.', 'success');
+    } catch (error) {
+      console.error('Erro ao excluir conversa:', error);
+      showNotification('Não foi possível excluir a conversa.', 'error');
     }
   };
 
@@ -710,27 +763,50 @@ const SuperAdmin: React.FC = () => {
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleSupportBlock}
-                      className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm ${
-                        supportBlocked
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                          : 'bg-red-100 text-red-700 hover:bg-red-200'
-                      }`}
-                    >
-                      {supportBlocked ? (
-                        <>
-                          <Unlock size={17} />
-                          Desbloquear envio
-                        </>
-                      ) : (
-                        <>
-                          <Lock size={17} />
-                          Bloquear envio
-                        </>
-                      )}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSupportResolve}
+                        className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm ${
+                          supportResolved
+                            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
+                      >
+                        {supportResolved ? 'Reabrir conversa' : 'Solucionar'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSupportBlock}
+                        className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm ${
+                          supportBlocked
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                      >
+                        {supportBlocked ? (
+                          <>
+                            <Unlock size={17} />
+                            Desbloquear
+                          </>
+                        ) : (
+                          <>
+                            <Lock size={17} />
+                            Bloquear
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSupportDelete}
+                        className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm bg-red-600 text-white hover:bg-red-700"
+                      >
+                        <Trash2 size={17} />
+                        Excluir
+                      </button>
+                    </div>
                   </div>
 
                   {supportBlocked && (
