@@ -75,7 +75,14 @@ const LandingHomeFin: React.FC = () => {
     e.preventDefault();
     setLoginError('');
     
-    const nameToSearch = loginFamilyName.trim().toLowerCase();
+    const normalizeFamilySearch = (value: string) =>
+      value
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    const nameToSearch = normalizeFamilySearch(loginFamilyName);
     
     if (!nameToSearch) {
       setLoginError('Por favor, digite o nome da família.');
@@ -83,10 +90,10 @@ const LandingHomeFin: React.FC = () => {
     }
 
     const families = saasDb.getFamilies();
-    // Busca exata pelo nome ou ID da família
+    // Busca exata pelo nome ou ID, ignorando maiúsculas/minúsculas e acentos
     const family = families.find(f => 
-      f.name.toLowerCase() === nameToSearch || 
-      f.id === nameToSearch
+      normalizeFamilySearch(f.name) === nameToSearch || 
+      f.id.toLowerCase() === nameToSearch
     );
 
     if (family) {
