@@ -81,7 +81,26 @@ const loadFromSupabase = async () => {
   const data = await homefinProxy.getFamilyData(currentFamilyId);
 
   if (data) {
-    cachedData = normalizeData(data);
+    const localBeforeSync = getLocalData();
+    const normalizedRemote = normalizeData(data);
+
+    // Preserva alterações locais recém-salvas que ainda podem estar
+    // aguardando a sincronização com o Supabase.
+    if (
+      localBeforeSync.settings.logoImage &&
+      !normalizedRemote.settings.logoImage
+    ) {
+      normalizedRemote.settings.logoImage = localBeforeSync.settings.logoImage;
+    }
+
+    if (
+      localBeforeSync.settings.backgroundImage &&
+      !normalizedRemote.settings.backgroundImage
+    ) {
+      normalizedRemote.settings.backgroundImage = localBeforeSync.settings.backgroundImage;
+    }
+
+    cachedData = normalizedRemote;
     localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
   }
 };
@@ -123,6 +142,11 @@ export const db = {
   sync: async () => {
     if (!supabase) { console.warn('HomeFin: Supabase não configurado.'); return; }
     if (!navigator.onLine) { console.log('Offline: usando cache local.'); return; }
+
+    // Aguarda qualquer salvamento local pendente antes de buscar
+    // novamente os dados do Supabase, evitando sobrescrever alterações recentes.
+    await syncPromise.catch(() => undefined);
+
     await loadFromSupabase();
     console.log('HomeFin: dados sincronizados com Supabase.');
   },
