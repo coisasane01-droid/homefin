@@ -12,6 +12,30 @@ if (container) {
   );
 }
 
+function updateAdminFavicon() {
+  try {
+    const hashPath = window.location.hash.split('?')[0];
+    const isAdmin = hashPath.startsWith('#/admin');
+
+    let favicon = document.getElementById('app-favicon') as HTMLLinkElement | null;
+
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.id = 'app-favicon';
+      favicon.rel = 'icon';
+      favicon.type = 'image/png';
+      document.head.appendChild(favicon);
+    }
+
+    favicon.href = isAdmin
+      ? '/homefin-admin-icon-192.png?v=2'
+      : '/homefin-icon-192.png';
+  } catch {}
+}
+
+updateAdminFavicon();
+window.addEventListener('hashchange', updateAdminFavicon);
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     let refreshing = false;
