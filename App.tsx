@@ -24,6 +24,7 @@ import MeusPlanos from './pages/MeusPlanos';
 import Share from './pages/Share';
 import Support from './pages/Support';
 import SuperAdmin from './pages/SuperAdmin';
+import AdminLogin from './pages/AdminLogin';
 import { saasDb } from './services/saasDb';
 
 const App: React.FC = () => {
@@ -63,7 +64,8 @@ const App: React.FC = () => {
         <Route path="/login" element={<Auth />} />
         <Route path="/setup" element={<PreConfiguracaoFamilia />} />
         <Route path="/plans" element={<Planos />} />
-        <Route path="/admin" element={sessionStorage.getItem("homefin_super_admin_authenticated") === "true" ? <SuperAdmin /> : <Navigate to="/" replace />} />
+        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin/panel" element={sessionStorage.getItem("homefin_super_admin_authenticated") === "true" ? <SuperAdmin /> : <Navigate to="/admin" replace />} />
         <Route path="/support" element={<Layout><Support /></Layout>} />
 
         <Route

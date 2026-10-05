@@ -477,7 +477,10 @@ const SuperAdmin: React.FC = () => {
             </div>
             
             <button 
-              onClick={() => navigate('/')}
+              onClick={() => {
+                sessionStorage.removeItem('homefin_super_admin_authenticated');
+                navigate('/admin', { replace: true });
+              }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors text-sm md:text-base"
               title="Sair do Painel"
             >

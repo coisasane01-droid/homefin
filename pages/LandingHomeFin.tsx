@@ -1,4 +1,3 @@
-import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
@@ -10,17 +9,12 @@ const LandingHomeFin: React.FC = () => {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginFamilyName, setLoginFamilyName] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
   const [config, setConfig] = useState<LandingConfig>(saasDb.getLandingConfig());
   
   // Recovery State
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
-  const [recoveryKeyword, setRecoveryKeyword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
     setConfig(saasDb.getLandingConfig());
@@ -101,48 +95,6 @@ const LandingHomeFin: React.FC = () => {
     } else {
       setLoginError('Família não encontrada. Verifique o nome e tente novamente.');
     }
-  };
-
-  const handleSuperAdmin = () => {
-    setIsAdminModalOpen(true);
-  };
-
-  const submitAdminPassword = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const currentConfig = saasDb.getAdminConfig();
-    const currentPassword = currentConfig?.password || 'admin123';
-    
-    if (adminPassword === currentPassword) {
-      sessionStorage.setItem('homefin_super_admin_authenticated', 'true');
-      window.location.hash = '/admin';
-    } else {
-      showNotification('Acesso negado.', 'error');
-      setAdminPassword('');
-    }
-  };
-
-  const handleRecoverySubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const currentConfig = saasDb.getAdminConfig();
-    const currentKeyword = currentConfig?.recoveryKeyword || 'admin';
-
-    if (recoveryKeyword !== currentKeyword) {
-      showNotification('Palavra-chave incorreta.', 'error');
-      return;
-    }
-
-    if (!newPassword || newPassword !== confirmPassword) {
-      showNotification('As senhas não coincidem ou estão vazias.', 'error');
-      return;
-    }
-
-    saasDb.updateAdminConfig({ password: newPassword });
-    showNotification('Senha atualizada com sucesso! Use a nova senha para entrar.', 'success');
-    setIsRecoveryMode(false);
-    setAdminPassword('');
-    setRecoveryKeyword('');
-    setNewPassword('');
-    setConfirmPassword('');
   };
 
   return (
@@ -252,122 +204,15 @@ const LandingHomeFin: React.FC = () => {
         </div>
       </main>
 
-      {/* Footer / Secret Admin Access */}
       <footer className="w-full text-center py-6 shrink-0 relative z-10">
-        <button 
-          type="button"
-          onClick={handleSuperAdmin} 
-          className="transition-opacity cursor-pointer p-4 text-xs font-medium hover:opacity-100 opacity-60"
+        <div
+          className="transition-opacity p-4 text-xs font-medium opacity-60"
           style={{ color: config.textColor || '#ffffff' }}
         >
           &copy; 2026 HomeFin SaaS
-        </button>
+        </div>
       </footer>
 
-      {/* Modal: Admin Login */}
-      {isAdminModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-gray-900 text-white rounded-2xl shadow-2xl max-w-sm w-full p-8 relative border border-gray-800">
-            <button 
-              onClick={() => {
-                setIsAdminModalOpen(false);
-                setIsRecoveryMode(false);
-              }}
-              className="absolute top-4 right-4 text-gray-500 hover:text-white"
-            >
-              ✕
-            </button>
-            
-            <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <Lock size={20} className="text-red-500" /> {isRecoveryMode ? 'Recuperar Senha' : 'Acesso Restrito'}
-            </h2>
-
-            {!isRecoveryMode ? (
-              <form onSubmit={submitAdminPassword} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Senha Mestra</label>
-                  <input 
-                    type="password" 
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-white placeholder-gray-600"
-                    placeholder="••••••••"
-                    autoFocus
-                  />
-                </div>
-
-                <button 
-                  type="submit"
-                  className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-900/20"
-                >
-                  Entrar no Painel
-                </button>
-                
-                <div className="text-center mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRecoveryMode(true)}
-                    className="text-xs text-gray-500 hover:text-gray-300 underline"
-                  >
-                    Esqueci a senha
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handleRecoverySubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Palavra-chave de Segurança</label>
-                  <input 
-                    type="text" 
-                    value={recoveryKeyword}
-                    onChange={(e) => setRecoveryKeyword(e.target.value)}
-                    className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-white placeholder-gray-600"
-                    placeholder="Digite a palavra-chave"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Nova Senha</label>
-                  <input 
-                    type="password" 
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-white placeholder-gray-600"
-                    placeholder="Nova senha"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">Confirmar Senha</label>
-                  <input 
-                    type="password" 
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-white placeholder-gray-600"
-                    placeholder="Confirme a senha"
-                  />
-                </div>
-
-                <button 
-                  type="submit"
-                  className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-900/20"
-                >
-                  Redefinir Senha
-                </button>
-                
-                <div className="text-center mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRecoveryMode(false)}
-                    className="text-xs text-gray-500 hover:text-gray-300 underline"
-                  >
-                    Voltar ao Login
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Modal: Access Code */}
       {isModalOpen && (
