@@ -2,12 +2,46 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/homefin-icon-192.png" />
+    <link id="app-favicon" rel="icon" type="image/png" href="/homefin-icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HomeFin Control</title>
-    <meta name="theme-color" content="#4f46e5" />
+    <title id="app-title">HomeFin Control</title>
+    <meta id="app-theme-color" name="theme-color" content="#4f46e5" />
     <meta name="description" content="Controle Financeiro Residencial Completo" />
-    <link rel="manifest" href="/manifest.json" />
+    <link id="app-manifest" rel="manifest" href="/manifest.json" />
+
+    <script>
+      (function() {
+        try {
+          function updatePwaIdentity() {
+            const isAdmin = window.location.hash.split('?')[0] === '#/admin';
+
+            document.title = isAdmin ? 'HomeFin - Admin' : 'HomeFin Control';
+
+            const favicon = document.getElementById('app-favicon');
+            if (favicon) {
+              favicon.href = isAdmin
+                ? '/homefin-admin-icon-192.png'
+                : '/homefin-icon-192.png';
+            }
+
+            const manifest = document.getElementById('app-manifest');
+            if (manifest) {
+              manifest.href = isAdmin
+                ? '/manifest-admin.json'
+                : '/manifest.json';
+            }
+
+            const themeColor = document.getElementById('app-theme-color');
+            if (themeColor) {
+              themeColor.content = '#4f46e5';
+            }
+          }
+
+          updatePwaIdentity();
+          window.addEventListener('hashchange', updatePwaIdentity);
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
