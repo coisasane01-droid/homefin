@@ -1,7 +1,7 @@
 {
   "name": "HomeFin Residencial",
   "short_name": "HomeFin",
-  "start_url": "/",
+  "start_url": "/homefin/#/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
@@ -17,5 +17,6 @@
       "type": "image/png"
     }
   ],
-  "id": "/"
+  "id": "/homefin",
+  "scope": "/homefin/"
 }

@@ -2,12 +2,24 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link id="app-favicon" rel="icon" type="image/png" href="/homefin-icon-192.png" />
+    <link id="app-favicon" rel="icon" type="image/png" href="/homefin-admin-icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title id="app-title">HomeFin Residencial</title>
+    <title id="app-title">HomeFin - Admin</title>
     <meta id="app-theme-color" name="theme-color" content="#4f46e5" />
     <meta name="description" content="Controle Financeiro Residencial Completo" />
-    <link id="app-manifest" rel="manifest" href="/manifest.json" />
+    <link id="app-manifest" rel="manifest" href="/manifest-admin.json" />
+
+    <script>
+      (function() {
+        try {
+          const hashPath = window.location.hash.split('?')[0];
+
+          if (!hashPath || hashPath === '#/' || hashPath === '#') {
+            window.location.hash = '/admin';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
