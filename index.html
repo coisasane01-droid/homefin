@@ -13,7 +13,7 @@
       (function() {
         try {
           function updatePwaIdentity() {
-            const isAdmin = window.location.hash.split('?')[0] === '#/admin';
+            const isAdmin = window.location.hash.split('?')[0].startsWith('#/admin');
 
             document.title = isAdmin ? 'HomeFin - Admin' : 'HomeFin Control';
 

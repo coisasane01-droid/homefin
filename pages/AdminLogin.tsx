@@ -30,7 +30,8 @@ const AdminLogin: React.FC = () => {
 
     if (password === currentPassword) {
       sessionStorage.setItem('homefin_super_admin_authenticated', 'true');
-      navigate('/admin/panel', { replace: true });
+      window.location.hash = '/admin/panel';
+      window.location.reload();
       return;
     }
 
