@@ -53,10 +53,11 @@ const getLocalData = (): AppData => {
   return cachedData;
 };
 
-const saveLocalData = (data: AppData) => {
+const saveLocalData = (data: AppData): Promise<void> => {
   cachedData = normalizeData(data);
   localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
-   if (navigator.onLine) {
+
+  if (navigator.onLine) {
     const snapshot = JSON.parse(JSON.stringify(cachedData));
     syncPromise = syncPromise
       .catch(() => undefined)
@@ -68,6 +69,8 @@ const saveLocalData = (data: AppData) => {
         }
       });
   }
+
+  return syncPromise;
 };
 
 const loadLocalCache = () => {
@@ -129,13 +132,13 @@ const sendNotification = (title: string, body: string) => {
 };
 
 export const db = {
-  init: (familyId: string) => {
+  init: async (familyId: string) => {
     if (familyId) {
       currentFamilyId = familyId;
       localStorage.setItem('homefin_current_family_id', familyId);
       loadLocalCache();
       console.log(`DB Initialized for family: ${familyId}`);
-      db.sync();
+      await db.sync();
     }
   },
 
@@ -166,7 +169,7 @@ export const db = {
   updateSettings: async (settings: UserSettings) => {
     const data = getLocalData();
     data.settings = settings;
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   // --- Bills ---

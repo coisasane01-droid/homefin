@@ -30,13 +30,15 @@ const Auth: React.FC = () => {
     // Check for family param in URL
     const params = new URLSearchParams(window.location.hash.split('?')[1]);
     const familyId = params.get('family');
-    
-    if (familyId) {
-        db.init(familyId);
+
+const loadSettings = async () => {
+            if (familyId) {
+      await db.init(familyId);
+    } else {
+      await db.sync();
     }
 
-    const loadSettings = async () => {
-        const s = await db.getSettings();
+    const s = await db.getSettings();
         setSettings(s);
     };
     loadSettings();

@@ -31,26 +31,28 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
 
  React.useEffect(() => {
-  const familyId = localStorage.getItem('homefin_current_family_id');
-
-  const hashPath = window.location.hash.split('?')[0];
-
-  if (
-    familyId &&
-    familyId !== 'v1' &&
-    (hashPath === '#' || hashPath === '#/')
-  ) {
-    window.location.hash = `/login?family=${familyId}`;
-    setIsLoading(false);
-    return;
-  }
-
-  setIsLoading(false);
-
-  saasDb.syncFromSupabase()
-    .catch((error) => {
+  const initializeApp = async () => {
+    try {
+      await saasDb.syncFromSupabase();
+    } catch (error) {
       console.error('Erro ao sincronizar dados SaaS:', error);
-    });
+    }
+
+    const familyId = localStorage.getItem('homefin_current_family_id');
+    const hashPath = window.location.hash.split('?')[0];
+
+    if (
+      familyId &&
+      familyId !== 'v1' &&
+      (hashPath === '#' || hashPath === '#/')
+    ) {
+      window.location.hash = `/login?family=${familyId}`;
+    }
+
+    setIsLoading(false);
+  };
+
+  initializeApp();
 }, []);
 
   if (isLoading) {
