@@ -243,7 +243,7 @@ const Auth: React.FC = () => {
               </div>
           )}
           <h1 className={`text-2xl font-bold mb-2 ${hasBackground ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
-            {settings?.houseName || 'HomeFin'}
+            {localStorage.getItem('homefin_current_family_name') || settings?.houseName || 'HomeFin'}
           </h1>
           <p className={`text-lg font-medium transition-colors text-center ${error ? 'text-red-500 flex items-center gap-2' : (hasBackground ? 'text-white/80' : 'text-gray-600 dark:text-gray-300')}`}>
             {error && <AlertCircle size={20} />}

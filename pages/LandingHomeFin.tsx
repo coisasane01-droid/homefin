@@ -91,6 +91,8 @@ const LandingHomeFin: React.FC = () => {
     );
 
     if (family) {
+      localStorage.setItem('homefin_current_family_id', family.id);
+      localStorage.setItem('homefin_current_family_name', family.name);
       navigate(`/login?family=${family.id}`);
     } else {
       setLoginError('Família não encontrada. Verifique o nome e tente novamente.');
