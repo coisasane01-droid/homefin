@@ -123,8 +123,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('homefin_current_family_id');
-    localStorage.removeItem('homefin_current_family_id_v1');
     window.location.hash = '/';
   };
 
