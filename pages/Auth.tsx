@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Home, Delete, Lock, KeyRound, ShieldQuestion, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { db } from '../services/db';
+import { saasDb } from '../services/saasDb';
 import { UserSettings } from '../types';
 
 const PIN_LENGTH = 4;
@@ -43,7 +44,21 @@ const Auth: React.FC = () => {
       }
 
       const s = await db.getSettings();
-      setSettings(s);
+
+      if (familyId) {
+        const family = saasDb.getFamilies().find(f => f.id === familyId);
+
+        if (family) {
+          setSettings({
+            ...s,
+            houseName: family.name
+          });
+        } else {
+          setSettings(s);
+        }
+      } else {
+        setSettings(s);
+      }
     };
 
     loadSettings();
