@@ -31,16 +31,21 @@ const Auth: React.FC = () => {
     const params = new URLSearchParams(window.location.hash.split('?')[1]);
     const familyId = params.get('family');
 
-const loadSettings = async () => {
-            if (familyId) {
-      await db.init(familyId);
-    } else {
-      await db.sync();
+    if (familyId) {
+      localStorage.setItem('homefin_current_family_id', familyId);
     }
 
-    const s = await db.getSettings();
-        setSettings(s);
+    const loadSettings = async () => {
+      if (familyId) {
+        await db.init(familyId);
+      } else {
+        await db.sync();
+      }
+
+      const s = await db.getSettings();
+      setSettings(s);
     };
+
     loadSettings();
 
     // Check if user already has a PIN

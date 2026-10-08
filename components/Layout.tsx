@@ -123,9 +123,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('homefin_current_family_id');
-    localStorage.removeItem('homefin_current_family_id_v1');
-    window.location.hash = '/';
+    const familyId = localStorage.getItem('homefin_current_family_id');
+
+    if (familyId && familyId !== 'v1') {
+      window.location.hash = `/login?family=${encodeURIComponent(familyId)}`;
+    } else {
+      window.location.hash = '/';
+    }
   };
 
   return (
