@@ -225,9 +225,20 @@ const MeusPlanos: React.FC = () => {
           )}
           
           {family.plan === 'free' && (
-             <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg text-center">
-                <p className="text-gray-600 dark:text-gray-300">Você está utilizando o plano gratuito.</p>
-             </div>
+            <div className="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-lg text-center border border-gray-200 dark:border-gray-600">
+              <p className="text-gray-700 dark:text-gray-200 font-medium mb-1">
+                Você está utilizando o plano gratuito.
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Faça upgrade para desbloquear mais recursos e benefícios para sua família.
+              </p>
+              <button
+                onClick={() => navigate('/plans')}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto"
+              >
+                Ver planos e fazer upgrade
+              </button>
+            </div>
           )}
         </div>
       </div>

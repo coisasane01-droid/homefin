@@ -568,14 +568,20 @@ export const saasDb = {
     }
   },
 
-  deleteFamily: (id: string) => {
+  deleteFamily: async (id: string): Promise<void> => {
     const data = getSaasData();
 
     data.families = data.families.filter(
       (f: Family) => f.id !== id
     );
 
-    saveSaasData(data);
+    // Salva localmente e aguarda a sincronização remota.
+    localStorage.setItem(
+      SAAS_STORAGE_KEY,
+      JSON.stringify(data)
+    );
+
+    await supabaseService.saveSaasData(data);
   },
 
   getFamilies: () => {

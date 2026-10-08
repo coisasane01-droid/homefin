@@ -3,7 +3,8 @@ import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotificati
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
-import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info } from 'lucide-react';
+import { familyDeletionService } from '../services/familyDeletionService';
+import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2 } from 'lucide-react';
 
 const colors = {
   slate: '#64748b',
@@ -68,6 +69,9 @@ const Settings: React.FC = () => {
   // Position Modal State
   const [positionModal, setPositionModal] = useState<'background' | 'logo' | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  const [showDeleteFamilyModal, setShowDeleteFamilyModal] = useState(false);
+  const [isDeletingFamily, setIsDeletingFamily] = useState(false);
   const [tempPosition, setTempPosition] = useState({ x: 50, y: 50 });
   const [tempZoom, setTempZoom] = useState(100);
   const [tempOpacity, setTempOpacity] = useState(100);
@@ -306,6 +310,36 @@ const Settings: React.FC = () => {
         setIsPinModalOpen(false);
         setPinSuccess('');
     }, 1500);
+  };
+
+  const handleDeleteFamily = async () => {
+    const familyId = localStorage.getItem('homefin_current_family_id');
+
+    if (!familyId || familyId === 'v1') {
+      showNotification('Família inválida para exclusão.', 'warning');
+      return;
+    }
+
+    try {
+      setIsDeletingFamily(true);
+
+      await familyDeletionService.deleteFamilyCompletely(familyId);
+
+      showNotification('Família excluída com sucesso.', 'success');
+
+      window.location.hash = '/';
+    } catch (error) {
+      console.error('Erro ao excluir família:', error);
+
+      showNotification(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível excluir a família.',
+        'warning'
+      );
+
+      setIsDeletingFamily(false);
+    }
   };
 
   // --- KEYWORD LOGIC ---
@@ -560,6 +594,39 @@ const Settings: React.FC = () => {
                     onChange={e => setSettings({...settings, houseName: e.target.value})}
                     className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-primary-500 outline-none"
                 />
+            </div>
+
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Convide os membros da sua família
+                </label>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    Encaminhe este link para os membros da sua família. Ele abrirá diretamente a tela de login desta família.
+                </p>
+                <button
+                    type="button"
+                    onClick={async () => {
+                        const familyId = localStorage.getItem('homefin_current_family_id');
+
+                        if (!familyId || familyId === 'v1') {
+                            return;
+                        }
+
+                        const inviteLink = `https://homefinapp.vercel.app/homefin/#/login?family=${encodeURIComponent(familyId)}`;
+
+                        try {
+                            await navigator.clipboard.writeText(inviteLink);
+                            setInviteLinkCopied(true);
+                            setTimeout(() => setInviteLinkCopied(false), 2000);
+                        } catch (error) {
+                            console.error('Erro ao copiar link da família:', error);
+                        }
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-lg transition-colors"
+                >
+                    {inviteLinkCopied ? <Check size={18} /> : <Copy size={18} />}
+                    {inviteLinkCopied ? 'Link copiado!' : 'Copiar link para membros da família'}
+                </button>
             </div>
         </div>
 
@@ -1034,6 +1101,25 @@ const Settings: React.FC = () => {
         </div>
       )}
 
+      {/* Excluir Família */}
+      <div className="mt-8 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/40 p-6 rounded-xl shadow-sm">
+        <h3 className="font-bold text-lg text-red-700 dark:text-red-400 flex items-center gap-2">
+          <Trash2 size={20} /> Excluir família
+        </h3>
+        <p className="text-sm text-red-600 dark:text-red-300 mt-2 mb-4">
+          Esta ação excluirá os dados da família, dados de suporte e o cadastro da família no sistema.
+          A exclusão é permanente e não poderá ser desfeita.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowDeleteFamilyModal(true)}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-5 rounded-lg transition-colors"
+        >
+          <Trash2 size={18} />
+          Excluir família
+        </button>
+      </div>
+
       {/* Keyword Modal */}
       {isKeywordModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1097,6 +1183,59 @@ const Settings: React.FC = () => {
             </div>
         </div>
       )}
+      {/* Confirmar Exclusão da Família */}
+      {showDeleteFamilyModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-red-100 dark:border-red-900/30">
+              <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
+                <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-full">
+                  <Trash2 size={24} />
+                </div>
+                <h3 className="text-xl font-bold">Excluir família?</h3>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-gray-700 dark:text-gray-200 font-medium">
+                Tem certeza que deseja excluir esta família?
+              </p>
+
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 rounded-xl p-4 text-sm text-red-700 dark:text-red-300">
+                <strong>Atenção:</strong> todos os dados financeiros, configurações,
+                informações de suporte e o cadastro desta família serão excluídos.
+                Esta operação é irreversível.
+              </div>
+
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Para sua segurança, a exclusão só será concluída se o sistema conseguir
+                remover os dados da família.
+              </p>
+            </div>
+
+            <div className="p-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-100 dark:border-gray-700 flex flex-col-reverse sm:flex-row gap-3 sm:justify-end">
+              <button
+                type="button"
+                disabled={isDeletingFamily}
+                onClick={() => setShowDeleteFamilyModal(false)}
+                className="px-5 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-medium rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeletingFamily}
+                onClick={handleDeleteFamily}
+                className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50"
+              >
+                {isDeletingFamily ? 'Excluindo...' : 'Sim, excluir família'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Info Modal */}
       {showInfoModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">

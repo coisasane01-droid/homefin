@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBannerConfig } from '../services/saasDb';
 import { supportService, SupportMessage } from '../services/supportService';
+import { familyDeletionService } from '../services/familyDeletionService';
 import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send } from 'lucide-react';
 
 const SuperAdmin: React.FC = () => {
@@ -48,6 +49,7 @@ const SuperAdmin: React.FC = () => {
   const [newPlanName, setNewPlanName] = useState('');
   const [planToDelete, setPlanToDelete] = useState<string | null>(null);
   const [familyToDelete, setFamilyToDelete] = useState<string | null>(null);
+  const [isDeletingFamily, setIsDeletingFamily] = useState(false);
 
   // Support State
   const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
@@ -241,11 +243,31 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
-  const executeDeleteFamily = () => {
-    if (familyToDelete) {
-      saasDb.deleteFamily(familyToDelete);
+  const executeDeleteFamily = async () => {
+    if (!familyToDelete) {
+      return;
+    }
+
+    try {
+      setIsDeletingFamily(true);
+
+      await familyDeletionService.deleteFamilyCompletely(familyToDelete);
+
       setFamilyToDelete(null);
       loadData();
+
+      showNotification('Família excluída com sucesso.', 'success');
+    } catch (error) {
+      console.error('Erro ao excluir família pelo Super Admin:', error);
+
+      showNotification(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível excluir a família.',
+        'warning'
+      );
+    } finally {
+      setIsDeletingFamily(false);
     }
   };
 
@@ -748,15 +770,17 @@ const SuperAdmin: React.FC = () => {
               <div className="flex justify-end gap-3">
                 <button 
                   onClick={() => setFamilyToDelete(null)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+                  disabled={isDeletingFamily}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
                 <button 
                   onClick={executeDeleteFamily}
-                  className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition-colors shadow-lg shadow-red-500/30"
+                  disabled={isDeletingFamily}
+                  className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition-colors shadow-lg shadow-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Sim, Excluir
+                  {isDeletingFamily ? 'Excluindo...' : 'Sim, Excluir'}
                 </button>
               </div>
             </div>

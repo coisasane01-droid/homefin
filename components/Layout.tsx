@@ -118,9 +118,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { icon: Settings, label: 'Configurações', path: '/settings' },
   ];
 
-  if (showPlanPage) {
-    menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/my-plan' });
-  }
+  // Todas as famílias podem acessar o gerenciamento de plano.
+  // Famílias gratuitas também precisam visualizar a opção de upgrade.
+  menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/my-plan' });
 
   const handleLogout = () => {
     const familyId = localStorage.getItem('homefin_current_family_id');
