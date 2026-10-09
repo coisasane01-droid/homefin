@@ -60,6 +60,43 @@
     </script>
   </head>
   <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    
+<script>
+  (function () {
+    try {
+      const hashPath = window.location.hash.split('?')[0];
+
+      if (
+  hashPath !== '' &&
+  hashPath !== '#' &&
+  hashPath !== '#/'
+) return;
+
+      const raw = localStorage.getItem('homefin_saas_data_v1');
+      if (!raw) return;
+
+      const data = JSON.parse(raw);
+      const config = data.landingConfig || {};
+
+      if (config.bannerImage) {
+        document.documentElement.style.backgroundColor =
+          config.bgColorStart || '#312e81';
+
+        document.documentElement.style.backgroundImage =
+          'url("' + config.bannerImage + '")';
+
+        document.documentElement.style.backgroundSize = 'cover';
+        document.documentElement.style.backgroundPosition = 'center';
+        document.documentElement.style.backgroundRepeat = 'no-repeat';
+
+        document.body.style.backgroundColor =
+          config.bgColorStart || '#312e81';
+      }
+    } catch (error) {
+      console.error('Não foi possível preparar o fundo inicial:', error);
+    }
+  })();
+</script>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

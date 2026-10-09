@@ -59,18 +59,22 @@ const saveLocalData = (data: AppData): Promise<void> => {
 
   if (navigator.onLine) {
     const snapshot = JSON.parse(JSON.stringify(cachedData));
-    syncPromise = syncPromise
+    const currentSync = syncPromise
       .catch(() => undefined)
       .then(async () => {
-        try {
-          await homefinProxy.saveFamilyData(currentFamilyId, snapshot);
-        } catch (error) {
-          console.error('HomeFin: erro ao sincronizar com Supabase:', error);
-        }
+        await homefinProxy.saveFamilyData(currentFamilyId, snapshot);
       });
+
+    // Mantém a fila disponível para os próximos salvamentos,
+    // mas permite que esta operação informe seu próprio erro.
+    syncPromise = currentSync.catch((error) => {
+      console.error('HomeFin: erro ao sincronizar com Supabase:', error);
+    });
+
+    return currentSync;
   }
 
-  return syncPromise;
+  return Promise.resolve();
 };
 
 const loadLocalCache = () => {

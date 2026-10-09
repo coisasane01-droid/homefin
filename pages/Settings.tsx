@@ -198,41 +198,103 @@ const Settings: React.FC = () => {
   }, [settings.theme]);
 
   const handleSave = async () => {
-    await db.updateSettings(settings);
-    
-    // Apply theme
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    setSettingsSuccess(false);
+    try {
+      await db.updateSettings(settings);
 
-    // Apply primary color
-    const colorHex = colors[settings.primaryColor as keyof typeof colors] || colors.indigo;
-    document.documentElement.style.setProperty('--primary-50', `${colorHex}1a`);
-    document.documentElement.style.setProperty('--primary-100', `${colorHex}33`);
-    document.documentElement.style.setProperty('--primary-500', colorHex);
-    document.documentElement.style.setProperty('--primary-600', colorHex);
-    document.documentElement.style.setProperty('--primary-700', colorHex);
-    
-    setSettingsSuccess(true);
-    setTimeout(() => setSettingsSuccess(false), 2000);
+      // Apply theme
+      if (settings.theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+
+      // Apply primary color
+      const colorHex = colors[settings.primaryColor as keyof typeof colors] || colors.indigo;
+      document.documentElement.style.setProperty('--primary-50', `${colorHex}1a`);
+      document.documentElement.style.setProperty('--primary-100', `${colorHex}33`);
+      document.documentElement.style.setProperty('--primary-500', colorHex);
+      document.documentElement.style.setProperty('--primary-600', colorHex);
+      document.documentElement.style.setProperty('--primary-700', colorHex);
+
+      setSettingsSuccess(true);
+      setTimeout(() => setSettingsSuccess(false), 2000);
+    } catch (error) {
+      console.error('HomeFin: falha ao salvar configurações:', error);
+      showNotification(
+        'Não foi possível salvar as configurações. Tente uma imagem menor e verifique o espaço de armazenamento.',
+        'error'
+      );
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'background' | 'logo') => {
     const file = e.target.files?.[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64String = reader.result as string;
-            if (type === 'background') {
-                setSettings({ ...settings, backgroundImage: base64String });
-            } else {
-                setSettings({ ...settings, logoImage: base64String });
-            }
-        };
-        reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showNotification('Selecione um arquivo de imagem válido.', 'warning');
+      e.target.value = '';
+      return;
     }
+
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    const maxDimension = type === 'background' ? 1600 : 600;
+    const quality = type === 'background' ? 0.82 : 0.86;
+
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Não foi possível processar a imagem.');
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(objectUrl);
+
+          if (!blob) {
+            showNotification('Não foi possível reduzir a imagem. Tente outro arquivo.', 'error');
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result !== 'string') {
+              showNotification('Não foi possível carregar a imagem processada.', 'error');
+              return;
+            }
+
+            setSettings((previous) => ({
+              ...previous,
+              ...(type === 'background'
+                ? { backgroundImage: reader.result as string }
+                : { logoImage: reader.result as string }),
+            }));
+            showNotification('Imagem preparada. Clique em Salvar Alterações para gravar.', 'success');
+          };
+          reader.onerror = () => {
+            showNotification('Falha ao preparar a imagem para salvar.', 'error');
+          };
+          reader.readAsDataURL(blob);
+        }, 'image/webp', quality);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        console.error('HomeFin: erro ao processar imagem:', error);
+        showNotification('Não foi possível processar essa imagem. Tente outro arquivo.', 'error');
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      showNotification('Não foi possível abrir essa imagem. Tente outro arquivo.', 'error');
+    };
+
+    image.src = objectUrl;
   };
 
   const openPositionModal = (type: 'background' | 'logo') => {

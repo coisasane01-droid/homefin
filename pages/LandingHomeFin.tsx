@@ -17,8 +17,17 @@ const LandingHomeFin: React.FC = () => {
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
 
   useEffect(() => {
+  const updateConfig = () => {
     setConfig(saasDb.getLandingConfig());
-  }, []);
+  };
+
+  updateConfig();
+  window.addEventListener('homefin-saas-synced', updateConfig);
+
+  return () => {
+    window.removeEventListener('homefin-saas-synced', updateConfig);
+  };
+}, []);
 
   useEffect(() => {
     if (config.pwaIcon) {
@@ -102,10 +111,13 @@ const LandingHomeFin: React.FC = () => {
   return (
     <div 
       className="min-h-screen font-sans flex flex-col relative bg-cover bg-center bg-no-repeat bg-fixed"
-      style={{ 
-        backgroundImage: config.bannerImage ? `url(${config.bannerImage})` : `linear-gradient(to bottom right, ${config.bgColorStart || '#312e81'}, ${config.bgColorEnd || '#3730a3'})`,
-        color: config.textColor || '#ffffff'
-      }}
+      style={{
+  backgroundColor: config.bgColorStart || '#312e81',
+  backgroundImage: config.bannerImage
+    ? `url(${config.bannerImage})`
+    : `linear-gradient(to bottom right, ${config.bgColorStart || '#312e81'}, ${config.bgColorEnd || '#3730a3'})`,
+  color: config.textColor || '#ffffff'
+}}
     >
       {/* Overlay for better readability if banner is present */}
       {config.bannerImage && <div className="absolute inset-0 bg-black/60 z-0"></div>}
