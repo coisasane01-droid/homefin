@@ -91,11 +91,15 @@ const saveLocalData = (data: AppData): Promise<void> => {
   cachedData = normalized;
 
   if (navigator.onLine) {
-    return enqueueRemoteSave(
+    // A gravação local já foi concluída. Sincroniza em segundo plano
+    // para que a interface não fique esperando a resposta do servidor.
+    void enqueueRemoteSave(
       familyIdToSave,
       storageKeyToSave,
       serializedSnapshot
-    );
+    ).catch((error) => {
+      console.error('HomeFin: sincronização pendente para nova tentativa:', error);
+    });
   }
 
   return Promise.resolve();
@@ -248,6 +252,63 @@ export const db = {
   // --- Bills ---
   getBills: async (month: string): Promise<Bill[]> => {
     const data = getLocalData();
+    const targetParts = month.split('-').map(Number);
+    const targetDate = new Date(targetParts[0], targetParts[1] - 1 + 12, 1);
+    const horizon = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+    let changed = false;
+
+    // Só contas explicitamente marcadas como recorrentes geram mensalidades.
+    const seriesIds = [...new Set(
+      data.bills.map(b => b.recurringId).filter((id): id is string => Boolean(id))
+    )];
+
+    for (const seriesId of seriesIds) {
+      const occurrences = data.bills
+        .filter(b => b.recurringId === seriesId)
+        .sort((a, b) => a.month.localeCompare(b.month));
+
+      if (!occurrences.length) continue;
+      const template = occurrences[0];
+      const skipped = new Set(
+        occurrences.flatMap(b => b.recurrenceSkippedMonths || [])
+      );
+
+      const [startYear, startMonth] = template.month.split('-').map(Number);
+      const [endYear, endMonth] = horizon.split('-').map(Number);
+      let cursor = new Date(startYear, startMonth - 1, 1);
+      const end = new Date(endYear, endMonth - 1, 1);
+
+      while (cursor <= end) {
+        const occurrenceMonth = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+        const exists = data.bills.some(
+          b => b.recurringId === seriesId && b.month === occurrenceMonth
+        );
+
+        if (!exists && !skipped.has(occurrenceMonth)) {
+          const originalDue = Number((template.dueDate || '').slice(8, 10)) || 1;
+          const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+          const dueDay = Math.min(originalDue, lastDay);
+          const dueDate = `${occurrenceMonth}-${String(dueDay).padStart(2, '0')}`;
+
+          data.bills.push({
+            ...template,
+            id: crypto.randomUUID(),
+            month: occurrenceMonth,
+            dueDate,
+            status: template.recurrencePaidFromMonth && occurrenceMonth >= template.recurrencePaidFromMonth ? 'paid' : 'pending',
+            paidBy: template.recurrencePaidFromMonth && occurrenceMonth >= template.recurrencePaidFromMonth ? 'Quitado antecipadamente' : '',
+            paidAmount: template.recurrencePaidFromMonth && occurrenceMonth >= template.recurrencePaidFromMonth ? template.amount : 0,
+            attachments: [],
+            recurrenceSkippedMonths: [...skipped]
+          });
+          changed = true;
+        }
+
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    }
+
+    if (changed) await saveLocalData(data);
     return data.bills.filter(b => b.month === month);
   },
 
@@ -278,7 +339,44 @@ export const db = {
 
   deleteBill: async (id: string) => {
     const data = getLocalData();
+    const bill = data.bills.find(b => b.id === id);
+
+    if (bill?.recurringId) {
+      // Registra a exclusão deste mês em todas as ocorrências da série.
+      const skippedMonth = bill.month;
+      data.bills = data.bills.map(b =>
+        b.recurringId === bill.recurringId
+          ? {
+              ...b,
+              recurrenceSkippedMonths: [
+                ...new Set([...(b.recurrenceSkippedMonths || []), skippedMonth])
+              ]
+            }
+          : b
+      );
+    }
+
     data.bills = data.bills.filter(b => b.id !== id);
+    await saveLocalData(data);
+  },
+
+  deleteBillSeries: async (recurringId: string) => {
+    const data = getLocalData();
+    data.bills = data.bills.filter(b => b.recurringId !== recurringId);
+    await saveLocalData(data);
+  },
+
+  payBillSeriesFrom: async (recurringId: string, fromMonth: string, paidBy: string) => {
+    const data = getLocalData();
+    data.bills = data.bills.map(b => {
+      if (b.recurringId !== recurringId) return b;
+      const future = b.month >= fromMonth;
+      return {
+        ...b,
+        ...(future ? { status: 'paid' as const, paidBy, paidAmount: b.amount } : {}),
+        recurrencePaidFromMonth: fromMonth
+      };
+    });
     await saveLocalData(data);
   },
 

@@ -87,8 +87,13 @@ const Bills: React.FC = () => {
         status = 'pending';
     }
 
+    const billId = editingBill.id || generateId();
+    const isRecurring = Boolean(editingBill.recurringId || editingBill.makeRecurring);
     const billToSave: Bill = {
-      id: editingBill.id || generateId(),
+      id: billId,
+      recurringId: isRecurring ? (editingBill.recurringId || billId) : undefined,
+      recurrenceSkippedMonths: editingBill.recurrenceSkippedMonths,
+      recurrencePaidFromMonth: editingBill.recurrencePaidFromMonth,
       month: currentMonthStr,
       description: editingBill.description,
       amount: amount,
@@ -156,6 +161,23 @@ const Bills: React.FC = () => {
     setDeleteConfirmation({isOpen: true, id});
   };
 
+  const payFutureOccurrences = async (bill: Bill) => {
+    if (!bill.recurringId) return;
+    const paidBy = prompt('Quem está quitando esta conta e os próximos meses?', bill.paidBy || '');
+    if (paidBy === null) return;
+    await db.payBillSeriesFrom(bill.recurringId, bill.month, paidBy || 'Quitado antecipadamente');
+    await loadBills();
+  };
+
+  const confirmDeleteSeries = async () => {
+    const selected = bills.find(b => b.id === deleteConfirmation.id);
+    if (!selected?.recurringId) return;
+    if (!window.confirm('Excluir a conta recorrente de todos os meses, inclusive os anteriores? Esta ação não pode ser desfeita.')) return;
+    await db.deleteBillSeries(selected.recurringId);
+    setDeleteConfirmation({isOpen: false, id: null});
+    await loadBills();
+  };
+
   const confirmDelete = async () => {
     if (deleteConfirmation.id) {
       await db.deleteBill(deleteConfirmation.id);
@@ -173,6 +195,8 @@ const Bills: React.FC = () => {
     const nextMonthStr = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
     
     for (const bill of bills) {
+      // Contas recorrentes já são geradas automaticamente.
+      if (bill.recurringId) continue;
       // Only duplicate fixed, recurring or custom categories (not one-time variable/card/tax usually)
       // But user said "a categoria fixa ou recorrente permanece no próximo mês"
       // We'll duplicate everything but reset status and paidBy
@@ -196,7 +220,7 @@ const Bills: React.FC = () => {
   };
 
   const openModal = (bill?: Bill) => {
-    setEditingBill(bill || { category: 'Fixa', isBold: false, attachments: [], paidAmount: 0 });
+    setEditingBill(bill ? { ...bill, makeRecurring: Boolean(bill.recurringId) } : { category: 'Fixa', isBold: false, attachments: [], paidAmount: 0, makeRecurring: false });
     setIsModalOpen(true);
   };
 
@@ -622,6 +646,11 @@ const Bills: React.FC = () => {
                                     <button onClick={(e) => { e.stopPropagation(); openModal(bill); }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 rounded-md text-gray-700 dark:text-gray-200">
                                         <FileText size={16} /> Editar
                                     </button>
+                                    {bill.recurringId && (
+                                        <button onClick={(e) => { e.stopPropagation(); payFutureOccurrences(bill); }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/20 flex items-center gap-2 rounded-md text-emerald-700 dark:text-emerald-300">
+                                            <Check size={16} /> Quitar próximos meses
+                                        </button>
+                                    )}
                                     <button onClick={(e) => { e.stopPropagation(); handleDuplicateBill(bill); }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 rounded-md text-gray-700 dark:text-gray-200">
                                         <Copy size={16} /> Duplicar
                                     </button>
@@ -722,6 +751,21 @@ const Bills: React.FC = () => {
                                 ))}
                             </select>
                         </div>
+                        {getCategoryLabel(editingBill.category as string) === 'Fixa' && (
+                            <label className="flex items-start gap-3 rounded-lg border border-primary-200 dark:border-gray-600 p-3 cursor-pointer mb-4">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1"
+                                    checked={Boolean(editingBill.recurringId || editingBill.makeRecurring)}
+                                    disabled={Boolean(editingBill.recurringId)}
+                                    onChange={e => setEditingBill({ ...editingBill, makeRecurring: e.target.checked })}
+                                />
+                                <span>
+                                    <span className="block font-semibold text-sm dark:text-white">Repetir mensalmente</span>
+                                    <span className="block text-xs text-gray-500 mt-1">Gera os próximos meses automaticamente. Contas antigas não são alteradas.</span>
+                                </span>
+                            </label>
+                        )}
                         <div>
                             <label className="label">Subconta / Observação</label>
                             <div className="space-y-2">
@@ -916,8 +960,12 @@ const Bills: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full">
                 <h3 className="text-lg font-bold mb-2 dark:text-white">Excluir Conta?</h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-6">Esta ação não pode ser desfeita.</p>
-                <div className="flex gap-3">
+                <p className="text-gray-500 dark:text-gray-400 mb-6">
+                    {bills.find(b => b.id === deleteConfirmation.id)?.recurringId
+                      ? 'Escolha se deseja excluir somente este mês ou a conta recorrente inteira.'
+                      : 'Esta ação não pode ser desfeita.'}
+                </p>
+                <div className="flex flex-col gap-3">
                     <button 
                         onClick={() => setDeleteConfirmation({isOpen: false, id: null})} 
                         className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
@@ -926,10 +974,18 @@ const Bills: React.FC = () => {
                     </button>
                     <button 
                         onClick={confirmDelete} 
-                        className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30"
+                        className="w-full py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30"
                     >
-                        Excluir
+                        Excluir somente este mês
                     </button>
+                    {bills.find(b => b.id === deleteConfirmation.id)?.recurringId && (
+                        <button
+                            onClick={confirmDeleteSeries}
+                            className="w-full py-2.5 border border-red-300 text-red-700 dark:text-red-300 rounded-lg font-bold hover:bg-red-50 dark:hover:bg-red-900/20"
+                        >
+                            Excluir a conta recorrente inteira
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

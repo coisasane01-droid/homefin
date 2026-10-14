@@ -25,6 +25,10 @@ export interface Bill {
   isBold: boolean;
   notes?: string;
   attachments: Attachment[];
+  recurringId?: string;
+  recurrenceSkippedMonths?: string[];
+  recurrencePaidFromMonth?: string;
+  makeRecurring?: boolean;
 }
 
 export interface ShoppingItem {
