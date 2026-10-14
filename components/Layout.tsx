@@ -55,6 +55,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
   const [houseName, setHouseName] = useState('Carregando...');
+  const [logoImage, setLogoImage] = useState('');
+  const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
 
@@ -83,6 +85,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const loadSettings = async () => {
     const s = await db.getSettings();
     setHouseName(s.houseName);
+    setLogoImage(s.logoImage || '');
+    setLogoShape(s.logoShape === 'circle' ? 'circle' : 'square');
     setIsDark(s.theme === 'dark');
     
     if (s.theme === 'dark') {
@@ -136,9 +140,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
       {/* Mobile Header (z-40) */}
       <div className="md:hidden fixed w-full z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center shadow-sm h-[72px] print:hidden">
-        <div className="flex items-center gap-2 text-primary-600 font-bold text-xl">
-           <Home className="w-6 h-6" />
-           <span>{houseName}</span>
+        <div className="flex items-center gap-2 text-primary-600 font-bold text-xl min-w-0">
+           {logoImage ? (
+             <img src={logoImage} alt="Foto da família" className={`w-9 h-9 object-cover flex-shrink-0 ${logoShape === 'circle' ? 'rounded-full' : 'rounded-md'}`} />
+           ) : (
+             <Home className="w-6 h-6 flex-shrink-0" />
+           )}
+           <span className="truncate">{houseName}</span>
         </div>
         <button onClick={toggleSidebar} className="p-2 text-gray-600 dark:text-gray-300">
           {isSidebarOpen ? <X /> : <Menu />}
@@ -152,9 +160,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }`}
       >
         <div className="p-6 h-full min-h-0 flex flex-col overflow-hidden">
-          <div className="hidden md:flex items-center gap-2 text-primary-600 font-bold text-2xl mb-8">
-             <Home className="w-8 h-8" />
-             <span>{houseName}</span>
+          <div className="hidden md:flex flex-col items-center text-center text-primary-600 font-bold text-xl mb-8 gap-2">
+             {logoImage ? (
+               <img src={logoImage} alt="Foto da família" className={`w-20 h-20 object-cover ${logoShape === 'circle' ? 'rounded-full' : 'rounded-md'}`} />
+             ) : (
+               <Home className="w-8 h-8" />
+             )}
+             <span className="break-words max-w-full">{houseName}</span>
           </div>
           
           <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1 mt-14 md:mt-0">
