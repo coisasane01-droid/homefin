@@ -36,17 +36,33 @@ const Goals: React.FC = () => {
     e.preventDefault();
     if (!newGoal.title || !newGoal.targetAmount) return;
 
-    await db.updateGoal({
+    const goalToSave: Goal = {
       id: newGoal.id || generateId(),
       title: newGoal.title,
       targetAmount: Number(newGoal.targetAmount),
       currentAmount: Number(newGoal.currentAmount || 0),
       deadline: newGoal.deadline || '',
       photoUrl: newGoal.photoUrl || '',
+      photoPositionX: newGoal.photoPositionX ?? 50,
+      photoPositionY: newGoal.photoPositionY ?? 50,
       notes: newGoal.notes || ''
-    });
+    };
 
-    loadGoals();
+    const savePromise = db.updateGoal(goalToSave);
+    void savePromise.catch(error =>
+      console.error('HomeFin: erro ao salvar/sincronizar meta:', error)
+    );
+
+    await loadGoals();
+    const savedGoal = (await db.getGoals()).find(
+      goal => goal.id === goalToSave.id
+    );
+
+    if (!savedGoal || JSON.stringify(savedGoal) !== JSON.stringify(goalToSave)) {
+      alert('Não foi possível confirmar o salvamento da meta. Confira o espaço disponível e tente novamente.');
+      return;
+    }
+
     setIsModalOpen(false);
     setNewGoal({});
   };
@@ -99,6 +115,7 @@ const Goals: React.FC = () => {
                     src={goal.photoUrl} 
                     alt={goal.title} 
                     className="w-full h-full object-cover"
+                    style={{ objectPosition: `${goal.photoPositionX ?? 50}% ${goal.photoPositionY ?? 50}%` }}
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
@@ -229,6 +246,37 @@ const Goals: React.FC = () => {
                   className="hidden" 
                 />
               </div>
+              {newGoal.photoUrl && (
+                <div className="space-y-3 rounded-lg border dark:border-gray-600 p-3">
+                  <p className="text-sm font-semibold dark:text-white">Ajustar enquadramento da foto</p>
+                  <div className="h-28 overflow-hidden rounded-lg bg-gray-200 dark:bg-gray-700">
+                    <img
+                      src={newGoal.photoUrl}
+                      alt="Prévia da foto da meta"
+                      className="h-full w-full object-cover"
+                      style={{ objectPosition: `${newGoal.photoPositionX ?? 50}% ${newGoal.photoPositionY ?? 50}%` }}
+                    />
+                  </div>
+                  <label className="block text-sm dark:text-gray-200">
+                    Horizontal: {newGoal.photoPositionX ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={newGoal.photoPositionX ?? 50}
+                      onChange={e => setNewGoal({ ...newGoal, photoPositionX: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="block text-sm dark:text-gray-200">
+                    Vertical: {newGoal.photoPositionY ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={newGoal.photoPositionY ?? 50}
+                      onChange={e => setNewGoal({ ...newGoal, photoPositionY: Number(e.target.value) })}
+                    />
+                  </label>
+                </div>
+              )}
               <textarea
                 className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white resize-none"
                 placeholder="Observação (Opcional)"

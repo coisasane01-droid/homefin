@@ -50,18 +50,68 @@ const PreConfiguracaoFamilia: React.FC = () => {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'background' | 'logo') => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        if (type === 'background') {
-          setFormData(prev => ({ ...prev, backgroundImage: base64String }));
-        } else {
-          setFormData(prev => ({ ...prev, logoImage: base64String }));
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Selecione um arquivo de imagem válido.');
+      e.target.value = '';
+      return;
     }
+
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    const maxDimension = type === 'background' ? 1600 : 600;
+    const quality = type === 'background' ? 0.82 : 0.86;
+
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Não foi possível processar a imagem.');
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(objectUrl);
+
+          if (!blob) {
+            setError('Não foi possível reduzir a imagem. Tente outro arquivo.');
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result !== 'string') {
+              setError('Não foi possível carregar a imagem processada.');
+              return;
+            }
+
+            const base64String = reader.result;
+            if (type === 'background') {
+              setFormData(prev => ({ ...prev, backgroundImage: base64String }));
+            } else {
+              setFormData(prev => ({ ...prev, logoImage: base64String }));
+            }
+            setError('');
+          };
+          reader.onerror = () => setError('Falha ao ler a imagem processada.');
+          reader.readAsDataURL(blob);
+        }, 'image/webp', quality);
+      } catch {
+        URL.revokeObjectURL(objectUrl);
+        setError('Não foi possível processar a imagem. Tente outro arquivo.');
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setError('Não foi possível abrir a imagem selecionada.');
+    };
+
+    image.src = objectUrl;
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -100,7 +150,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
     // In a real app, this would fetch from server. Here we reset local storage with new settings.
     
     // 1. Initialize DB with new Family ID
-    db.init(newFamily.id);
+    await db.init(newFamily.id);
 
     const newSettings: UserSettings = {
       theme: 'light',

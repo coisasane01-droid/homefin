@@ -25,16 +25,32 @@ const Assets: React.FC = () => {
     e.preventDefault();
     if (!newAsset.name || !newAsset.purchaseValue) return;
 
-    await db.updateAsset({
+    const assetToSave: Asset = {
       id: newAsset.id || generateId(),
       name: newAsset.name,
       purchaseValue: Number(newAsset.purchaseValue),
       purchaseDate: newAsset.purchaseDate || new Date().toISOString().split('T')[0],
       photoUrl: newAsset.photoUrl,
+      photoPositionX: newAsset.photoPositionX ?? 50,
+      photoPositionY: newAsset.photoPositionY ?? 50,
       notes: newAsset.notes || ''
-    });
+    };
 
-    loadAssets();
+    const savePromise = db.updateAsset(assetToSave);
+    void savePromise.catch(error =>
+      console.error('HomeFin: erro ao salvar/sincronizar bem:', error)
+    );
+
+    await loadAssets();
+    const savedAsset = (await db.getAssets()).find(
+      asset => asset.id === assetToSave.id
+    );
+
+    if (!savedAsset || JSON.stringify(savedAsset) !== JSON.stringify(assetToSave)) {
+      alert('Não foi possível confirmar o salvamento do bem. Confira o espaço disponível e tente novamente.');
+      return;
+    }
+
     setIsModalOpen(false);
     setNewAsset({});
   };
@@ -125,7 +141,8 @@ const Assets: React.FC = () => {
                         <img 
                           src={asset.photoUrl} 
                           alt={asset.name} 
-                          className="w-full h-full object-cover" 
+                          className="w-full h-full object-cover"
+                          style={{ objectPosition: `${asset.photoPositionX ?? 50}% ${asset.photoPositionY ?? 50}%` }}
                           referrerPolicy="no-referrer"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
@@ -234,8 +251,13 @@ const Assets: React.FC = () => {
                     </button>
 
                     {newAsset.photoUrl && (
-                        <div className="relative w-full h-32 rounded-xl overflow-hidden border dark:border-gray-700">
-                            <img src={newAsset.photoUrl} alt="Preview" className="w-full h-full object-cover" />
+                        <div className="relative w-full h-32 rounded-xl overflow-hidden border dark:border-gray-700 bg-gray-100 dark:bg-gray-900">
+                            <img
+                                src={newAsset.photoUrl}
+                                alt="Prévia da foto do bem"
+                                className="w-full h-full object-cover"
+                                style={{ objectPosition: `${newAsset.photoPositionX ?? 50}% ${newAsset.photoPositionY ?? 50}%` }}
+                            />
                             <button 
                                 type="button"
                                 onClick={() => setNewAsset({...newAsset, photoUrl: ''})}
@@ -248,6 +270,29 @@ const Assets: React.FC = () => {
                 </div>
               </div>
 
+              {newAsset.photoUrl && (
+                <div className="space-y-3 rounded-xl border dark:border-gray-600 p-3">
+                  <p className="text-sm font-semibold dark:text-white">Ajustar enquadramento da foto</p>
+                  <label className="block text-sm dark:text-gray-200">
+                    Horizontal: {newAsset.photoPositionX ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={newAsset.photoPositionX ?? 50}
+                      onChange={e => setNewAsset({ ...newAsset, photoPositionX: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="block text-sm dark:text-gray-200">
+                    Vertical: {newAsset.photoPositionY ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={newAsset.photoPositionY ?? 50}
+                      onChange={e => setNewAsset({ ...newAsset, photoPositionY: Number(e.target.value) })}
+                    />
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Observação</label>
                 <textarea

@@ -120,7 +120,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Todas as famílias podem acessar o gerenciamento de plano.
   // Famílias gratuitas também precisam visualizar a opção de upgrade.
-  menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/my-plan' });
+  menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/plans' });
 
   const handleLogout = () => {
     const familyId = localStorage.getItem('homefin_current_family_id');
@@ -151,13 +151,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="p-6 h-full flex flex-col">
+        <div className="p-6 h-full min-h-0 flex flex-col overflow-hidden">
           <div className="hidden md:flex items-center gap-2 text-primary-600 font-bold text-2xl mb-8">
              <Home className="w-8 h-8" />
              <span>{houseName}</span>
           </div>
           
-          <nav className="flex-1 space-y-1 mt-14 md:mt-0">
+          <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1 mt-14 md:mt-0">
             {menuItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
@@ -180,7 +180,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <button 
             onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors mt-auto"
+            className="flex-shrink-0 flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors mt-auto"
           >
             <LogOut size={20} />
             Sair

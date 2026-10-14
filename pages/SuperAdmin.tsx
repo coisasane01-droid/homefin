@@ -1530,7 +1530,12 @@ const SuperAdmin: React.FC = () => {
                 </div>
                 {appBannerConfig.imageUrl && (
                   <div className="mt-2 h-24 sm:h-32 md:h-40 w-full rounded-lg bg-cover bg-center border relative group">
-                      <div style={{ backgroundImage: `url(${appBannerConfig.imageUrl})` }} className="w-full h-full rounded-lg bg-cover bg-center"></div>
+                      <img
+                        src={appBannerConfig.imageUrl}
+                        alt="Prévia do banner"
+                        className="w-full h-full rounded-lg object-cover"
+                        style={{ objectPosition: `${appBannerConfig.imagePositionX ?? 50}% ${appBannerConfig.imagePositionY ?? 50}%` }}
+                      />
                       <button 
                           type="button"
                           onClick={() => setAppBannerConfig({ ...appBannerConfig, imageUrl: '' })}
@@ -1541,6 +1546,30 @@ const SuperAdmin: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {appBannerConfig.imageUrl && (
+                <div className="space-y-3 rounded-lg border p-4">
+                  <p className="text-sm font-semibold text-gray-700">Ajustar enquadramento do banner</p>
+                  <label className="block text-sm text-gray-700">
+                    Horizontal: {appBannerConfig.imagePositionX ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={appBannerConfig.imagePositionX ?? 50}
+                      onChange={e => setAppBannerConfig({ ...appBannerConfig, imagePositionX: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="block text-sm text-gray-700">
+                    Vertical: {appBannerConfig.imagePositionY ?? 50}%
+                    <input
+                      type="range" min="0" max="100" step="1"
+                      className="w-full"
+                      value={appBannerConfig.imagePositionY ?? 50}
+                      onChange={e => setAppBannerConfig({ ...appBannerConfig, imagePositionY: Number(e.target.value) })}
+                    />
+                  </label>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Link de Destino (URL)</label>

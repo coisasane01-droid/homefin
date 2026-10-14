@@ -15,6 +15,7 @@ import { homefinProxy } from './homefinProxy';
 let currentFamilyId = localStorage.getItem('homefin_current_family_id') || 'v1';
 
 const getStorageKey = () => `homefin_data_${currentFamilyId}`;
+const getPendingSyncKey = (familyId: string) => `homefin_pending_sync_${familyId}`;
 
 const defaultSettings: UserSettings = {
   theme: 'light',
@@ -53,46 +54,83 @@ const getLocalData = (): AppData => {
   return cachedData;
 };
 
-const saveLocalData = (data: AppData): Promise<void> => {
-  cachedData = normalizeData(data);
-  localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
+const enqueueRemoteSave = (
+  familyId: string,
+  storageKey: string,
+  serializedSnapshot: string
+): Promise<void> => {
+  const pendingKey = getPendingSyncKey(familyId);
+  const snapshot = JSON.parse(serializedSnapshot) as AppData;
 
-  if (navigator.onLine) {
-    const snapshot = JSON.parse(JSON.stringify(cachedData));
-    const currentSync = syncPromise
-      .catch(() => undefined)
-      .then(async () => {
-        await homefinProxy.saveFamilyData(currentFamilyId, snapshot);
-      });
+  const currentSync = syncPromise
+    .catch(() => undefined)
+    .then(async () => {
+      await homefinProxy.saveFamilyData(familyId, snapshot);
 
-    // Mantém a fila disponível para os próximos salvamentos,
-    // mas permite que esta operação informe seu próprio erro.
-    syncPromise = currentSync.catch((error) => {
-      console.error('HomeFin: erro ao sincronizar com Supabase:', error);
+      if (localStorage.getItem(storageKey) === serializedSnapshot) {
+        localStorage.removeItem(pendingKey);
+      }
     });
 
-    return currentSync;
+  syncPromise = currentSync.catch((error) => {
+    console.error('HomeFin: erro ao sincronizar com Supabase:', error);
+  });
+
+  return currentSync;
+};
+
+const saveLocalData = (data: AppData): Promise<void> => {
+  const familyIdToSave = currentFamilyId;
+  const storageKeyToSave = getStorageKey();
+  const pendingKey = getPendingSyncKey(familyIdToSave);
+  const normalized = normalizeData(data);
+  const serializedSnapshot = JSON.stringify(normalized);
+
+  localStorage.setItem(storageKeyToSave, serializedSnapshot);
+  localStorage.setItem(pendingKey, '1');
+  cachedData = normalized;
+
+  if (navigator.onLine) {
+    return enqueueRemoteSave(
+      familyIdToSave,
+      storageKeyToSave,
+      serializedSnapshot
+    );
   }
 
   return Promise.resolve();
 };
 
 const loadLocalCache = () => {
+  // Nunca reutiliza em memória os dados da família anterior.
+  cachedData = normalizeData(initialData);
+
   const raw = localStorage.getItem(getStorageKey());
-  if (raw) { try { cachedData = normalizeData(JSON.parse(raw)); } catch { cachedData = initialData; } }
+  if (raw) {
+    try {
+      cachedData = normalizeData(JSON.parse(raw));
+    } catch {
+      cachedData = normalizeData(initialData);
+    }
+  }
 };
 loadLocalCache();
 
-const loadFromSupabase = async () => {
+const loadFromSupabase = async (familyIdToLoad: string) => {
   if (!navigator.onLine) return;
-  const data = await homefinProxy.getFamilyData(currentFamilyId);
+
+  const data = await homefinProxy.getFamilyData(familyIdToLoad);
+
+  // Uma troca de família ocorreu enquanto a consulta estava pendente.
+  if (currentFamilyId !== familyIdToLoad) return;
+
+  // Protege dados locais que ainda aguardam confirmação do servidor.
+  if (localStorage.getItem(getPendingSyncKey(familyIdToLoad))) return;
 
   if (data) {
     const localBeforeSync = getLocalData();
     const normalizedRemote = normalizeData(data);
 
-    // Preserva alterações locais recém-salvas que ainda podem estar
-    // aguardando a sincronização com o Supabase.
     if (
       localBeforeSync.settings.logoImage &&
       !normalizedRemote.settings.logoImage
@@ -108,7 +146,7 @@ const loadFromSupabase = async () => {
     }
 
     cachedData = normalizedRemote;
-    localStorage.setItem(getStorageKey(), JSON.stringify(cachedData));
+    localStorage.setItem(`homefin_data_${familyIdToLoad}`, JSON.stringify(cachedData));
   }
 };
 
@@ -150,12 +188,43 @@ export const db = {
     if (!supabase) { console.warn('HomeFin: Supabase não configurado.'); return; }
     if (!navigator.onLine) { console.log('Offline: usando cache local.'); return; }
 
-    // Aguarda qualquer salvamento local pendente antes de buscar
-    // novamente os dados do Supabase, evitando sobrescrever alterações recentes.
+    const familyIdToSync = currentFamilyId;
+    const storageKey = `homefin_data_${familyIdToSync}`;
+    const pendingKey = getPendingSyncKey(familyIdToSync);
+
     await syncPromise.catch(() => undefined);
 
-    await loadFromSupabase();
-    console.log('HomeFin: dados sincronizados com Supabase.');
+    if (currentFamilyId !== familyIdToSync) return;
+
+    // Envia primeiro os dados locais que ainda aguardam sincronização.
+    if (localStorage.getItem(pendingKey)) {
+      const snapshot = localStorage.getItem(storageKey);
+
+      if (!snapshot) {
+        localStorage.removeItem(pendingKey);
+      } else {
+        try {
+          await enqueueRemoteSave(familyIdToSync, storageKey, snapshot);
+        } catch (error) {
+          console.error('HomeFin: dados locais continuam pendentes:', error);
+          return;
+        }
+      }
+
+      if (currentFamilyId !== familyIdToSync) return;
+      if (localStorage.getItem(pendingKey)) return;
+    }
+
+    try {
+      await loadFromSupabase(familyIdToSync);
+    } catch (error) {
+      console.error('HomeFin: falha ao consultar dados remotos:', error);
+      return;
+    }
+
+    if (currentFamilyId === familyIdToSync) {
+      console.log('HomeFin: sincronização concluída.');
+    }
   },
 
   // --- Settings ---
@@ -190,7 +259,7 @@ export const db = {
   addBill: async (bill: Bill) => {
     const data = getLocalData();
     data.bills.push(bill);
-    saveLocalData(data);
+    await saveLocalData(data);
     sendNotification('Nova Conta', `Conta "${bill.description}" adicionada!`);
   },
 
@@ -204,13 +273,13 @@ export const db = {
     }
 
     data.bills = data.bills.map(b => b.id === updatedBill.id ? updatedBill : b);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteBill: async (id: string) => {
     const data = getLocalData();
     data.bills = data.bills.filter(b => b.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   checkDueBills: async () => {
@@ -290,13 +359,13 @@ export const db = {
     const data = getLocalData();
     const item = data.shoppingList.find(i => i.id === id);
     if (item) item.checked = !item.checked;
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   addShoppingItem: async (item: ShoppingItem) => {
     const data = getLocalData();
     data.shoppingList.push(item);
-    saveLocalData(data);
+    await saveLocalData(data);
     sendNotification('Lista de Compras', `Item "${item.name}" adicionado à lista!`);
   },
 
@@ -304,25 +373,25 @@ export const db = {
     const data = getLocalData();
     const idx = data.shoppingList.findIndex(i => i.id === item.id);
     if (idx >= 0) data.shoppingList[idx] = item;
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteShoppingItem: async (id: string) => {
     const data = getLocalData();
     data.shoppingList = data.shoppingList.filter(i => i.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
   
   deleteManyShoppingItems: async (ids: string[]) => {
       const data = getLocalData();
       data.shoppingList = data.shoppingList.filter(i => !ids.includes(i.id));
-      saveLocalData(data);
+      await saveLocalData(data);
   },
   
   clearShoppingList: async () => {
     const data = getLocalData();
     data.shoppingList = [];
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   // --- Smart Logic / History ---
@@ -352,7 +421,7 @@ export const db = {
             });
         }
     });
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   getSmartSuggestions: async () => {
@@ -405,13 +474,13 @@ export const db = {
         data.goals.push(goal);
         sendNotification('Nova Meta', `Meta "${goal.title}" adicionada!`);
     }
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteGoal: async (id: string) => {
     const data = getLocalData();
     data.goals = data.goals.filter(g => g.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   // --- Assets ---
@@ -428,13 +497,13 @@ export const db = {
         data.assets.push(asset);
         sendNotification('Novo Bem', `Bem "${asset.name}" adicionado ao patrimônio!`);
     }
-    saveLocalData(data);
+    await saveLocalData(data);
   },
   
   deleteAsset: async (id: string) => {
       const data = getLocalData();
       data.assets = data.assets.filter(a => a.id !== id);
-      saveLocalData(data);
+      await saveLocalData(data);
   },
 
   // --- Calendar Events ---
@@ -446,7 +515,7 @@ export const db = {
     const data = getLocalData();
     if (!data.events) data.events = [];
     data.events.push(event);
-    saveLocalData(data);
+    await saveLocalData(data);
     sendNotification('Nova Agenda', `Evento "${event.title}" adicionado à agenda!`);
   },
 
@@ -454,7 +523,7 @@ export const db = {
     const data = getLocalData();
     if (!data.events) data.events = [];
     data.events.push(...events);
-    saveLocalData(data);
+    await saveLocalData(data);
     if (events.length > 0) {
       sendNotification('Nova Agenda', `${events.length} eventos adicionados à agenda!`);
     }
@@ -465,14 +534,14 @@ export const db = {
     if (!data.events) data.events = [];
     const idx = data.events.findIndex(e => e.id === event.id);
     if (idx >= 0) data.events[idx] = event;
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteEvent: async (id: string) => {
     const data = getLocalData();
     if (!data.events) return;
     data.events = data.events.filter(e => e.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteEventsByGroupId: async (groupId: string) => {
@@ -499,7 +568,7 @@ export const db = {
     const deletedCount = initialCount - finalCount;
     
     console.log(`Deleted ${deletedCount} events. Saving data...`);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   updateEventsByGroupId: async (groupId: string, updates: Partial<CalendarEvent>) => {
@@ -518,7 +587,7 @@ export const db = {
         }
         return e;
     });
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   // --- Debts ---
@@ -531,21 +600,21 @@ export const db = {
     const data = getLocalData();
     if (!data.debts) data.debts = [];
     data.debts.push(debt);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   updateDebt: async (id: string, updates: Partial<Debt>) => {
     const data = getLocalData();
     if (!data.debts) return;
     data.debts = data.debts.map(d => d.id === id ? { ...d, ...updates } : d);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteDebt: async (id: string) => {
     const data = getLocalData();
     if (!data.debts) return;
     data.debts = data.debts.filter(d => d.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   // BankAccounts
@@ -558,21 +627,21 @@ export const db = {
     const data = getLocalData();
     if (!data.bankAccounts) data.bankAccounts = [];
     data.bankAccounts.push(account);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   updateBankAccount: async (id: string, updates: any) => {
     const data = getLocalData();
     if (!data.bankAccounts) return;
     data.bankAccounts = data.bankAccounts.map(a => a.id === id ? { ...a, ...updates } : a);
-    saveLocalData(data);
+    await saveLocalData(data);
   },
 
   deleteBankAccount: async (id: string) => {
     const data = getLocalData();
     if (!data.bankAccounts) return;
     data.bankAccounts = data.bankAccounts.filter(a => a.id !== id);
-    saveLocalData(data);
+    await saveLocalData(data);
   }
 };
 

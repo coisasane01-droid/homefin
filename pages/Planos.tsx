@@ -15,6 +15,7 @@ const Planos: React.FC = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [loading, setLoading] = useState(false);
+  const [currentFamilyPlan, setCurrentFamilyPlan] = useState<'free' | 'premium' | null>(null);
   
   // Mercado Pago State
   const [mercadoPagoPayment, setMercadoPagoPayment] = useState<MercadoPagoPaymentResponse | null>(null);
@@ -29,6 +30,12 @@ const Planos: React.FC = () => {
     const config = saasDb.getPaymentConfig();
     setPlans(saasDb.getPlans());
     setPaymentConfig(config);
+
+    const familyId = localStorage.getItem('homefin_current_family_id');
+    const family = familyId
+      ? saasDb.getFamilies().find(f => f.id === familyId)
+      : undefined;
+    setCurrentFamilyPlan(family?.plan ?? null);
 
     if (config?.mercadoPagoPublicKey) {
       initMercadoPago(config.mercadoPagoPublicKey, { locale: 'pt-BR' });
@@ -148,7 +155,7 @@ const Planos: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-20 px-4 relative">
       <button 
-        onClick={() => navigate('/')} 
+        onClick={() => navigate(-1)}
         className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 transition-colors"
         title="Voltar para Início"
       >
@@ -160,7 +167,10 @@ const Planos: React.FC = () => {
         <p className="text-xl text-gray-500 mb-16">Comece a organizar suas finanças hoje mesmo.</p>
 
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          {plans.map((plan) => (
+          {[...plans]
+            .filter(plan => !(currentFamilyPlan === 'free' && plan.price === 0))
+            .sort((a, b) => Number(Boolean(b.popular)) - Number(Boolean(a.popular)))
+            .map((plan) => (
             <div 
               key={plan.id}
               className={`relative bg-white rounded-3xl shadow-xl overflow-hidden border-2 transition-transform hover:scale-105 ${plan.popular ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-transparent'}`}

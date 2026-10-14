@@ -400,7 +400,7 @@ const Bills: React.FC = () => {
         {/* Banner Publicitário */}
         {appBannerConfig.enabled && (
           <a href={appBannerConfig.linkUrl} target="_blank" rel="noopener noreferrer" className="block w-full mb-4 rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity">
-            <img src={appBannerConfig.imageUrl} alt={appBannerConfig.altText} className="w-full h-32 sm:h-40 md:h-48 object-cover" referrerPolicy="no-referrer" />
+            <img src={appBannerConfig.imageUrl} alt={appBannerConfig.altText} className="w-full h-32 sm:h-40 md:h-48 object-cover" style={{ objectPosition: `${appBannerConfig.imagePositionX ?? 50}% ${appBannerConfig.imagePositionY ?? 50}%` }} referrerPolicy="no-referrer" />
           </a>
         )}
         <div className="flex justify-between items-center">

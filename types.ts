@@ -49,6 +49,8 @@ export interface Goal {
   currentAmount: number;
   deadline: string;
   photoUrl?: string;
+  photoPositionX?: number;
+  photoPositionY?: number;
   notes?: string;
 }
 
@@ -58,6 +60,8 @@ export interface Asset {
   purchaseValue: number;
   purchaseDate: string;
   photoUrl?: string;
+  photoPositionX?: number;
+  photoPositionY?: number;
   notes?: string;
 }
 

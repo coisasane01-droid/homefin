@@ -33,13 +33,8 @@ const App: React.FC = () => {
  React.useEffect(() => {
   const initializeApp = async () => {
     try {
-      void saasDb.syncFromSupabase()
-  .then(() => {
-    window.dispatchEvent(new Event('homefin-saas-synced'));
-  })
-  .catch((error) => {
-    console.error('Erro ao sincronizar dados SaaS:', error);
-  });
+      await saasDb.syncFromSupabase();
+      window.dispatchEvent(new Event('homefin-saas-synced'));
     } catch (error) {
       console.error('Erro ao sincronizar dados SaaS:', error);
     }

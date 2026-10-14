@@ -67,6 +67,8 @@ export interface AppBannerConfig {
   imageUrl: string;
   linkUrl: string;
   altText: string;
+  imagePositionX?: number;
+  imagePositionY?: number;
 }
 
 export interface SaasData {
