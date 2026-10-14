@@ -6,13 +6,36 @@ import { UserSettings } from '../types';
 
 const PIN_LENGTH = 4;
 
+const getInitialFamilySettings = (): UserSettings | null => {
+  try {
+    const hash = window.location.hash || '';
+    const query = hash.includes('?') ? hash.split('?').slice(1).join('?') : '';
+    const params = new URLSearchParams(query);
+    const familyId =
+      params.get('family') ||
+      window.localStorage.getItem('homefin_current_family_id') ||
+      'v1';
+
+    const raw = window.localStorage.getItem(`homefin_data_${familyId}`);
+    if (!raw) return null;
+
+    const data = JSON.parse(raw);
+    return data?.settings && typeof data.settings === 'object'
+      ? data.settings as UserSettings
+      : null;
+  } catch (error) {
+    console.error('Não foi possível carregar as configurações locais:', error);
+    return null;
+  }
+};
+
 const Auth: React.FC = () => {
   const [pin, setPin] = useState('');
   const [mode, setMode] = useState<'login' | 'create' | 'confirm' | 'recovery' | 'reset_warning'>('login');
   const [tempPin, setTempPin] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [settings, setSettings] = useState<UserSettings | null>(getInitialFamilySettings);
   
   // Recovery State
   const [recoveryInput, setRecoveryInput] = useState('');
