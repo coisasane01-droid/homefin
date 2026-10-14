@@ -31,29 +31,31 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
 
  React.useEffect(() => {
-  const initializeApp = async () => {
+  const familyId = localStorage.getItem('homefin_current_family_id');
+  const hashPath = window.location.hash.split('?')[0];
+
+  if (
+    familyId &&
+    familyId !== 'v1' &&
+    (hashPath === '#' || hashPath === '#/')
+  ) {
+    window.location.hash = `/login?family=${familyId}`;
+  }
+
+  // Mostra a tela imediatamente usando os dados locais.
+  setIsLoading(false);
+
+  // Sincroniza em segundo plano, sem bloquear a abertura do aplicativo.
+  const syncInBackground = async () => {
     try {
       await saasDb.syncFromSupabase();
       window.dispatchEvent(new Event('homefin-saas-synced'));
     } catch (error) {
       console.error('Erro ao sincronizar dados SaaS:', error);
     }
-
-    const familyId = localStorage.getItem('homefin_current_family_id');
-    const hashPath = window.location.hash.split('?')[0];
-
-    if (
-      familyId &&
-      familyId !== 'v1' &&
-      (hashPath === '#' || hashPath === '#/')
-    ) {
-      window.location.hash = `/login?family=${familyId}`;
-    }
-
-    setIsLoading(false);
   };
 
-  initializeApp();
+  void syncInBackground();
 }, []);
 
   if (isLoading) {
