@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { saasDb } from '../services/saasDb';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
-import { ArrowLeft, Upload, Copy, Check, Share, PlusSquare, X } from 'lucide-react';
+import { ArrowLeft, Upload, Copy, Check, Share, PlusSquare, X, Download, Smartphone } from 'lucide-react';
 
 const colors = {
   slate: '#64748b',
@@ -47,6 +47,47 @@ const PreConfiguracaoFamilia: React.FC = () => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [generatedLink, setGeneratedLink] = useState('');
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+
+  useEffect(() => {
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as any).standalone === true;
+
+    setIsInstalled(isStandalone);
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+      setShowInstallHelp(false);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (installPrompt) {
+      await installPrompt.prompt();
+      await installPrompt.userChoice;
+      setInstallPrompt(null);
+      return;
+    }
+
+    setShowInstallHelp(true);
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'background' | 'logo') => {
     const file = e.target.files?.[0];
@@ -374,20 +415,38 @@ const PreConfiguracaoFamilia: React.FC = () => {
               </div>
 
               <div className="space-y-3 pt-4 border-t">
-                <h3 className="font-bold text-gray-900 text-sm">Instalar App (PWA)</h3>
-                
-                <div className="grid grid-cols-2 gap-3 text-left">
-                  <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600">
-                    <strong className="block text-gray-900 mb-1 flex items-center gap-1"><Share size={12} /> iPhone (iOS)</strong>
-                    1. Toque em <strong>Compartilhar</strong><br/>
-                    2. Selecione <strong>Adicionar à Tela de Início</strong>
+                <h3 className="font-bold text-gray-900 text-sm">Instale o HomeFin no seu aparelho</h3>
+                {isInstalled ? (
+                  <div className="w-full bg-green-50 text-green-700 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2">
+                    <Check size={20} /> Aplicativo já instalado
                   </div>
-                  <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600">
-                    <strong className="block text-gray-900 mb-1 flex items-center gap-1"><PlusSquare size={12} /> Android</strong>
-                    1. Toque no menu (3 pontos)<br/>
-                    2. Selecione <strong>Instalar aplicativo</strong>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleInstallApp}
+                    className="w-full bg-green-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <Download size={20} /> Instalar aplicativo
+                  </button>
+                )}
+
+                {showInstallHelp && !isInstalled && (
+                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700 space-y-3">
+                    <p className="font-bold text-blue-900">Como instalar no seu aparelho</p>
+                    <div>
+                      <strong className="flex items-center gap-1"><Smartphone size={15} /> iPhone / iPad</strong>
+                      Abra este link no Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”.
+                    </div>
+                    <div>
+                      <strong className="flex items-center gap-1"><PlusSquare size={15} /> Android</strong>
+                      Se a instalação não abrir automaticamente, use o menu do navegador e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”.
+                    </div>
+                    <div>
+                      <strong className="flex items-center gap-1"><Download size={15} /> Computador</strong>
+                      No Chrome ou Edge, procure o ícone de instalação na barra de endereço ou no menu do navegador.
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               <button 
