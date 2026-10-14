@@ -242,7 +242,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
         <button 
           onClick={() => {
             if (location.state?.plan) {
-              navigate('/plans');
+              navigate('/plans', { state: { flow: 'signup' } });
             } else {
               navigate('/');
             }

@@ -168,7 +168,7 @@ const Planos: React.FC = () => {
 
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {[...plans]
-            .filter(plan => !(currentFamilyPlan === 'free' && plan.price === 0))
+            .filter(plan => !(location.state?.flow !== 'signup' && currentFamilyPlan === 'free' && plan.price === 0))
             .sort((a, b) => Number(Boolean(b.popular)) - Number(Boolean(a.popular)))
             .map((plan) => (
             <div 
