@@ -58,34 +58,43 @@ const PreConfiguracaoFamilia: React.FC = () => {
 
     setIsInstalled(isStandalone);
 
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event);
+    const syncInstallPrompt = () => {
+      setInstallPrompt((window as any).__homefinInstallPrompt || null);
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setInstallPrompt(null);
       setShowInstallHelp(false);
+      (window as any).__homefinInstallPrompt = null;
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    syncInstallPrompt();
+    window.addEventListener('homefin-install-available', syncInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('homefin-install-available', syncInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
   const handleInstallApp = async () => {
     if (installPrompt) {
-      await installPrompt.prompt();
-      await installPrompt.userChoice;
-      setInstallPrompt(null);
+      try {
+        await installPrompt.prompt();
+        await installPrompt.userChoice;
+      } catch (error) {
+        console.error('Não foi possível abrir a instalação do HomeFin:', error);
+        setShowInstallHelp(true);
+      } finally {
+        setInstallPrompt(null);
+        (window as any).__homefinInstallPrompt = null;
+      }
       return;
     }
 
+    // Sem o evento nativo, o navegador não permite forçar o diálogo de instalação.
     setShowInstallHelp(true);
   };
 

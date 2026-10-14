@@ -2,6 +2,14 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
+// Captura a instalação do PWA desde o início do aplicativo.
+window.addEventListener('beforeinstallprompt', (event: Event) => {
+  event.preventDefault();
+  (window as any).__homefinInstallPrompt = event;
+  window.dispatchEvent(new Event('homefin-install-available'));
+});
+
+
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
