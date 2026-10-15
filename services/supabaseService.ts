@@ -201,11 +201,24 @@ export const supabaseService = {
       }),
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    let data: any = null;
+
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      data = { message: responseText };
+    }
 
     if (!response.ok) {
       console.error('Erro ao excluir dados da família:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao excluir dados da família.');
+      throw new Error(
+        data?.error ||
+        data?.message ||
+        data?.details ||
+        data?.hint ||
+        (data ? JSON.stringify(data) : `Falha na API do Supabase (HTTP ${response.status}).`)
+      );
     }
   },
 
