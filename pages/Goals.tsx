@@ -61,23 +61,12 @@ const Goals: React.FC = () => {
         return;
       }
 
-      await db.sync();
-
-      if (!navigator.onLine) {
-        alert('Meta salva neste dispositivo. A sincronização com a nuvem ficará pendente até a conexão voltar.');
-        setIsModalOpen(false);
-        setNewGoal({});
-        return;
-      }
-
-      const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
-      if (localStorage.getItem(`homefin_pending_sync_${familyId}`)) {
-        alert('A meta foi salva neste dispositivo, mas a nuvem ainda não confirmou o recebimento. Mantenha a conexão ativa e tente novamente mais tarde.');
-        return;
-      }
-
+      // Fecha após confirmar o salvamento local; a nuvem sincroniza em segundo plano.
       setIsModalOpen(false);
       setNewGoal({});
+      void db.sync().catch((error) => {
+        console.error('HomeFin: sincronização pendente após salvar meta:', error);
+      });
     } catch (error) {
       console.error('HomeFin: erro ao salvar meta:', error);
       alert('Ocorreu um erro ao salvar a meta. Seus dados não foram confirmados. Tente novamente.');

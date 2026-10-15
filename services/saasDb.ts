@@ -69,6 +69,15 @@ export interface AppBannerConfig {
   altText: string;
   imagePositionX?: number;
   imagePositionY?: number;
+  partnerEnabled?: boolean;
+  partnerImageUrl?: string;
+  partnerLinkUrl?: string;
+  partnerAltText?: string;
+  partnerImagePositionX?: number;
+  partnerImagePositionY?: number;
+  partnerMediaType?: 'image' | 'mp4' | 'youtube';
+  partnerVideoUrl?: string;
+  partnerVideoFit?: 'cover' | 'contain';
 }
 
 export interface SaasData {
@@ -154,7 +163,16 @@ const initialSaasData: SaasData = {
     enabled: true,
     imageUrl: 'https://picsum.photos/seed/ads/800/100',
     linkUrl: 'https://google.com',
-    altText: 'Banner Publicitário'
+    altText: 'Banner Publicitário',
+    partnerEnabled: false,
+    partnerImageUrl: '',
+    partnerLinkUrl: '',
+    partnerAltText: 'Publicidade de parceiro',
+    partnerImagePositionX: 50,
+    partnerImagePositionY: 50,
+    partnerMediaType: 'image',
+    partnerVideoUrl: '',
+    partnerVideoFit: 'cover'
   }
 };
 

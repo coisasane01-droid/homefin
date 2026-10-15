@@ -1499,6 +1499,203 @@ const SuperAdmin: React.FC = () => {
                 </label>
               </div>
 
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-4">
+                <div>
+                  <h3 className="font-bold text-indigo-900">Publicidade direta — parceiro comercial</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Configure uma campanha própria. Quando estiver ativa e tiver uma imagem, ela será exibida no lugar do banner manual. Se não houver campanha válida, o banner manual continuará como reserva.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-3 font-medium text-gray-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!appBannerConfig.partnerEnabled}
+                    onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerEnabled: e.target.checked })}
+                    className="w-5 h-5 text-indigo-600 rounded border-gray-300"
+                  />
+                  Ativar campanha do parceiro
+                </label>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de mídia da campanha</label>
+                  <select
+                    value={appBannerConfig.partnerMediaType || 'image'}
+                    onChange={e => setAppBannerConfig({
+                      ...appBannerConfig,
+                      partnerMediaType: e.target.value as 'image' | 'mp4' | 'youtube'
+                    })}
+                    className="w-full p-3 border rounded-lg bg-white"
+                  >
+                    <option value="image">Imagem</option>
+                    <option value="mp4">Vídeo MP4</option>
+                    <option value="youtube">Vídeo do YouTube</option>
+                  </select>
+                </div>
+
+                {(appBannerConfig.partnerMediaType === 'mp4' ||
+                  appBannerConfig.partnerMediaType === 'youtube') && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {appBannerConfig.partnerMediaType === 'mp4'
+                        ? 'Endereço público do vídeo MP4'
+                        : 'Link do vídeo no YouTube'}
+                    </label>
+                    <input
+                      type="url"
+                      value={appBannerConfig.partnerVideoUrl || ''}
+                      onChange={e => setAppBannerConfig({
+                        ...appBannerConfig,
+                        partnerVideoUrl: e.target.value
+                      })}
+                      className="w-full p-3 border rounded-lg"
+                      placeholder={appBannerConfig.partnerMediaType === 'mp4'
+                        ? 'https://servidor.com/video.mp4'
+                        : 'https://www.youtube.com/watch?v=...'}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      O MP4 precisa estar acessível por URL. O vídeo será exibido sem som inicialmente; a reprodução automática depende do navegador.
+                    </p>
+                  </div>
+                )}
+
+                {appBannerConfig.partnerMediaType === 'mp4' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Enquadramento do vídeo MP4</label>
+                    <select
+                      value={appBannerConfig.partnerVideoFit || 'cover'}
+                      onChange={e => setAppBannerConfig({
+                        ...appBannerConfig,
+                        partnerVideoFit: e.target.value as 'cover' | 'contain'
+                      })}
+                      className="w-full p-3 border rounded-lg bg-white"
+                    >
+                      <option value="cover">Preencher banner (pode cortar as bordas)</option>
+                      <option value="contain">Mostrar vídeo inteiro (pode deixar espaços)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      A altura e a largura do banner permanecem iguais. Esta opção controla o enquadramento do MP4.
+                    </p>
+                  </div>
+                )}
+
+                {appBannerConfig.partnerMediaType === 'youtube' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Exibição do vídeo do YouTube</label>
+                    <select
+                      value={appBannerConfig.partnerVideoFit || 'cover'}
+                      onChange={e => setAppBannerConfig({
+                        ...appBannerConfig,
+                        partnerVideoFit: e.target.value as 'cover' | 'contain'
+                      })}
+                      className="w-full p-3 border rounded-lg bg-white"
+                    >
+                      <option value="cover">Preencher banner (ampliar vídeo)</option>
+                      <option value="contain">Mostrar vídeo inteiro</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      A ampliação pode esconder partes do player, inclusive controles. As barras que fazem parte do próprio vídeo podem continuar aparecendo.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Imagem da campanha (URL ou upload; usada no modo Imagem)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={appBannerConfig.partnerImageUrl || ''}
+                      onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerImageUrl: e.target.value })}
+                      className="flex-1 min-w-0 p-3 border rounded-lg"
+                      placeholder="https://..."
+                    />
+                    <label className="cursor-pointer bg-white hover:bg-gray-100 border p-3 rounded-lg text-gray-600 flex items-center justify-center" title="Enviar imagem da campanha">
+                      <Image size={20} />
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              if (typeof reader.result === 'string') {
+                                setAppBannerConfig(prev => ({ ...prev, partnerImageUrl: reader.result as string }));
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                          e.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {appBannerConfig.partnerImageUrl && (
+                    <div className="mt-3 h-24 sm:h-32 w-full rounded-lg overflow-hidden border bg-white">
+                      <img
+                        src={appBannerConfig.partnerImageUrl}
+                        alt={appBannerConfig.partnerAltText || 'Prévia da campanha do parceiro'}
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: `${appBannerConfig.partnerImagePositionX ?? 50}% ${appBannerConfig.partnerImagePositionY ?? 50}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Link de destino do parceiro</label>
+                  <input
+                    type="url"
+                    value={appBannerConfig.partnerLinkUrl || ''}
+                    onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerLinkUrl: e.target.value })}
+                    className="w-full p-3 border rounded-lg"
+                    placeholder="https://site-do-parceiro.com.br"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Texto alternativo da campanha</label>
+                  <input
+                    type="text"
+                    value={appBannerConfig.partnerAltText || ''}
+                    onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerAltText: e.target.value })}
+                    className="w-full p-3 border rounded-lg"
+                    placeholder="Descrição da publicidade"
+                  />
+                </div>
+
+                {appBannerConfig.partnerImageUrl && (
+                  <div className="space-y-3 rounded-lg border bg-white p-3">
+                    <p className="text-sm font-semibold text-gray-700">Enquadramento da campanha</p>
+                    <label className="block text-sm text-gray-700">
+                      Horizontal: {appBannerConfig.partnerImagePositionX ?? 50}%
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        className="w-full"
+                        value={appBannerConfig.partnerImagePositionX ?? 50}
+                        onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerImagePositionX: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label className="block text-sm text-gray-700">
+                      Vertical: {appBannerConfig.partnerImagePositionY ?? 50}%
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        className="w-full"
+                        value={appBannerConfig.partnerImagePositionY ?? 50}
+                        onChange={e => setAppBannerConfig({ ...appBannerConfig, partnerImagePositionY: Number(e.target.value) })}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Banner (URL ou Upload)</label>
                 <div className="flex gap-2">

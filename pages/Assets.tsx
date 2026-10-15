@@ -49,23 +49,12 @@ const Assets: React.FC = () => {
         return;
       }
 
-      await db.sync();
-
-      if (!navigator.onLine) {
-        alert('Bem salvo neste dispositivo. A sincronização com a nuvem ficará pendente até a conexão voltar.');
-        setIsModalOpen(false);
-        setNewAsset({});
-        return;
-      }
-
-      const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
-      if (localStorage.getItem(`homefin_pending_sync_${familyId}`)) {
-        alert('O bem foi salvo neste dispositivo, mas a nuvem ainda não confirmou o recebimento. Mantenha a conexão ativa e tente novamente mais tarde.');
-        return;
-      }
-
+      // Fecha após confirmar o salvamento local; a nuvem sincroniza em segundo plano.
       setIsModalOpen(false);
       setNewAsset({});
+      void db.sync().catch((error) => {
+        console.error('HomeFin: sincronização pendente após salvar bem:', error);
+      });
     } catch (error) {
       console.error('HomeFin: erro ao salvar bem:', error);
       alert('Ocorreu um erro ao salvar o bem. Seus dados não foram confirmados. Tente novamente.');

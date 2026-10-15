@@ -421,12 +421,126 @@ const Bills: React.FC = () => {
     <div className="pb-20 relative">
       {/* Month Navigation - Static on mobile to prevent overlap, sticky on desktop */}
       <div className="md:sticky md:top-0 z-10 bg-gray-50 dark:bg-gray-900 pb-2 pt-2 border-b border-transparent">
-        {/* Banner Publicitário */}
-        {appBannerConfig.enabled && (
-          <a href={appBannerConfig.linkUrl} target="_blank" rel="noopener noreferrer" className="block w-full mb-4 rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity">
-            <img src={appBannerConfig.imageUrl} alt={appBannerConfig.altText} className="w-full h-32 sm:h-40 md:h-48 object-cover" style={{ objectPosition: `${appBannerConfig.imagePositionX ?? 50}% ${appBannerConfig.imagePositionY ?? 50}%` }} referrerPolicy="no-referrer" />
-          </a>
-        )}
+        {/* Banner Publicitário: mídia de parceiro com banner manual como reserva */}
+        {appBannerConfig.enabled && (() => {
+          const mediaType = appBannerConfig.partnerMediaType || 'image';
+          const videoUrl = appBannerConfig.partnerVideoUrl?.trim() || '';
+          let youtubeEmbedUrl = '';
+
+          if (mediaType === 'youtube' && videoUrl) {
+            try {
+              const parsed = new URL(videoUrl);
+              const host = parsed.hostname.replace(/^www\./, '');
+              let videoId = '';
+
+              if (host === 'youtu.be') {
+                videoId = parsed.pathname.split('/').filter(Boolean)[0] || '';
+              } else if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtube-nocookie.com') {
+                if (parsed.pathname === '/watch') {
+                  videoId = parsed.searchParams.get('v') || '';
+                } else {
+                  const parts = parsed.pathname.split('/').filter(Boolean);
+                  if (['embed', 'shorts', 'live'].includes(parts[0] || '')) {
+                    videoId = parts[1] || '';
+                  }
+                }
+              }
+
+              if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+                youtubeEmbedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&controls=1&loop=1&playlist=${videoId}`;
+              }
+            } catch {
+              youtubeEmbedUrl = '';
+            }
+          }
+
+          const hasPartnerMedia =
+            mediaType === 'image'
+              ? !!appBannerConfig.partnerImageUrl?.trim()
+              : mediaType === 'mp4'
+                ? !!videoUrl
+                : !!youtubeEmbedUrl;
+
+          const usePartnerCampaign =
+            !!appBannerConfig.partnerEnabled && hasPartnerMedia;
+
+          if (usePartnerCampaign) {
+            const linkUrl = appBannerConfig.partnerLinkUrl?.trim() || '';
+            const media = mediaType === 'mp4' ? (
+              <video
+                src={videoUrl}
+                className={`w-full h-32 sm:h-40 md:h-48 ${appBannerConfig.partnerVideoFit === 'contain' ? 'object-contain bg-black' : 'object-cover'}`}
+                autoPlay
+                muted
+                playsInline
+                loop
+                controls
+                preload="metadata"
+                aria-label={appBannerConfig.partnerAltText || 'Vídeo publicitário de parceiro'}
+              />
+            ) : mediaType === 'youtube' ? (
+              <iframe
+                src={youtubeEmbedUrl}
+                title={appBannerConfig.partnerAltText || 'Vídeo publicitário de parceiro'}
+                className={`w-full h-32 sm:h-40 md:h-48 ${appBannerConfig.partnerVideoFit === 'contain' ? 'bg-black' : ''}`}
+                style={appBannerConfig.partnerVideoFit === 'cover' ? {
+                  transform: 'scale(1.18)',
+                  transformOrigin: 'center',
+                } : undefined}
+                allow="autoplay; encrypted-media; picture-in-picture"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            ) : (
+              <img
+                src={appBannerConfig.partnerImageUrl}
+                alt={appBannerConfig.partnerAltText || 'Publicidade de parceiro'}
+                className="w-full h-32 sm:h-40 md:h-48 object-cover"
+                style={{
+                  objectPosition: `${appBannerConfig.partnerImagePositionX ?? 50}% ${appBannerConfig.partnerImagePositionY ?? 50}%`
+                }}
+                referrerPolicy="no-referrer"
+              />
+            );
+
+            return (
+              <div className="relative w-full mb-4 rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700">
+                {media}
+                {linkUrl && (
+                  <a
+                    href={linkUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute bottom-2 right-2 z-10 rounded-lg bg-white/95 text-gray-900 text-xs font-semibold px-3 py-2 shadow hover:bg-white"
+                  >
+                    Conhecer parceiro
+                  </a>
+                )}
+              </div>
+            );
+          }
+
+          if (!appBannerConfig.imageUrl) return null;
+
+          return (
+            <a
+              href={appBannerConfig.linkUrl || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full mb-4 rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
+            >
+              <img
+                src={appBannerConfig.imageUrl}
+                alt={appBannerConfig.altText}
+                className="w-full h-32 sm:h-40 md:h-48 object-cover"
+                style={{
+                  objectPosition: `${appBannerConfig.imagePositionX ?? 50}% ${appBannerConfig.imagePositionY ?? 50}%`
+                }}
+                referrerPolicy="no-referrer"
+              />
+            </a>
+          );
+        })()}
         <div className="flex justify-between items-center">
             <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors">
                 <ChevronLeft />

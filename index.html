@@ -66,11 +66,17 @@
     try {
       const hashPath = window.location.hash.split('?')[0];
 
+      const currentFamilyId =
+        localStorage.getItem('homefin_current_family_id') || 'v1';
+
+      const isFamilyRedirect =
+        currentFamilyId !== 'v1' &&
+        (hashPath === '' || hashPath === '#' || hashPath === '#/');
+
       if (
-  hashPath !== '' &&
-  hashPath !== '#' &&
-  hashPath !== '#/'
-) return;
+        (hashPath !== '' && hashPath !== '#' && hashPath !== '#/') ||
+        isFamilyRedirect
+      ) return;
 
       const raw = localStorage.getItem('homefin_saas_data_v1');
       if (!raw) return;
