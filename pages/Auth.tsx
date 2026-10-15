@@ -57,6 +57,12 @@ const Auth: React.FC = () => {
 
     if (familyId) {
       localStorage.setItem('homefin_current_family_id', familyId);
+      const selectedFamily = saasDb.getFamilies().find(f => f.id === familyId);
+      if (selectedFamily) {
+        localStorage.setItem('homefin_current_family_name', selectedFamily.name);
+      } else {
+        localStorage.removeItem('homefin_current_family_name');
+      }
     }
 
     const loadSettings = async () => {
@@ -266,7 +272,7 @@ const Auth: React.FC = () => {
               </div>
           )}
           <h1 className={`text-2xl font-bold mb-2 ${hasBackground ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
-            {localStorage.getItem('homefin_current_family_name') || settings?.houseName || 'HomeFin'}
+            {settings?.houseName || localStorage.getItem('homefin_current_family_name') || 'HomeFin'}
           </h1>
           <p className={`text-lg font-medium transition-colors text-center ${error ? 'text-red-500 flex items-center gap-2' : (hasBackground ? 'text-white/80' : 'text-gray-600 dark:text-gray-300')}`}>
             {error && <AlertCircle size={20} />}
@@ -436,6 +442,24 @@ const Auth: React.FC = () => {
               </div>
             )}
           </>
+        )}
+
+        {mode !== 'recovery' && mode !== 'reset_warning' && (
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem('homefin_current_family_id');
+                localStorage.removeItem('homefin_current_family_name');
+                window.location.hash = '/';
+              }}
+              className={`text-sm font-semibold underline underline-offset-4 ${
+                hasBackground ? 'text-white' : 'text-primary-600 dark:text-primary-400'
+              }`}
+            >
+              Entrar em outra família
+            </button>
+          </div>
         )}
 
         {mode !== 'login' && mode !== 'recovery' && mode !== 'reset_warning' && (

@@ -48,23 +48,40 @@ const Goals: React.FC = () => {
       notes: newGoal.notes || ''
     };
 
-    const savePromise = db.updateGoal(goalToSave);
-    void savePromise.catch(error =>
-      console.error('HomeFin: erro ao salvar/sincronizar meta:', error)
-    );
+    try {
+      await db.updateGoal(goalToSave);
+      await loadGoals();
 
-    await loadGoals();
-    const savedGoal = (await db.getGoals()).find(
-      goal => goal.id === goalToSave.id
-    );
+      const savedGoal = (await db.getGoals()).find(
+        goal => goal.id === goalToSave.id
+      );
 
-    if (!savedGoal || JSON.stringify(savedGoal) !== JSON.stringify(goalToSave)) {
-      alert('Não foi possível confirmar o salvamento da meta. Confira o espaço disponível e tente novamente.');
-      return;
+      if (!savedGoal || JSON.stringify(savedGoal) !== JSON.stringify(goalToSave)) {
+        alert('Não foi possível confirmar o salvamento local da meta. Confira o espaço disponível e tente novamente.');
+        return;
+      }
+
+      await db.sync();
+
+      if (!navigator.onLine) {
+        alert('Meta salva neste dispositivo. A sincronização com a nuvem ficará pendente até a conexão voltar.');
+        setIsModalOpen(false);
+        setNewGoal({});
+        return;
+      }
+
+      const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+      if (localStorage.getItem(`homefin_pending_sync_${familyId}`)) {
+        alert('A meta foi salva neste dispositivo, mas a nuvem ainda não confirmou o recebimento. Mantenha a conexão ativa e tente novamente mais tarde.');
+        return;
+      }
+
+      setIsModalOpen(false);
+      setNewGoal({});
+    } catch (error) {
+      console.error('HomeFin: erro ao salvar meta:', error);
+      alert('Ocorreu um erro ao salvar a meta. Seus dados não foram confirmados. Tente novamente.');
     }
-
-    setIsModalOpen(false);
-    setNewGoal({});
   };
 
   const handleDelete = async (id: string) => {

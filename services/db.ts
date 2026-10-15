@@ -86,21 +86,28 @@ const saveLocalData = (data: AppData): Promise<void> => {
   const normalized = normalizeData(data);
   const serializedSnapshot = JSON.stringify(normalized);
 
+  // Preserva os dados no dispositivo antes de iniciar a sincronização.
   localStorage.setItem(storageKeyToSave, serializedSnapshot);
   localStorage.setItem(pendingKey, '1');
   cachedData = normalized;
 
-  if (navigator.onLine) {
-    // A gravação local já foi concluída. Sincroniza em segundo plano
-    // para que a interface não fique esperando a resposta do servidor.
-    void enqueueRemoteSave(
-      familyIdToSave,
-      storageKeyToSave,
-      serializedSnapshot
-    ).catch((error) => {
-      console.error('HomeFin: sincronização pendente para nova tentativa:', error);
-    });
+  // Offline: mantém a pendência para sincronizar quando a conexão voltar.
+  if (!navigator.onLine) {
+    return Promise.resolve();
   }
+
+  // A sincronização ocorre em segundo plano para não interromper
+  // operações existentes que ainda não tratam falhas de rede.
+  void enqueueRemoteSave(
+    familyIdToSave,
+    storageKeyToSave,
+    serializedSnapshot
+  ).catch((error) => {
+    console.error(
+      'HomeFin: dados salvos localmente; sincronização pendente:',
+      error
+    );
+  });
 
   return Promise.resolve();
 };

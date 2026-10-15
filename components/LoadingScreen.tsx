@@ -12,7 +12,12 @@ const getInitialBackground = (): React.CSSProperties => {
 
     const isLoginRoute = hash.split('?')[0].includes('/login');
 
-    if (isLoginRoute) {
+    const isFamilyRedirect =
+      Boolean(familyId) &&
+      familyId !== 'v1' &&
+      (hash.split('?')[0] === '#' || hash.split('?')[0] === '#/');
+
+    if (isLoginRoute || isFamilyRedirect) {
       const familyRaw = window.localStorage.getItem(`homefin_data_${familyId}`);
       if (familyRaw) {
         const familyData = JSON.parse(familyRaw);

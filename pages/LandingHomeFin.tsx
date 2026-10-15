@@ -284,8 +284,8 @@ const LandingHomeFin: React.FC = () => {
 
       {/* Modal: Login Family Name */}
       {isLoginModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white text-gray-900 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white text-gray-900 rounded-2xl shadow-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto p-8 relative my-auto">
             <button 
               onClick={() => setIsLoginModalOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"

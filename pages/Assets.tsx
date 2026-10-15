@@ -36,23 +36,40 @@ const Assets: React.FC = () => {
       notes: newAsset.notes || ''
     };
 
-    const savePromise = db.updateAsset(assetToSave);
-    void savePromise.catch(error =>
-      console.error('HomeFin: erro ao salvar/sincronizar bem:', error)
-    );
+    try {
+      await db.updateAsset(assetToSave);
+      await loadAssets();
 
-    await loadAssets();
-    const savedAsset = (await db.getAssets()).find(
-      asset => asset.id === assetToSave.id
-    );
+      const savedAsset = (await db.getAssets()).find(
+        asset => asset.id === assetToSave.id
+      );
 
-    if (!savedAsset || JSON.stringify(savedAsset) !== JSON.stringify(assetToSave)) {
-      alert('Não foi possível confirmar o salvamento do bem. Confira o espaço disponível e tente novamente.');
-      return;
+      if (!savedAsset || JSON.stringify(savedAsset) !== JSON.stringify(assetToSave)) {
+        alert('Não foi possível confirmar o salvamento local do bem. Confira o espaço disponível e tente novamente.');
+        return;
+      }
+
+      await db.sync();
+
+      if (!navigator.onLine) {
+        alert('Bem salvo neste dispositivo. A sincronização com a nuvem ficará pendente até a conexão voltar.');
+        setIsModalOpen(false);
+        setNewAsset({});
+        return;
+      }
+
+      const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+      if (localStorage.getItem(`homefin_pending_sync_${familyId}`)) {
+        alert('O bem foi salvo neste dispositivo, mas a nuvem ainda não confirmou o recebimento. Mantenha a conexão ativa e tente novamente mais tarde.');
+        return;
+      }
+
+      setIsModalOpen(false);
+      setNewAsset({});
+    } catch (error) {
+      console.error('HomeFin: erro ao salvar bem:', error);
+      alert('Ocorreu um erro ao salvar o bem. Seus dados não foram confirmados. Tente novamente.');
     }
-
-    setIsModalOpen(false);
-    setNewAsset({});
   };
 
   const handleDelete = async (id: string) => {

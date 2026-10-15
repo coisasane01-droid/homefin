@@ -195,7 +195,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             className="flex-shrink-0 flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors mt-auto"
           >
             <LogOut size={20} />
-            Sair
+            Sair da família
           </button>
         </div>
       </aside>

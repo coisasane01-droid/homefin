@@ -423,6 +423,14 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 </div>
               </div>
 
+              <button
+                type="button"
+                onClick={() => navigate('/login')}
+                className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30 mt-4"
+              >
+                Ir para Login
+              </button>
+
               <div className="space-y-3 pt-4 border-t">
                 <h3 className="font-bold text-gray-900 text-sm">Instale o HomeFin no seu aparelho</h3>
                 {isInstalled ? (
@@ -458,12 +466,6 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 )}
               </div>
 
-              <button 
-                onClick={() => navigate('/login')}
-                className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30 mt-2"
-              >
-                Ir para Login
-              </button>
             </div>
           </div>
         </div>
