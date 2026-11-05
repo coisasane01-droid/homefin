@@ -39,14 +39,7 @@ const Shopping: React.FC = () => {
 
   useEffect(() => {
     loadItems();
-    requestNotificationPermission();
   }, []);
-
-  const requestNotificationPermission = async () => {
-    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-      await Notification.requestPermission();
-    }
-  };
 
   useEffect(() => {
     if (items.length > 0) {

@@ -1,117 +1,137 @@
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+import { authorizePushIdentity } from './_push-authorization.js';
+import { isSupportedPushEndpoint } from './_push-endpoint.js';
 
 async function supabaseRequest(path, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Configuração segura do Supabase indisponível.');
+  }
 
+  const response = await fetch(
+    `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/${path}`,
+    {
+      ...options,
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(options.headers || {}),
+      },
+    }
+  );
   const text = await response.text();
 
-  let data = null;
+  if (!response.ok) {
+    console.error('Falha ao acessar inscrições Push no Supabase:', response.status);
+    throw new Error('Não foi possível registrar a inscrição Push.');
+  }
+  if (!text) return null;
 
   try {
-    data = text ? JSON.parse(text) : null;
+    return JSON.parse(text);
   } catch {
-    data = text;
+    throw new Error('Resposta inválida do serviço de notificações.');
+  }
+}
+
+function isValidSubscription(subscription) {
+  if (
+    !subscription ||
+    typeof subscription.endpoint !== 'string' ||
+    subscription.endpoint.length > 2048 ||
+    !subscription.keys ||
+    typeof subscription.keys.p256dh !== 'string' ||
+    !/^[A-Za-z0-9_-]{40,200}$/.test(subscription.keys.p256dh) ||
+    typeof subscription.keys.auth !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,100}$/.test(subscription.keys.auth)
+  ) {
+    return false;
   }
 
-  if (!response.ok) {
-    throw new Error(
-      typeof data === 'string'
-        ? data
-        : data?.message ||
-          data?.error ||
-          `Supabase HTTP ${response.status}`
-    );
+  try {
+    return isSupportedPushEndpoint(subscription.endpoint);
+  } catch {
+    return false;
   }
-
-  return data;
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
   try {
     if (req.method === 'POST') {
-      const {
-        familyId,
-        userType,
-        subscription,
-      } = req.body || {};
-
-      if (!familyId || !userType || !subscription?.endpoint) {
-        return res.status(400).json({
-          error:
-            'familyId, userType e subscription são obrigatórios.',
-        });
+      const { familyId, userType, subscription } = req.body || {};
+      const identity = await authorizePushIdentity(req, familyId, userType);
+      if (!identity.valid) {
+        return res.status(identity.status).json({ error: identity.error });
+      }
+      if (!isValidSubscription(subscription)) {
+        return res.status(400).json({ error: 'Inscrição Push inválida.' });
       }
 
-      if (!['family', 'admin'].includes(userType)) {
-        return res.status(400).json({
-          error: 'userType inválido.',
-        });
-      }
-
-      await supabaseRequest(
-        '/rest/v1/homefin_push_subscriptions?on_conflict=endpoint',
-        {
-          method: 'POST',
-          headers: {
-            Prefer: 'resolution=merge-duplicates,return=minimal',
-          },
-          body: JSON.stringify({
-            family_id: familyId,
-            user_type: userType,
-            endpoint: subscription.endpoint,
-            subscription,
-            updated_at: new Date().toISOString(),
-          }),
-        }
-      );
-
-      return res.status(200).json({
-        success: true,
+      const params = new URLSearchParams({ on_conflict: 'endpoint' });
+      const saved = await supabaseRequest(`homefin_push_subscriptions?${params}`, {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify({
+          family_id: identity.familyId,
+          user_type: identity.userType,
+          endpoint: subscription.endpoint,
+          subscription,
+          updated_at: new Date().toISOString(),
+        }),
       });
+
+      if (!Array.isArray(saved) || !saved.some((row) =>
+        row.endpoint === subscription.endpoint &&
+        row.family_id === identity.familyId &&
+        row.user_type === identity.userType
+      )) {
+        return res.status(502).json({ error: 'O Supabase não confirmou a inscrição Push.' });
+      }
+
+      return res.status(200).json({ success: true, registered: true });
     }
 
     if (req.method === 'DELETE') {
-      const endpoint = req.query?.endpoint;
-
-      if (!endpoint) {
-        return res.status(400).json({
-          error: 'endpoint é obrigatório.',
-        });
+      const { endpoint, familyId, userType } = req.body || {};
+      const identity = await authorizePushIdentity(req, familyId, userType);
+      if (!identity.valid) {
+        return res.status(identity.status).json({ error: identity.error });
+      }
+      if (typeof endpoint !== 'string' || endpoint.length > 2048) {
+        return res.status(400).json({ error: 'Endpoint da inscrição é inválido.' });
       }
 
-      await supabaseRequest(
-        `/rest/v1/homefin_push_subscriptions?endpoint=eq.${encodeURIComponent(
-          endpoint
-        )}`,
-        {
-          method: 'DELETE',
-        }
-      );
+      const params = new URLSearchParams({
+        endpoint: `eq.${endpoint}`,
+        family_id: `eq.${identity.familyId}`,
+        user_type: `eq.${identity.userType}`,
+      });
+      const deleted = await supabaseRequest(`homefin_push_subscriptions?${params}`, {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' },
+      });
 
       return res.status(200).json({
         success: true,
+        removed: Array.isArray(deleted) && deleted.length > 0,
       });
     }
 
-    return res.status(405).json({
-      error: 'Método não permitido.',
-    });
+    res.setHeader('Allow', 'POST, DELETE');
+    return res.status(405).json({ error: 'Método não permitido.' });
   } catch (error) {
-    console.error('Erro ao registrar Push HomeFin:', error);
-
+    console.error(
+      'Erro ao registrar Push HomeFin:',
+      error instanceof Error ? error.message : 'erro desconhecido'
+    );
     return res.status(500).json({
-      error:
-        error?.message ||
-        'Erro interno ao registrar notificação Push.',
+      error: error instanceof Error
+        ? error.message
+        : 'Erro interno ao registrar notificação Push.',
     });
   }
 }

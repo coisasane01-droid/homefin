@@ -6,6 +6,7 @@ export interface Attachment {
   name: string;
   url: string;
   type: 'image' | 'pdf' | 'link';
+  storagePath?: string;
 }
 
 export interface Bill {

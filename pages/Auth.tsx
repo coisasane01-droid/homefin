@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Delete, Lock, KeyRound, ShieldQuestion, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
-import { db } from '../services/db';
-import { saasDb } from '../services/saasDb';
+import { Home, Delete, KeyRound, AlertCircle, AlertTriangle } from 'lucide-react';
 import { UserSettings } from '../types';
+import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
 
 const PIN_LENGTH = 4;
 
@@ -31,78 +30,49 @@ const getInitialFamilySettings = (): UserSettings | null => {
 
 const Auth: React.FC = () => {
   const [pin, setPin] = useState('');
-  const [mode, setMode] = useState<'login' | 'create' | 'confirm' | 'recovery' | 'reset_warning'>('login');
-  const [tempPin, setTempPin] = useState('');
+  const [mode, setMode] = useState<'login' | 'recovery' | 'reset_warning'>('login');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState<UserSettings | null>(getInitialFamilySettings);
-  
-  // Recovery State
   const [recoveryInput, setRecoveryInput] = useState('');
-
-  // Determine storage keys based on family context
-  const getStorageKeys = () => {
-      const familyId = localStorage.getItem('homefin_current_family_id');
-      const suffix = familyId && familyId !== 'v1' ? `_${familyId}` : '';
-      return {
-          pin: `homefin_user_pin${suffix}`,
-          keyword: `homefin_user_keyword${suffix}`
-      };
-  };
+  const [recoveryPin, setRecoveryPin] = useState('');
+  const [hasRecovery, setHasRecovery] = useState(false);
+  const [authStatusReady, setAuthStatusReady] = useState(false);
 
   useEffect(() => {
-    // Check for family param in URL
     const params = new URLSearchParams(window.location.hash.split('?')[1]);
-    const familyId = params.get('family');
+    const familyId = params.get('family') || localStorage.getItem('homefin_current_family_id') || 'v1';
 
-    if (familyId) {
+    if (familyId && familyId !== 'v1') {
       localStorage.setItem('homefin_current_family_id', familyId);
-      const selectedFamily = saasDb.getFamilies().find(f => f.id === familyId);
-      if (selectedFamily) {
-        localStorage.setItem('homefin_current_family_name', selectedFamily.name);
-      } else {
-        localStorage.removeItem('homefin_current_family_name');
-      }
     }
 
-    const loadSettings = async () => {
-      if (familyId) {
-        await db.init(familyId);
-      } else {
-        await db.sync();
-      }
+    if (familyId === 'v1') {
+      setMode('reset_warning');
+      setMessage('Selecione uma família para entrar');
+      setAuthStatusReady(true);
+      return;
+    }
 
-      const s = await db.getSettings();
+    let active = true;
+    void familyAuthRequest(familyId, { action: 'status' })
+      .then((result) => {
+        if (!active) return;
+        setHasRecovery(result.hasRecovery === true);
+        setMode(result.enrolled ? 'login' : 'reset_warning');
+        setMessage(result.enrolled ? 'Digite seu código de acesso' : 'Acesso familiar ainda não configurado no servidor');
+        setAuthStatusReady(true);
+      })
+      .catch((statusError) => {
+        if (!active) return;
+        setError(statusError instanceof Error ? statusError.message : 'Não foi possível consultar o servidor.');
+        setMessage('Não foi possível verificar o acesso no servidor.');
+        setAuthStatusReady(true);
+      });
 
-      if (familyId) {
-        const family = saasDb.getFamilies().find(f => f.id === familyId);
-
-        if (family) {
-          setSettings({
-            ...s,
-            houseName: family.name
-          });
-        } else {
-          setSettings(s);
-        }
-      } else {
-        setSettings(s);
-      }
+    return () => {
+      active = false;
     };
-
-    loadSettings();
-
-    // Check if user already has a PIN
-    const { pin: pinKey } = getStorageKeys();
-    const storedPin = localStorage.getItem(pinKey);
-    
-    if (!storedPin) {
-      setMode('create');
-      setMessage('Crie seu código de acesso');
-    } else {
-      setMode('login');
-      setMessage('Digite seu código de acesso');
-    }
   }, []);
 
   const triggerHaptic = () => {
@@ -116,7 +86,7 @@ const Auth: React.FC = () => {
   };
 
   const handleNumberClick = (num: number) => {
-    if (mode === 'recovery' || mode === 'reset_warning') return;
+    if (mode !== 'login' || !authStatusReady) return;
 
     triggerHaptic();
 
@@ -138,78 +108,56 @@ const Auth: React.FC = () => {
     setError('');
   };
 
-  const processPin = (inputPin: string) => {
-    const { pin: pinKey } = getStorageKeys();
 
-    if (mode === 'login') {
-      const storedPin = localStorage.getItem(pinKey);
-      if (inputPin === storedPin) {
-        // Success
-        window.location.hash = '/bills';
-      } else {
-        setError('Código incorreto');
-        setPin('');
-      }
-    } else if (mode === 'create') {
-      setTempPin(inputPin);
+  const processPin = async (inputPin: string) => {
+    setError('');
+    const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+    try {
+      const result = await familyAuthRequest(familyId, { action: 'login', pin: inputPin });
+      storeFamilySession(familyId, result);
+      window.location.hash = '/dashboard';
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Não foi possível validar o acesso.');
       setPin('');
-      setMode('confirm');
-      setMessage('Confirme seu código');
-    } else if (mode === 'confirm') {
-      if (inputPin === tempPin) {
-        localStorage.setItem(pinKey, inputPin);
-        window.location.hash = '/bills';
-      } else {
-        setError('Os códigos não coincidem. Tente novamente.');
-        setPin('');
-        setMode('create');
-        setMessage('Crie seu código de acesso');
-        setTempPin('');
-      }
     }
   };
 
   const startRecovery = () => {
-    const { keyword: keywordKey } = getStorageKeys();
-    const hasKeyword = localStorage.getItem(keywordKey);
-    if (hasKeyword) {
-      setMode('recovery');
-      setPin('');
-      setError('');
-      setMessage('Digite sua palavra-chave');
-      setRecoveryInput('');
-    } else {
-      // Changed from window.confirm to a UI state
-      setMode('reset_warning');
-      setMessage('Recuperação Indisponível');
-    }
+    setMode(hasRecovery ? 'recovery' : 'reset_warning');
+    setPin('');
+    setRecoveryInput('');
+    setRecoveryPin('');
+    setError('');
+    setMessage(hasRecovery ? 'Recupere seu acesso' : 'Recuperação indisponível');
   };
 
-  const checkRecovery = (e: React.FormEvent) => {
+  const checkRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { keyword: keywordKey } = getStorageKeys();
-    const storedKeyword = localStorage.getItem(keywordKey);
-    if (recoveryInput.trim().toLowerCase() === storedKeyword) {
-      setMode('create');
-      setPin('');
-      setRecoveryInput('');
-      setMessage('Palavra correta! Crie um novo PIN.');
-      setError('');
-    } else {
-      setError('Palavra-chave incorreta');
+    const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+    if (!/^\d{4}$/.test(recoveryPin)) {
+      setError('O novo PIN deve conter exatamente 4 dígitos.');
+      return;
+    }
+    try {
+      const result = await familyAuthRequest(familyId, {
+        action: 'recover',
+        keyword: recoveryInput,
+        newPin: recoveryPin,
+      });
+      storeFamilySession(familyId, result);
+      window.location.hash = '/dashboard';
+    } catch (recoveryError) {
+      setError(recoveryError instanceof Error ? recoveryError.message : 'Não foi possível recuperar o acesso.');
+      setRecoveryPin('');
     }
   };
 
   const cancelRecovery = () => {
-    setMode('login');
-    setMessage('Digite seu código de acesso');
+    setMode(hasRecovery ? 'login' : 'reset_warning');
+    setMessage(hasRecovery ? 'Digite seu código de acesso' : 'Acesso precisa de configuração');
     setError('');
     setRecoveryInput('');
-  };
-
-  const performReset = () => {
-    localStorage.clear();
-    location.reload();
+    setRecoveryPin('');
   };
 
   const hasBackground = !!settings?.backgroundImage;
@@ -283,7 +231,7 @@ const Auth: React.FC = () => {
         {mode === 'recovery' ? (
            <form onSubmit={checkRecovery} className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
               <div className={`text-center text-sm mb-4 p-3 rounded-lg ${hasBackground ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/20 text-gray-500'}`}>
-                  Digite a palavra-chave definida anteriormente em configurações.
+                  Confirme a palavra-chave cadastrada no servidor e escolha um novo PIN de 4 dígitos.
               </div>
               <input 
                 type="text" 
@@ -293,11 +241,21 @@ const Auth: React.FC = () => {
                 placeholder="Palavra-chave..."
                 autoFocus
               />
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                maxLength={4}
+                value={recoveryPin}
+                onChange={e => setRecoveryPin(e.target.value.replace(/\D/g, ''))}
+                className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
+                placeholder="Novo PIN"
+              />
               <button 
                 type="submit" 
                 className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 transition-transform active:scale-95"
               >
-                Verificar
+                Recuperar acesso
               </button>
               <button 
                 type="button" 
@@ -311,20 +269,24 @@ const Auth: React.FC = () => {
            <div className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 rounded-xl flex flex-col items-center text-center gap-3">
                   <AlertTriangle className="text-amber-500 w-10 h-10" />
-                  <h3 className="font-bold text-amber-800 dark:text-amber-200">Sem Palavra-chave</h3>
+                  <h3 className="font-bold text-amber-800 dark:text-amber-200">
+                    {localStorage.getItem('homefin_current_family_id') === 'v1' ? 'Selecione uma família' : 'Acesso precisa de configuração'}
+                  </h3>
                   <p className="text-sm text-amber-700 dark:text-amber-300">
-                    Você não configurou uma palavra-chave de recuperação anteriormente.
+                    {localStorage.getItem('homefin_current_family_id') === 'v1'
+                      ? 'Abra o HomeFin e escolha a família para entrar.'
+                      : 'Esta família ainda não possui uma credencial verificada no servidor.'}
                   </p>
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    A única forma de recuperar o acesso é <b>apagando todos os dados</b> salvos neste dispositivo e criando uma nova conta.
+                    Os dados locais foram preservados. Não crie outra família nem apague este dispositivo; solicite ao administrador a migração segura da credencial.
                   </p>
               </div>
 
               <button 
-                onClick={performReset}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-red-700 transition-transform active:scale-95 flex items-center justify-center gap-2"
+                onClick={() => { window.location.hash = '/'; }}
+                className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 transition-transform active:scale-95 flex items-center justify-center gap-2"
               >
-                <RefreshCw size={18} /> Apagar Tudo e Reiniciar
+                <Home size={18} /> Voltar ao início
               </button>
               <button 
                 type="button" 
@@ -371,6 +333,7 @@ const Auth: React.FC = () => {
                 <button
                   key={num}
                   type="button"
+                  disabled={!authStatusReady}
                   onPointerDown={(e) => {
                     e.preventDefault();
                     handleNumberClick(num);
@@ -389,6 +352,7 @@ const Auth: React.FC = () => {
               <div className="flex items-center justify-center">
                 {mode === 'login' && (
                     <button 
+                      disabled={!authStatusReady}
                       onPointerDown={(e) => {
                           e.preventDefault();
                           startRecovery();
@@ -402,6 +366,7 @@ const Auth: React.FC = () => {
               </div>
 
               <button
+                disabled={!authStatusReady}
                 onPointerDown={(e) => {
                     e.preventDefault();
                     handleNumberClick(0);
@@ -462,14 +427,6 @@ const Auth: React.FC = () => {
           </div>
         )}
 
-        {mode !== 'login' && mode !== 'recovery' && mode !== 'reset_warning' && (
-            <div className="mt-8 text-center">
-                <div className={`flex justify-center items-center gap-2 text-xs ${hasBackground ? 'text-white/60' : 'text-gray-400'}`}>
-                    <Lock size={12} />
-                    <span>Acesso Seguro Local</span>
-                </div>
-            </div>
-        )}
       </div>
     </div>
   );

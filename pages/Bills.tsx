@@ -1,6 +1,7 @@
 import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
+import { supabaseService } from '../services/supabaseService';
 import { Bill, TransactionType, Attachment, UserSettings } from '../types';
 import { generateId, formatCurrency, getMonthName } from '../utils';
 import { saasDb } from '../services/saasDb';
@@ -18,6 +19,7 @@ const Bills: React.FC = () => {
   const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null}>({isOpen: false, id: null});
   const [duplicateConfirmation, setDuplicateConfirmation] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [appBannerConfig, setAppBannerConfig] = useState(saasDb.getAppBannerConfig());
@@ -68,6 +70,30 @@ const Bills: React.FC = () => {
     setLoading(false);
   };
 
+  const removeStorageAttachments = async (paths: string[], familyId: string) => {
+    for (const path of [...new Set(paths)]) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await supabaseService.deleteAttachment(path, familyId);
+          break;
+        } catch (error) {
+          const waitingForSync =
+            error instanceof Error && error.message.includes('aguarde a sincronização');
+          if (waitingForSync && attempt < 4) {
+            await new Promise((resolve) => window.setTimeout(resolve, 750));
+            continue;
+          }
+          console.error('O registro foi atualizado, mas o anexo não pôde ser removido:', error);
+          showNotification(
+            'Registro salvo. A remoção de um anexo ficou pendente; tente novamente após sincronizar.',
+            'error'
+          );
+          break;
+        }
+      }
+    }
+  };
+
   const changeMonth = (offset: number) => {
     const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
     setCurrentDate(newDate);
@@ -116,6 +142,18 @@ const Bills: React.FC = () => {
     } else {
       await db.addBill(billToSave);
     }
+
+    const previousAttachments = bills.find((bill) => bill.id === editingBill.id)?.attachments || [];
+    const retainedPaths = new Set((billToSave.attachments || [])
+      .map((attachment) => attachment.storagePath)
+      .filter((path): path is string => Boolean(path)));
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    void removeStorageAttachments(
+      previousAttachments
+        .map((attachment) => attachment.storagePath)
+        .filter((path): path is string => Boolean(path) && !retainedPaths.has(path)),
+      familyId
+    );
     
     setIsModalOpen(false);
     setEditingBill({});
@@ -161,6 +199,62 @@ const Bills: React.FC = () => {
     setDeleteConfirmation({isOpen: true, id});
   };
 
+  const closeBillEditor = async () => {
+    const previousPaths = new Set((bills.find((bill) => bill.id === editingBill.id)?.attachments || [])
+      .map((attachment) => attachment.storagePath)
+      .filter((path): path is string => Boolean(path)));
+    const newPaths: string[] = [...new Set<string>((editingBill.attachments || [])
+      .map((attachment) => attachment.storagePath)
+      .filter((path): path is string => Boolean(path) && !previousPaths.has(path)))];
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    void removeStorageAttachments(newPaths, familyId);
+    setIsModalOpen(false);
+  };
+
+  const attachmentUrl = (attachment: Attachment) => {
+    if (attachment.storagePath) return attachment.storagePath;
+    if (attachment.url.includes('/storage/v1/object/')) return attachment.url;
+    return null;
+  };
+
+  const openAttachment = async (attachment: Attachment) => {
+    const target = window.open('', '_blank');
+    try {
+      const familyId = localStorage.getItem('homefin_current_family_id') || '';
+      const path = attachmentUrl(attachment);
+      const url = path
+        ? await supabaseService.getAttachmentUrl(path, 3600, familyId)
+        : attachment.url;
+      if (!url) throw new Error('URL do anexo não encontrada.');
+      if (target) target.location.href = url;
+      else window.location.href = url;
+    } catch (error) {
+      target?.close();
+      console.error('Não foi possível abrir o anexo:', error);
+      showNotification('Não foi possível abrir o anexo. Verifique sua sessão e tente novamente.', 'error');
+    }
+  };
+
+  const downloadAttachment = async (attachment: Attachment) => {
+    try {
+      const familyId = localStorage.getItem('homefin_current_family_id') || '';
+      const path = attachmentUrl(attachment);
+      const url = path
+        ? await supabaseService.getAttachmentUrl(path, 3600, familyId)
+        : attachment.url;
+      if (!url) throw new Error('URL do anexo não encontrada.');
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = attachment.name;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.click();
+    } catch (error) {
+      console.error('Não foi possível baixar o anexo:', error);
+      showNotification('Não foi possível baixar o anexo. Verifique sua sessão e tente novamente.', 'error');
+    }
+  };
+
   const payFutureOccurrences = async (bill: Bill) => {
     if (!bill.recurringId) return;
     const paidBy = prompt('Quem está quitando esta conta e os próximos meses?', bill.paidBy || '');
@@ -173,14 +267,31 @@ const Bills: React.FC = () => {
     const selected = bills.find(b => b.id === deleteConfirmation.id);
     if (!selected?.recurringId) return;
     if (!window.confirm('Excluir a conta recorrente de todos os meses, inclusive os anteriores? Esta ação não pode ser desfeita.')) return;
+    const allBills = await db.getAllBills();
+    const attachmentPaths = allBills
+      .filter((bill) => bill.recurringId === selected.recurringId)
+      .flatMap((bill) => bill.attachments || [])
+      .map((attachment) => attachment.storagePath)
+      .filter((path): path is string => Boolean(path));
     await db.deleteBillSeries(selected.recurringId);
+    void removeStorageAttachments(
+      attachmentPaths,
+      localStorage.getItem('homefin_current_family_id') || ''
+    );
     setDeleteConfirmation({isOpen: false, id: null});
     await loadBills();
   };
 
   const confirmDelete = async () => {
     if (deleteConfirmation.id) {
+      const selected = bills.find((bill) => bill.id === deleteConfirmation.id);
       await db.deleteBill(deleteConfirmation.id);
+      void removeStorageAttachments(
+        (selected?.attachments || [])
+          .map((attachment) => attachment.storagePath)
+          .filter((path): path is string => Boolean(path)),
+        localStorage.getItem('homefin_current_family_id') || ''
+      );
       setDeleteConfirmation({isOpen: false, id: null});
       loadBills();
     }
@@ -224,27 +335,31 @@ const Bills: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
         const file = e.target.files[0];
-        const reader = new FileReader();
-        
-        reader.onloadend = () => {
-            const base64String = reader.result as string;
+        setIsUploadingAttachment(true);
+        try {
+            const familyId = localStorage.getItem('homefin_current_family_id') || '';
+            const uploaded = await supabaseService.uploadAttachment(file, familyId);
             const newAttachment: Attachment = {
                 id: generateId(),
                 name: file.name,
-                url: base64String,
+                url: '',
+                storagePath: uploaded.path,
                 type: file.type.includes('image') ? 'image' : (file.type.includes('pdf') ? 'pdf' : 'link')
             };
-            
             setEditingBill(prev => ({
                 ...prev,
                 attachments: [...(prev.attachments || []), newAttachment]
             }));
-        };
-        
-        reader.readAsDataURL(file);
+        } catch (error) {
+            console.error('Não foi possível enviar o anexo:', error);
+            showNotification(error instanceof Error ? error.message : 'Não foi possível enviar o anexo.', 'error');
+        } finally {
+            setIsUploadingAttachment(false);
+            e.target.value = '';
+        }
     }
   };
 
@@ -255,20 +370,23 @@ const Bills: React.FC = () => {
         
         reader.onloadend = async () => {
             const base64String = reader.result as string;
-            const newAttachment: Attachment = {
-                id: generateId(),
-                name: file.name,
-                url: base64String,
-                type: 'image'
-            };
-            
-            setEditingBill(prev => ({
-                ...prev,
-                attachments: [...(prev.attachments || []), newAttachment]
-            }));
-
+            setIsUploadingAttachment(true);
             setIsScanning(true);
             try {
+                const familyId = localStorage.getItem('homefin_current_family_id') || '';
+                const uploaded = await supabaseService.uploadAttachment(file, familyId);
+                const newAttachment: Attachment = {
+                    id: generateId(),
+                    name: file.name,
+                    url: '',
+                    storagePath: uploaded.path,
+                    type: 'image'
+                };
+                setEditingBill(prev => ({
+                    ...prev,
+                    attachments: [...(prev.attachments || []), newAttachment]
+                }));
+
                 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
                 const base64Data = base64String.split(',')[1];
                 const mimeType = file.type;
@@ -315,6 +433,8 @@ const Bills: React.FC = () => {
                 showNotification('Não foi possível ler os dados...', 'error');
             } finally {
                 setIsScanning(false);
+                setIsUploadingAttachment(false);
+                if (cameraInputRef.current) cameraInputRef.current.value = '';
             }
         };
         
@@ -791,7 +911,7 @@ const Bills: React.FC = () => {
                     </h3>
                     <button 
                         type="button" 
-                        onClick={() => setIsModalOpen(false)} 
+                        onClick={() => void closeBillEditor()}
                         className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-600 rounded-full transition-all text-gray-500 dark:text-gray-400 z-20 shadow-sm active:scale-90"
                         title="Fechar"
                     >
@@ -970,6 +1090,7 @@ const Bills: React.FC = () => {
                         
                         <input 
                             type="file" 
+                            accept="image/*,.pdf,application/pdf"
                             ref={fileInputRef}
                             className="hidden"
                             onChange={handleFileSelect}
@@ -986,18 +1107,18 @@ const Bills: React.FC = () => {
                                         <div className="flex items-center gap-1">
                                             <button 
                                                 type="button"
-                                                onClick={() => {
-                                                    const win = window.open();
-                                                    win?.document.write(`<iframe src="${file.url}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
-                                                }}
+                                                onClick={() => void openAttachment(file)}
                                                 className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
                                                 title="Visualizar"
                                             >
                                                 <Eye size={16} />
                                             </button>
                                             <a 
-                                                href={file.url} 
-                                                download={file.name}
+                                                href={file.url || '#'}
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    void downloadAttachment(file);
+                                                }}
                                                 className="p-1.5 text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded transition-colors"
                                                 title="Baixar"
                                             >
@@ -1033,14 +1154,15 @@ const Bills: React.FC = () => {
                             <button 
                                 type="button" 
                                 onClick={() => fileInputRef.current?.click()}
-                                className="flex-1 flex items-center gap-2 text-sm text-primary-600 border border-primary-200 bg-primary-50 dark:bg-primary-900/10 dark:border-primary-900/30 rounded-lg px-4 py-3 hover:bg-primary-100 dark:hover:bg-primary-900/30 justify-center border-dashed transition-colors"
+                                disabled={isUploadingAttachment}
+                                className="flex-1 flex items-center gap-2 text-sm text-primary-600 border border-primary-200 bg-primary-50 dark:bg-primary-900/10 dark:border-primary-900/30 rounded-lg px-4 py-3 hover:bg-primary-100 dark:hover:bg-primary-900/30 justify-center border-dashed transition-colors disabled:opacity-50"
                             >
                                 <Upload size={18} /> Anexar
                             </button>
                             <button 
                                 type="button" 
                                 onClick={() => cameraInputRef.current?.click()}
-                                disabled={isScanning}
+                                disabled={isScanning || isUploadingAttachment}
                                 className="flex-1 flex items-center gap-2 text-sm text-emerald-600 border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-900/30 rounded-lg px-4 py-3 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 justify-center border-dashed transition-colors disabled:opacity-50"
                             >
                                 {isScanning ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />} 
@@ -1052,13 +1174,14 @@ const Bills: React.FC = () => {
                     <div className="pt-2 flex gap-3 pb-2">
                         <button 
                             type="button" 
-                            onClick={() => setIsModalOpen(false)}
+                            onClick={() => void closeBillEditor()}
                             className="flex-1 py-3 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 rounded-xl font-medium transition-colors"
                         >
                             Cancelar
                         </button>
                         <button 
                             type="submit" 
+                            disabled={isUploadingAttachment}
                             className="flex-1 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 shadow-lg shadow-primary-500/30 transition-transform active:scale-[0.98]"
                         >
                             Salvar Conta

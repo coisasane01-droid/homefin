@@ -53,8 +53,15 @@ export interface LandingConfig {
 export interface PaymentConfig {
   pixKey: string;
   pixQrCodeUrl?: string;
-  mercadoPagoAccessToken?: string;
   mercadoPagoPublicKey?: string;
+}
+
+function removeLegacyMercadoPagoToken(paymentConfig: PaymentConfig): PaymentConfig {
+  const safePaymentConfig: PaymentConfig & { mercadoPagoAccessToken?: unknown } = {
+    ...paymentConfig,
+  };
+  delete safePaymentConfig.mercadoPagoAccessToken;
+  return safePaymentConfig;
 }
 
 export interface AdminConfig {
@@ -189,6 +196,9 @@ const getSaasData = (): SaasData => {
     }
 
     const parsed = JSON.parse(data);
+    if (parsed.paymentConfig) {
+      parsed.paymentConfig = removeLegacyMercadoPagoToken(parsed.paymentConfig);
+    }
 
     return {
       ...initialSaasData,
@@ -237,10 +247,13 @@ const getSaasData = (): SaasData => {
 // ============================================================
 
 const saveSaasData = (data: SaasData) => {
+  const safeData = structuredClone(data);
+  safeData.paymentConfig = removeLegacyMercadoPagoToken(safeData.paymentConfig);
+
   try {
     localStorage.setItem(
       SAAS_STORAGE_KEY,
-      JSON.stringify(data)
+      JSON.stringify(safeData)
     );
   } catch (error) {
     console.error('Erro ao salvar dados SaaS localmente:', error);
@@ -248,7 +261,7 @@ const saveSaasData = (data: SaasData) => {
 
   // Salva também no Supabase sem bloquear a interface.
   void supabaseService
-    .saveSaasData(data)
+    .saveSaasData(safeData)
     .then(() => {
       console.log('=== HOMEFIN SaaS ===');
       console.log('Dados SaaS sincronizados com Supabase.');
@@ -301,6 +314,9 @@ const syncFromSupabase = async (): Promise<SaasData> => {
     // --------------------------------------------------------
 
     const parsed = remoteData as Partial<SaasData>;
+    if (parsed.paymentConfig) {
+      parsed.paymentConfig = removeLegacyMercadoPagoToken(parsed.paymentConfig);
+    }
 
     const mergedData: SaasData = {
       ...initialSaasData,

@@ -75,23 +75,19 @@ const Planos: React.FC = () => {
   };
 
   const handleGeneratePix = async () => {
-    if (!selectedPlan || !paymentConfig?.mercadoPagoAccessToken) return;
+    if (!selectedPlan) return;
+    const email = window.prompt('Informe seu e-mail para gerar o PIX:')?.trim();
+    if (!email) return;
 
     setIsGeneratingPix(true);
     try {
-      const price = appliedDiscount 
-        ? selectedPlan.price * (1 - appliedDiscount / 100)
-        : selectedPlan.price;
-
-      const payment = await createPixPayment(
-        Number(price.toFixed(2)),
-        `Assinatura ${selectedPlan.name}`,
-        'user@example.com', // In a real app, ask for email
-        paymentConfig.mercadoPagoAccessToken
-      );
+      const payment = await createPixPayment(email, selectedPlan.id);
       setMercadoPagoPayment(payment);
     } catch (error) {
-      showNotification('Erro ao gerar PIX. Tente novamente.', 'error');
+      showNotification(
+        error instanceof Error ? error.message : 'Erro ao gerar PIX. Tente novamente.',
+        'error'
+      );
       console.error(error);
     } finally {
       setIsGeneratingPix(false);
@@ -99,39 +95,24 @@ const Planos: React.FC = () => {
   };
 
   const handleConfirmPayment = () => {
-    setLoading(true);
-    // Simulate processing delay
-    setTimeout(() => {
-      setLoading(false);
-      setIsCheckoutOpen(false);
-      navigate('/setup', { 
-        state: { 
-          plan: 'premium', 
-          paid: true,
-          code: appliedDiscount ? discountCode : undefined
-        } 
-      });
-    }, 2000);
+    showNotification(
+      'A confirmação automática foi bloqueada por segurança. O plano só será liberado após a verificação do pagamento no servidor.',
+      'error'
+    );
   };
 
   const onCardPaymentSubmit = async (formData: any) => {
-    if (!selectedPlan || !paymentConfig?.mercadoPagoAccessToken) return;
-    
+    if (!selectedPlan) return;
+
     setLoading(true);
     try {
-      const price = appliedDiscount 
-        ? selectedPlan.price * (1 - appliedDiscount / 100)
-        : selectedPlan.price;
-
       const payment = await createCardPayment(
-        Number(price.toFixed(2)),
-        `Assinatura ${selectedPlan.name}`,
         formData.payer.email,
         formData.token,
         formData.installments,
         formData.payment_method_id,
-        formData.issuer_id,
-        paymentConfig.mercadoPagoAccessToken
+        selectedPlan.id,
+        formData.issuer_id
       );
 
       if (payment.status === 'approved') {
@@ -140,7 +121,10 @@ const Planos: React.FC = () => {
         showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
     } catch (error) {
-      showNotification('Erro ao processar pagamento com cartão. Verifique os dados e tente novamente.', 'error');
+      showNotification(
+        error instanceof Error ? error.message : 'Erro ao processar pagamento com cartão.',
+        'error'
+      );
       console.error(error);
     } finally {
       setLoading(false);
@@ -341,7 +325,7 @@ const Planos: React.FC = () => {
 
               {paymentMethod === 'pix' ? (
                 <div className="bg-gray-50 p-3 rounded-xl text-center mb-4 border border-gray-200">
-                  {paymentConfig?.mercadoPagoAccessToken ? (
+                  {true ? (
                     // Mercado Pago Flow
                     <>
                       {!mercadoPagoPayment ? (
@@ -407,9 +391,7 @@ const Planos: React.FC = () => {
                     <div className="mercado-pago-brick">
                       <CardPayment
                         initialization={{
-                          amount: appliedDiscount 
-                            ? selectedPlan.price * (1 - appliedDiscount / 100)
-                            : selectedPlan.price,
+                          amount: selectedPlan.price,
                           payer: {
                             email: 'user@example.com', // Idealmente pegar do input ou perfil
                           },
@@ -438,9 +420,9 @@ const Planos: React.FC = () => {
               {paymentMethod === 'pix' && (
                 <button 
                   onClick={handleConfirmPayment}
-                  disabled={loading || (paymentMethod === 'pix' && paymentConfig?.mercadoPagoAccessToken && !mercadoPagoPayment)}
+                  disabled={loading || !mercadoPagoPayment}
                   className={`w-full py-3 rounded-xl font-bold text-base transition-colors shadow-lg flex items-center justify-center gap-2 ${
-                    loading || (paymentMethod === 'pix' && paymentConfig?.mercadoPagoAccessToken && !mercadoPagoPayment)
+                    loading || !mercadoPagoPayment
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
                       : 'bg-green-600 text-white hover:bg-green-700 shadow-green-500/30'
                   }`}

@@ -1,29 +1,6 @@
-export default async function handler(req, res) {
-  try {
-    const response = await fetch(
-      'https://oyjtlanvozjbppvosbya.supabase.co/rest/v1/homefin_saas?select=id',
-      {
-        headers: {
-          apikey: process.env.VITE_SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`
-        }
-      }
-    );
-
-    const text = await response.text();
-
-    res.status(200).json({
-      ok: true,
-      status: response.status,
-      body: text
-    });
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      error: error?.message || String(error),
-      name: error?.name,
-      code: error?.code,
-      hostname: error?.hostname
-    });
-  }
+export default function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(410).json({
+    error: 'Endpoint de diagnóstico desativado.',
+  });
 }

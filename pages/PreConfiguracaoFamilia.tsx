@@ -171,35 +171,110 @@ const PreConfiguracaoFamilia: React.FC = () => {
       return;
     }
 
-    if (formData.pin.length !== 4) {
+    if (!/^\d{4}$/.test(formData.pin)) {
       setError('O PIN deve ter 4 dígitos.');
       return;
     }
-
-    // Create Family in SaaS DB
-    const plan = location.state?.plan || 'free';
-    const newFamily = saasDb.createFamily(formData.familyName, plan, {
-      houseName: formData.familyName,
-      primaryColor: formData.color,
-      // ... other defaults
-    });
-
-    // Set expiration for premium plans (30 days)
-    if (plan === 'premium') {
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30);
-      saasDb.updateFamily(newFamily.id, { expiresAt: expiresAt.toISOString() });
+    if (formData.keyword.trim().length < 8 || formData.keyword.trim().length > 256) {
+      setError('A palavra-chave de recuperação deve ter entre 8 e 256 caracteres.');
+      return;
     }
 
-    // Mark code as used
-    if (code) {
-      saasDb.useCode(code, newFamily.id);
+    // Novos cadastros ficam no plano gratuito até a confirmação real do pagamento.
+    const plan = 'free';
+
+    const baseId = formData.familyName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'familia';
+
+    const familyId = `${baseId}-${crypto.randomUUID().slice(0, 8)}`;
+
+    const familyData: any = {
+      id: familyId,
+      name: formData.familyName.trim(),
+      plan,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      settings: {
+        theme: 'light',
+        houseName: formData.familyName.trim(),
+        primaryColor: formData.color,
+        backgroundImage: formData.backgroundImage || '',
+        logoImage: formData.logoImage || '',
+        logoShape: formData.logoShape === 'circle' ? 'circle' : 'square'
+      }
+    };
+
+    // O servidor grava a família e o hash do PIN na mesma transação.
+    let enrollmentResponse: Response;
+    let enrollmentData: any;
+
+    try {
+      enrollmentResponse = await fetch('/api/family-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          familyId,
+          family: familyData,
+          pin: formData.pin,
+          keyword: formData.keyword
+        }),
+        cache: 'no-store'
+      });
+      enrollmentData = await enrollmentResponse.json();
+    } catch {
+      setError('Não foi possível conectar ao servidor. Tente novamente.');
+      return;
     }
 
-    // Initialize Local DB for this session (Simulating multi-tenant login)
-    // In a real app, this would fetch from server. Here we reset local storage with new settings.
-    
-    // 1. Initialize DB with new Family ID
+    if (!enrollmentResponse.ok || !enrollmentData?.success) {
+      setError(
+        enrollmentData?.error ||
+        'Não foi possível criar a família. Verifique a configuração do servidor.'
+      );
+      return;
+    }
+
+    const newFamily = enrollmentData.family;
+
+    // Guardar a sessão do servidor antes de inicializar ou sincronizar dados.
+    if (!enrollmentData.token) {
+      setError('A família foi criada, mas não foi possível iniciar a sessão. Entre novamente com seu código.');
+      return;
+    }
+
+    localStorage.setItem(
+      `homefin_family_session_token_${newFamily.id}`,
+      enrollmentData.token
+    );
+    localStorage.setItem(
+      `homefin_family_session_expires_at_${newFamily.id}`,
+      String(Date.now() + (Number(enrollmentData.expiresIn) || 43200) * 1000)
+    );
+    localStorage.setItem('homefin_current_family_id', newFamily.id);
+    localStorage.setItem('homefin_current_family_name', newFamily.name);
+
+    // Atualizar o contexto local da família sem gravar uma cópia SaaS antiga.
+    try {
+      const remoteSaasData = await (await import('../services/supabaseService')).supabaseService.getSaasData();
+      if (remoteSaasData) {
+        remoteSaasData.families = Array.isArray(remoteSaasData.families)
+          ? remoteSaasData.families
+          : [];
+        if (!remoteSaasData.families.some((f: any) => f.id === newFamily.id)) {
+          remoteSaasData.families.push(newFamily);
+        }
+        localStorage.setItem('homefin_saas_data_v1', JSON.stringify(remoteSaasData));
+      }
+    } catch (syncError) {
+      console.error('Família criada; atualização do cache SaaS será retomada depois.', syncError);
+    }
+
+    // Inicializar os dados financeiros da nova família.
     await db.init(newFamily.id);
 
     const newSettings: UserSettings = {
@@ -223,13 +298,15 @@ const PreConfiguracaoFamilia: React.FC = () => {
     };
 
     await db.updateSettings(newSettings);
-    
-    // 2. Save PIN and Keyword with namespaced keys
-    const pinKey = `homefin_user_pin_${newFamily.id}`;
-    const keywordKey = `homefin_user_keyword_${newFamily.id}`;
-    
-    localStorage.setItem(pinKey, formData.pin);
-    localStorage.setItem(keywordKey, formData.keyword.toLowerCase());
+
+    // Registrar o uso do código promocional após atualizar o cache com os dados atuais.
+    if (code) {
+      try {
+        saasDb.useCode(code, newFamily.id);
+      } catch (codeError) {
+        console.error('Não foi possível atualizar o uso do código promocional.', codeError);
+      }
+    }
 
     // Generate Link
     const link = `${window.location.origin}/#/login?family=${newFamily.id}`;
@@ -283,7 +360,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">PIN de Acesso (4 dígitos)</label>
               <input 
-                type="password" maxLength={4} inputMode="numeric"
+                type="password" minLength={4} maxLength={4} pattern="[0-9]{4}" required inputMode="numeric"
                 value={formData.pin}
                 onChange={e => setFormData({...formData, pin: e.target.value.replace(/\D/g,'')})}
                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center tracking-widest font-mono"
@@ -293,11 +370,11 @@ const PreConfiguracaoFamilia: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Palavra-chave (Recuperação)</label>
               <input 
-                type="text"
+                type="text" minLength={8} maxLength={256} required
                 value={formData.keyword}
                 onChange={e => setFormData({...formData, keyword: e.target.value})}
                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none lowercase"
-                placeholder="Ex: cachorro"
+                placeholder="Ex: lua-azul-2026"
               />
             </div>
           </div>

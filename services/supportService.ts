@@ -1,5 +1,3 @@
-import { supabase } from './supabaseService';
-
 export interface SupportMessage {
   id: string;
   family_id: string;
@@ -17,198 +15,99 @@ export interface SupportSettings {
   updated_at: string;
 }
 
+interface SupportResponse {
+  success?: boolean;
+  messages?: SupportMessage[];
+  message?: SupportMessage;
+  settings?: SupportSettings | null;
+  updated?: number;
+  error?: string;
+}
+
+async function request(
+  action: string,
+  familyId: string,
+  values: Record<string, unknown> = {}
+): Promise<SupportResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const adminToken = sessionStorage.getItem('homefin_admin_session_token');
+  const adminExpiry = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
+  if (adminToken && adminExpiry > Date.now()) {
+    headers.Authorization = `Bearer ${adminToken}`;
+  } else {
+    const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
+    const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
+    if (token && expiresAt > Date.now()) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch('/api/support', {
+    method: 'POST',
+    headers,
+    cache: 'no-store',
+    body: JSON.stringify({ action, familyId, ...values }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(result?.error || `Falha ao acessar o suporte (HTTP ${response.status}).`);
+  }
+  return result || {};
+}
+
 export const supportService = {
   async getMessages(familyId: string): Promise<SupportMessage[]> {
-    const { data, error } = await supabase
-      .from('homefin_support_messages')
-      .select('*')
-      .eq('family_id', familyId)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('Erro ao buscar mensagens do suporte:', error);
-      throw error;
-    }
-
-    return data || [];
+    return (await request('get-messages', familyId)).messages || [];
   },
 
-  async getSupportSettings(
-    familyId: string
-  ): Promise<SupportSettings> {
-    const { data, error } = await supabase
-      .from('homefin_support_settings')
-      .select('*')
-      .eq('family_id', familyId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Erro ao buscar configuração do suporte:', error);
-      throw error;
-    }
-
-    if (!data) {
-      return {
-        family_id: familyId,
-        blocked: false,
-        resolved: false,
-        resolved_at: null,
-        updated_at: new Date().toISOString(),
-      };
-    }
-
-    return data;
+  async getSupportSettings(familyId: string): Promise<SupportSettings> {
+    const settings = (await request('get-settings', familyId)).settings;
+    return settings || {
+      family_id: familyId,
+      blocked: false,
+      resolved: false,
+      resolved_at: null,
+      updated_at: new Date().toISOString(),
+    };
   },
 
   async sendMessage(
     familyId: string,
     message: string,
-    senderType: 'family' | 'admin'
+    _senderType: 'family' | 'admin'
   ): Promise<SupportMessage> {
     const cleanMessage = message.trim();
-
-    if (!cleanMessage) {
-      throw new Error('A mensagem não pode estar vazia.');
-    }
-
-    // A família não pode enviar mensagens quando estiver bloqueada.
-    if (senderType === 'family') {
-      const settings = await this.getSupportSettings(familyId);
-
-      if (settings.blocked) {
-        throw new Error(
-          'O envio de mensagens está temporariamente bloqueado pelo administrador.'
-        );
-      }
-    }
-
-    const { data, error } = await supabase
-      .from('homefin_support_messages')
-      .insert({
-        family_id: familyId,
-        sender_type: senderType,
-        message: cleanMessage,
-      })
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Erro ao enviar mensagem do suporte:', error);
-      throw error;
-    }
-
-    return data;
+    if (!cleanMessage) throw new Error('A mensagem não pode estar vazia.');
+    const result = await request('send-message', familyId, { message: cleanMessage });
+    if (!result.message) throw new Error('O servidor não confirmou o envio da mensagem.');
+    return result.message;
   },
 
-  async setFamilyBlocked(
-    familyId: string,
-    blocked: boolean
-  ): Promise<SupportSettings> {
-    const { data, error } = await supabase
-      .from('homefin_support_settings')
-      .upsert(
-        {
-          family_id: familyId,
-          blocked,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'family_id',
-        }
-      )
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Erro ao alterar bloqueio do suporte:', error);
-      throw error;
-    }
-
-    return data;
+  async setFamilyBlocked(familyId: string, blocked: boolean): Promise<SupportSettings> {
+    const result = await request('set-blocked', familyId, { blocked });
+    if (!result.settings) throw new Error('O servidor não confirmou a alteração.');
+    return result.settings;
   },
 
   async getUnreadFamilyMessages(): Promise<SupportMessage[]> {
-    const { data, error } = await supabase
-      .from('homefin_support_messages')
-      .select('*')
-      .eq('sender_type', 'family')
-      .is('read_at', null)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('Erro ao buscar mensagens não lidas do suporte:', error);
-      throw error;
-    }
-
-    return data || [];
+    return (await request('get-unread', '')).messages || [];
   },
 
   async markMessagesAsRead(
     familyId: string,
-    senderType: 'family' | 'admin'
+    _senderType: 'family' | 'admin'
   ): Promise<void> {
-    const { error } = await supabase
-      .from('homefin_support_messages')
-      .update({
-        read_at: new Date().toISOString(),
-      })
-      .eq('family_id', familyId)
-      .eq('sender_type', senderType)
-      .is('read_at', null);
-
-    if (error) {
-      console.error('Erro ao marcar mensagens como lidas:', error);
-      throw error;
-    }
+    await request('mark-read', familyId);
   },
 
   async setConversationResolved(
     familyId: string,
     resolved: boolean
   ): Promise<SupportSettings> {
-    const { data, error } = await supabase
-      .from('homefin_support_settings')
-      .upsert(
-        {
-          family_id: familyId,
-          resolved,
-          resolved_at: resolved ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'family_id',
-        }
-      )
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Erro ao alterar status da conversa:', error);
-      throw error;
-    }
-
-    return data;
+    const result = await request('resolve', familyId, { resolved });
+    if (!result.settings) throw new Error('O servidor não confirmou a alteração.');
+    return result.settings;
   },
 
   async deleteConversation(familyId: string): Promise<void> {
-    const { error: messagesError } = await supabase
-      .from('homefin_support_messages')
-      .delete()
-      .eq('family_id', familyId);
-
-    if (messagesError) {
-      console.error('Erro ao excluir mensagens do suporte:', messagesError);
-      throw messagesError;
-    }
-
-    const { error: settingsError } = await supabase
-      .from('homefin_support_settings')
-      .delete()
-      .eq('family_id', familyId);
-
-    if (settingsError) {
-      console.error('Erro ao excluir configuração do suporte:', settingsError);
-      throw settingsError;
-    }
+    await request('delete', familyId);
   },
 };

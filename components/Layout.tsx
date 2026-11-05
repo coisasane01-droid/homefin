@@ -18,10 +18,15 @@ import {
   Wallet,
   Landmark,
   Share2,
-  Headphones
+  Headphones,
+  Table2,
+  Cloud,
+  CloudOff,
 } from 'lucide-react';
 import { db } from '../services/db';
 import { saasDb } from '../services/saasDb';
+import { clearFamilySession, familyAuthRequest } from '../services/familyAuth';
+import { showNotification } from '../services/utils/notifications';
 
 const colors = {
   slate: '#64748b',
@@ -59,12 +64,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | null>(() => {
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    return familyId && localStorage.getItem(`homefin_pending_sync_${familyId}`)
+      ? 'pending'
+      : null;
+  });
 
   useEffect(() => {
     loadSettings();
     checkPlanStatus();
+    const handleSyncStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ familyId: string; status: 'pending' | 'synced' }>).detail;
+      if (detail?.familyId === localStorage.getItem('homefin_current_family_id')) {
+        setSyncStatus(detail.status);
+      }
+    };
+    window.addEventListener('homefin-family-sync-status', handleSyncStatus);
     // Check for due bills notifications
     db.checkDueBills();
+    return () => window.removeEventListener('homefin-family-sync-status', handleSyncStatus);
   }, [location.pathname]); 
 
   const checkPlanStatus = () => {
@@ -116,6 +135,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { icon: Target, label: 'Metas e Sonhos', path: '/goals' },
     { icon: Gem, label: 'Bens e Patrimônio', path: '/assets' },
     { icon: BarChart3, label: 'Relatórios', path: '/reports' },
+    { icon: Table2, label: 'Planilhas', path: '/spreadsheets' },
     { icon: Trophy, label: 'Ranking Familiar', path: '/ranking' },
     { icon: Share2, label: 'Compartilhar / Indicar', path: '/share' },
     { icon: Headphones, label: 'Suporte', path: '/support' },
@@ -126,10 +146,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // Famílias gratuitas também precisam visualizar a opção de upgrade.
   menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/plans' });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const familyId = localStorage.getItem('homefin_current_family_id');
 
     if (familyId && familyId !== 'v1') {
+      try {
+        await familyAuthRequest(familyId, { action: 'logout' }, true);
+      } catch (error) {
+        console.error('Não foi possível revogar a sessão no servidor:', error);
+        showNotification(
+          'Sessão encerrada neste dispositivo, mas não foi possível confirmar a revogação no servidor.',
+          'warning'
+        );
+      } finally {
+        clearFamilySession(familyId);
+      }
       window.location.hash = `/login?family=${encodeURIComponent(familyId)}`;
     } else {
       window.location.hash = '/';
@@ -203,6 +234,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Main Content - Padded top to account for fixed header */}
       <main className="flex-1 p-4 md:p-8 pt-[88px] md:pt-8 overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
         <div className="max-w-6xl mx-auto print:max-w-none print:w-full">
+          {syncStatus && (
+            <div
+              role="status"
+              className={`mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                syncStatus === 'pending'
+                  ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200'
+              }`}
+            >
+              {syncStatus === 'pending' ? <CloudOff size={16} /> : <Cloud size={16} />}
+              {syncStatus === 'pending'
+                ? 'Alterações salvas neste dispositivo; a nuvem ainda não confirmou a sincronização.'
+                : 'Sincronização com a nuvem confirmada.'}
+            </div>
+          )}
           {children}
         </div>
       </main>

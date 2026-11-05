@@ -1,6 +1,7 @@
 import { AppData, Bill, ShoppingItem, Goal, Asset, UserSettings, KnownProduct, CalendarEvent, Debt } from '../types';
 import { supabase } from './supabaseService';
 import { homefinProxy } from './homefinProxy';
+import { sendFamilyPushNotification } from './pushNotifications';
 /*
   Persistência: Supabase (com cache local para funcionamento offline).
   A tabela esperada é public.homefin_data.
@@ -42,6 +43,14 @@ const initialData: AppData = {
 let cachedData: AppData = initialData;
 let syncPromise: Promise<void> = Promise.resolve();
 
+const publishSyncStatus = (familyId: string, status: 'pending' | 'synced') => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homefin-family-sync-status', {
+      detail: { familyId, status },
+    }));
+  }
+};
+
 const normalizeData = (parsed: Partial<AppData>): AppData => ({
   ...initialData, ...parsed,
   bills: parsed.bills || [], shoppingList: parsed.shoppingList || [], knownProducts: parsed.knownProducts || [],
@@ -69,10 +78,14 @@ const enqueueRemoteSave = (
 
       if (localStorage.getItem(storageKey) === serializedSnapshot) {
         localStorage.removeItem(pendingKey);
+        publishSyncStatus(familyId, 'synced');
+      } else {
+        publishSyncStatus(familyId, 'pending');
       }
     });
 
   syncPromise = currentSync.catch((error) => {
+    publishSyncStatus(familyId, 'pending');
     console.error('HomeFin: erro ao sincronizar com Supabase:', error);
   });
 
@@ -89,6 +102,7 @@ const saveLocalData = (data: AppData): Promise<void> => {
   // Preserva os dados no dispositivo antes de iniciar a sincronização.
   localStorage.setItem(storageKeyToSave, serializedSnapshot);
   localStorage.setItem(pendingKey, '1');
+  publishSyncStatus(familyIdToSave, 'pending');
   cachedData = normalized;
 
   // Offline: mantém a pendência para sincronizar quando a conexão voltar.
@@ -158,29 +172,37 @@ const loadFromSupabase = async (familyIdToLoad: string) => {
 
     cachedData = normalizedRemote;
     localStorage.setItem(`homefin_data_${familyIdToLoad}`, JSON.stringify(cachedData));
+    publishSyncStatus(familyIdToLoad, 'synced');
   }
 };
 
 // --- Notification System ---
 const sendNotification = (title: string, body: string) => {
-  if (!('Notification' in window)) return;
-  
-  // Check user preference first
   const data = getLocalData();
   if (!data.settings.notificationsEnabled) return;
 
-  if (Notification.permission === 'granted') {
-    new Notification(title, {
-      body,
-      icon: '/pwa-192x192.png', // Assuming standard PWA icon exists or fallback
-      badge: '/pwa-192x192.png'
+  const notificationTitle = title.startsWith("HomeFin - ")
+    ? title
+    : `HomeFin - ${title.replace(/!+$/, "")}!`;
+  const familyId = currentFamilyId;
+
+  const showLocalNotification = () => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(notificationTitle, {
+        body,
+        icon: "/pwa-192x192.png",
+        badge: "/pwa-192x192.png"
+      });
+    }
+  };
+
+  if (navigator.onLine && familyId && familyId !== 'v1') {
+    void sendFamilyPushNotification(familyId, notificationTitle, body).catch((error) => {
+      console.error("HomeFin: falha no envio Push:", error);
+      showLocalNotification();
     });
-  } else if (Notification.permission !== 'denied') {
-    Notification.requestPermission().then(permission => {
-      if (permission === 'granted') {
-        new Notification(title, { body });
-      }
-    });
+  } else {
+    showLocalNotification();
   }
 };
 
@@ -337,7 +359,7 @@ export const db = {
     
     // Check for status change to paid
     if (oldBill && oldBill.status !== 'paid' && updatedBill.status === 'paid') {
-        sendNotification('Conta Paga', `A conta "${updatedBill.description}" foi marcada como paga!`);
+        sendNotification('Conta paga', `A conta "${updatedBill.description}" foi marcada como paga!`);
     }
 
     data.bills = data.bills.map(b => b.id === updatedBill.id ? updatedBill : b);

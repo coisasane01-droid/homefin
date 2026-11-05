@@ -4,15 +4,6 @@ import { AppData } from '../types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-console.log('=== SUPABASE DEBUG ===');
-console.log('URL:', SUPABASE_URL);
-console.log(
-  'KEY:',
-  SUPABASE_ANON_KEY
-    ? `${SUPABASE_ANON_KEY.substring(0, 20)}...`
-    : 'NÃO CONFIGURADA'
-);
-
 // ============================================================
 // SUPABASE CLIENT
 // ============================================================
@@ -42,14 +33,112 @@ export interface HomeFinSaasRow {
 // VALIDAÇÃO
 // ============================================================
 
-function getSupabase(): SupabaseClient {
-  if (!supabase) {
-    throw new Error(
-      'Supabase não configurado. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
-    );
+function getAttachmentSession(familyId?: string): { familyId: string; token: string } {
+  const currentFamilyId = familyId || localStorage.getItem('homefin_current_family_id') || '';
+  const token = currentFamilyId
+    ? localStorage.getItem(`homefin_family_session_token_${currentFamilyId}`)
+    : null;
+  const expiresAt = currentFamilyId
+    ? Number(localStorage.getItem(`homefin_family_session_expires_at_${currentFamilyId}`) || 0)
+    : 0;
+  if (!currentFamilyId || currentFamilyId === 'v1' || !token || expiresAt <= Date.now()) {
+    throw new Error('Sessão familiar expirada. Entre novamente para acessar anexos.');
+  }
+  return { familyId: currentFamilyId, token };
+}
+
+async function requestAttachment(
+  familyId: string | undefined,
+  payload: Record<string, unknown>
+): Promise<any> {
+  const session = getAttachmentSession(familyId);
+  const response = await fetch('/api/family-attachments', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ ...payload, familyId: session.familyId }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success !== true) {
+    throw new Error(result?.error || `Falha ao acessar anexo (HTTP ${response.status}).`);
+  }
+  return result;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function requestSaasData(action: 'get' | 'save', saasData?: any): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const adminToken = sessionStorage.getItem('homefin_admin_session_token');
+  const adminExpiry = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
+  if (adminToken && adminExpiry > Date.now()) {
+    headers.Authorization = `Bearer ${adminToken}`;
+  } else {
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    const familyToken = familyId
+      ? localStorage.getItem(`homefin_family_session_token_${familyId}`)
+      : null;
+    const familyExpiry = familyId
+      ? Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0)
+      : 0;
+    if (familyToken && familyExpiry > Date.now()) {
+      headers.Authorization = `Bearer ${familyToken}`;
+    }
   }
 
-  return supabase;
+  const response = await fetch('/api/saas-data', {
+    method: 'POST',
+    headers,
+    cache: 'no-store',
+    body: JSON.stringify({
+      action,
+      ...(saasData ? { data: saasData } : {}),
+      ...(localStorage.getItem('homefin_current_family_id')
+        ? { familyId: localStorage.getItem('homefin_current_family_id') }
+        : {}),
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(result?.error || `Falha ao acessar configuração SaaS (HTTP ${response.status}).`);
+  }
+  return result?.data ?? null;
+}
+
+async function requestFamilyData(
+  action: 'get' | 'save' | 'exists' | 'delete',
+  familyId: string,
+  appData?: AppData
+): Promise<any> {
+  const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
+  const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
+  if (!token || expiresAt <= Date.now()) {
+    throw new Error('Sessão familiar expirada. Entre novamente para acessar os dados.');
+  }
+  const response = await fetch('/api/family-data', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ action, familyId, ...(appData ? { data: appData } : {}) }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success !== true) {
+    throw new Error(result?.error || `Falha ao acessar dados familiares (HTTP ${response.status}).`);
+  }
+  return result;
 }
 
 // ============================================================
@@ -66,30 +155,11 @@ export const supabaseService = {
    * Busca todos os dados de uma família.
    */
     getFamilyData: async (familyId: string): Promise<AppData | null> => {
-    if (!familyId) {
-      throw new Error('familyId não informado.');
-    }
-
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: `homefin_data?select=data&family_id=eq.${encodeURIComponent(familyId)}`,
-        method: 'GET',
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao buscar dados da família:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao buscar dados da família.');
-    }
-
-    return data?.[0]?.data ?? null;
-  },
+      if (!familyId) {
+        throw new Error('familyId não informado.');
+      }
+      return (await requestFamilyData('get', familyId)).data ?? null;
+    },
 
   saveFamilyData: async (
     familyId: string,
@@ -99,30 +169,12 @@ export const supabaseService = {
       throw new Error('familyId não informado.');
     }
 
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: 'homefin_data?on_conflict=family_id',
-        method: 'POST',
-        body: {
-          family_id: familyId,
-          data: appData,
-          updated_at: new Date().toISOString(),
-        },
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao salvar dados da família:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao salvar dados da família.');
-    }
-
-    return data?.[0] as HomeFinDataRow;
+    await requestFamilyData('save', familyId, appData);
+    return {
+      family_id: familyId,
+      data: appData,
+      updated_at: new Date().toISOString(),
+    };
   },
 
   createFamilyData: async (
@@ -133,30 +185,7 @@ export const supabaseService = {
       throw new Error('familyId não informado.');
     }
 
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: 'homefin_data',
-        method: 'POST',
-        body: {
-          family_id: familyId,
-          data: appData,
-          updated_at: new Date().toISOString(),
-        },
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao criar dados da família:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao criar dados da família.');
-    }
-
-    return data?.[0] as HomeFinDataRow;
+    return supabaseService.saveFamilyData(familyId, appData);
   },
 
   familyExists: async (familyId: string): Promise<boolean> => {
@@ -164,25 +193,8 @@ export const supabaseService = {
       return false;
     }
 
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: `homefin_data?select=family_id&family_id=eq.${encodeURIComponent(familyId)}`,
-        method: 'GET',
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao verificar família:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao verificar família.');
-    }
-
-    return Array.isArray(data) && data.length > 0;
+    const result = await requestFamilyData('exists', familyId);
+    return result.exists === true;
   },
 
   deleteFamilyData: async (familyId: string): Promise<void> => {
@@ -190,36 +202,7 @@ export const supabaseService = {
       throw new Error('familyId não informado.');
     }
 
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: `homefin_data?family_id=eq.${encodeURIComponent(familyId)}`,
-        method: 'DELETE',
-      }),
-    });
-
-    const responseText = await response.text();
-    let data: any = null;
-
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      data = { message: responseText };
-    }
-
-    if (!response.ok) {
-      console.error('Erro ao excluir dados da família:', data);
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        data?.details ||
-        data?.hint ||
-        (data ? JSON.stringify(data) : `Falha na API do Supabase (HTTP ${response.status}).`)
-      );
-    }
+    await requestFamilyData('delete', familyId);
   },
 
   getLastUpdate: async (familyId: string): Promise<string | null> => {
@@ -227,25 +210,8 @@ export const supabaseService = {
       return null;
     }
 
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: `homefin_data?select=updated_at&family_id=eq.${encodeURIComponent(familyId)}`,
-        method: 'GET',
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao buscar última atualização:', data);
-      throw new Error(data?.error || data?.message || 'Erro ao buscar última atualização.');
-    }
-
-    return data?.[0]?.updated_at ?? null;
+    const result = await requestFamilyData('get', familyId);
+    return result.updatedAt ?? null;
   },
 
   // ==========================================================
@@ -265,29 +231,7 @@ export const supabaseService = {
    * - banner
    */
     getSaasData: async (): Promise<any | null> => {
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: 'homefin_saas?select=data&id=eq.global',
-        method: 'GET',
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao buscar dados SaaS:', data);
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        'Erro ao buscar dados SaaS.'
-      );
-    }
-
-    return data?.[0]?.data ?? null;
+    return requestSaasData('get');
   },
 
   /**
@@ -296,34 +240,12 @@ export const supabaseService = {
    * Usa uma única linha com id = "global".
    */
   saveSaasData: async (saasData: any): Promise<HomeFinSaasRow> => {
-    const response = await fetch('/api/supabase', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: 'homefin_saas?on_conflict=id',
-        method: 'POST',
-        body: {
-          id: 'global',
-          data: saasData,
-          updated_at: new Date().toISOString(),
-        },
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Erro ao salvar dados SaaS:', data);
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        'Erro ao salvar dados SaaS.'
-      );
+    const safeSaasData = structuredClone(saasData);
+    if (safeSaasData?.paymentConfig) {
+      delete safeSaasData.paymentConfig.mercadoPagoAccessToken;
     }
-
-    return data?.[0] as HomeFinSaasRow;
+    const data = await requestSaasData('save', safeSaasData);
+    return { id: 'global', data, updated_at: new Date().toISOString() };
   },
 
 
@@ -338,50 +260,36 @@ export const supabaseService = {
     file: File,
     familyId?: string
   ) => {
-    const client = getSupabase();
-
     if (!file) {
       throw new Error('Arquivo não informado.');
     }
-
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-
-    const fileName = familyId
-      ? `${familyId}/${Date.now()}_${safeFileName}`
-      : `${Date.now()}_${safeFileName}`;
-
-    const { data, error } = await client.storage
-      .from('attachments')
-      .upload(fileName, file, {
-        upsert: false,
-      });
-
-    if (error) {
-      console.error('Erro ao enviar anexo:', error);
-      throw error;
+    if (file.size > 3 * 1024 * 1024) {
+      throw new Error('O anexo deve ter até 3 MB.');
     }
-
-    return data;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const contentType = file.type || 'application/octet-stream';
+    const result = await requestAttachment(familyId, {
+      action: 'upload',
+      name: file.name,
+      contentType,
+      base64: bytesToBase64(bytes),
+    });
+    return { path: result.path, id: result.id, fullPath: result.fullPath };
   },
 
   /**
    * Remove um anexo do Storage.
    */
-  deleteAttachment: async (filePath: string): Promise<void> => {
-    const client = getSupabase();
-
+  deleteAttachment: async (filePath: string, familyId?: string): Promise<void> => {
     if (!filePath) {
       throw new Error('Caminho do arquivo não informado.');
     }
+    await requestAttachment(familyId, { action: 'delete', path: filePath });
+  },
 
-    const { error } = await client.storage
-      .from('attachments')
-      .remove([filePath]);
-
-    if (error) {
-      console.error('Erro ao excluir anexo:', error);
-      throw error;
-    }
+  pruneAttachments: async (familyId?: string): Promise<number> => {
+    const result = await requestAttachment(familyId, { action: 'prune' });
+    return Number(result.removed || 0);
   },
 
   /**
@@ -389,23 +297,18 @@ export const supabaseService = {
    */
   getAttachmentUrl: async (
     filePath: string,
-    expiresIn = 3600
+    expiresIn = 3600,
+    familyId?: string
   ): Promise<string> => {
-    const client = getSupabase();
-
     if (!filePath) {
       throw new Error('Caminho do arquivo não informado.');
     }
-
-    const { data, error } = await client.storage
-      .from('attachments')
-      .createSignedUrl(filePath, expiresIn);
-
-    if (error) {
-      console.error('Erro ao gerar URL do anexo:', error);
-      throw error;
-    }
-
-    return data.signedUrl;
+    if (filePath.startsWith('data:')) return filePath;
+    const result = await requestAttachment(familyId, {
+      action: 'sign',
+      path: filePath,
+      expiresIn,
+    });
+    return result.url;
   },
 };

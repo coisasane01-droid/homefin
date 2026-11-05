@@ -1,5 +1,3 @@
-import { PaymentConfig } from './saasDb';
-
 export interface MercadoPagoPaymentResponse {
   id: number;
   status: string;
@@ -13,104 +11,65 @@ export interface MercadoPagoPaymentResponse {
   };
 }
 
-export const createPixPayment = async (
-  amount: number,
-  description: string,
-  email: string,
-  accessToken: string
-): Promise<MercadoPagoPaymentResponse> => {
-  try {
-    const response = await fetch('https://api.mercadopago.com/v1/payments', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        transaction_amount: amount,
-        description: description,
-        payment_method_id: 'pix',
-        payer: {
-          email: email,
-        },
-      }),
-    });
+async function requestPayment(payload: Record<string, unknown>): Promise<MercadoPagoPaymentResponse> {
+  const familyId = localStorage.getItem('homefin_current_family_id') || '';
+  const tokenKey = `homefin_family_session_token_${familyId}`;
+  const expiryKey = `homefin_family_session_expires_at_${familyId}`;
+  const sessionToken = localStorage.getItem(tokenKey) || '';
+  const expiresAt = Number(localStorage.getItem(expiryKey) || 0);
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Erro ao criar pagamento no Mercado Pago');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Erro Mercado Pago:', error);
-    throw error;
+  if (!familyId || familyId === 'v1' || !sessionToken || !expiresAt || expiresAt <= Date.now()) {
+    throw new Error('Sua sessão expirou. Entre novamente na família para continuar.');
   }
+
+  const response = await fetch('/api/payment', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${sessionToken}`
+    },
+    body: JSON.stringify({ ...payload, familyId })
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      typeof result?.error === 'string'
+        ? result.error
+        : 'Não foi possível iniciar o pagamento.'
+    );
+  }
+
+  return result as MercadoPagoPaymentResponse;
+}
+
+export const createPixPayment = async (
+  email: string,
+  planId: string
+): Promise<MercadoPagoPaymentResponse> => {
+  return requestPayment({
+    paymentMethod: 'pix',
+    email,
+    planId
+  });
 };
 
 export const createCardPayment = async (
-  amount: number,
-  description: string,
   email: string,
   token: string,
   installments: number,
   paymentMethodId: string,
-  issuerId: string,
-  accessToken: string
+  planId: string,
+  issuerId?: string
 ): Promise<MercadoPagoPaymentResponse> => {
-  try {
-    const response = await fetch('https://api.mercadopago.com/v1/payments', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        transaction_amount: amount,
-        description: description,
-        payment_method_id: paymentMethodId,
-        token: token,
-        installments: installments,
-        issuer_id: issuerId,
-        payer: {
-          email: email,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Erro ao processar pagamento com cartão');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Erro Mercado Pago Card:', error);
-    throw error;
-  }
-};
-
-export const checkPaymentStatus = async (
-  paymentId: number,
-  accessToken: string
-): Promise<string> => {
-  try {
-    const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Erro ao verificar status do pagamento');
-    }
-
-    const data = await response.json();
-    return data.status; // approved, pending, etc.
-  } catch (error) {
-    console.error('Erro Status Mercado Pago:', error);
-    return 'unknown';
-  }
+  return requestPayment({
+    paymentMethod: 'card',
+    email,
+    token,
+    installments,
+    paymentMethodId,
+    planId,
+    issuerId
+  });
 };

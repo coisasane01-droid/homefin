@@ -55,7 +55,13 @@ if ('serviceWorker' in navigator) {
     });
 
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js', {
+      const isAdminApp =
+        window.location.pathname === '/admin/' ||
+        window.location.pathname === '/admin';
+      const scriptUrl = isAdminApp ? '/admin/sw.js' : '/sw.js';
+      const scope = isAdminApp ? '/admin/' : '/';
+      const registration = await navigator.serviceWorker.register(scriptUrl, {
+        scope,
         updateViaCache: 'none',
       });
 

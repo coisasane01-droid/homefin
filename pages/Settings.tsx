@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
 import { familyDeletionService } from '../services/familyDeletionService';
+import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
 import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2 } from 'lucide-react';
 
 const colors = {
@@ -166,12 +167,20 @@ const Settings: React.FC = () => {
     }
 
     try {
-      await unsubscribeFromPush();
+      const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+      await unsubscribeFromPush(familyId, 'family');
     } catch (error) {
       console.error(
         'Erro ao desativar notificações Push:',
         error
       );
+      showNotification(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível cancelar a inscrição Push.',
+        'warning'
+      );
+      return;
     }
 
     const updatedSettings = {
@@ -346,15 +355,9 @@ const Settings: React.FC = () => {
   };
 
   // --- PIN LOGIC ---
-  const handleChangePin = (e: React.FormEvent) => {
+  const handleChangePin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const storedPin = localStorage.getItem('homefin_user_pin');
-
-    if (pinForm.current !== storedPin) {
-        setPinError('O PIN atual está incorreto.');
-        return;
-    }
-    if (pinForm.new.length !== 4 || isNaN(Number(pinForm.new))) {
+    if (!/^\d{4}$/.test(pinForm.current) || !/^\d{4}$/.test(pinForm.new)) {
         setPinError('O novo PIN deve ter 4 números.');
         return;
     }
@@ -363,15 +366,24 @@ const Settings: React.FC = () => {
         return;
     }
 
-    localStorage.setItem('homefin_user_pin', pinForm.new);
-    setPinError('');
-    setPinSuccess('Senha alterada com sucesso!');
-    setPinForm({ current: '', new: '', confirm: '' });
-    
-    setTimeout(() => {
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    try {
+      const result = await familyAuthRequest(familyId, {
+        action: 'change-pin',
+        currentPin: pinForm.current,
+        newPin: pinForm.new,
+      }, true);
+      storeFamilySession(familyId, result);
+      setPinError('');
+      setPinSuccess('PIN alterado com sucesso.');
+      setPinForm({ current: '', new: '', confirm: '' });
+      setTimeout(() => {
         setIsPinModalOpen(false);
         setPinSuccess('');
-    }, 1500);
+      }, 1500);
+    } catch (error) {
+      setPinError(error instanceof Error ? error.message : 'Não foi possível alterar o PIN no servidor.');
+    }
   };
 
   const handleDeleteFamily = async () => {
@@ -385,9 +397,14 @@ const Settings: React.FC = () => {
     try {
       setIsDeletingFamily(true);
 
-      await familyDeletionService.deleteFamilyCompletely(familyId);
+      const deletion = await familyDeletionService.deleteFamilyCompletely(familyId);
 
-      showNotification('Família excluída com sucesso.', 'success');
+      showNotification(
+        deletion.storageCleanupPending
+          ? 'Família excluída; a limpeza de alguns anexos ficou pendente para revisão administrativa.'
+          : 'Família excluída com sucesso.',
+        deletion.storageCleanupPending ? 'warning' : 'success'
+      );
 
       window.location.hash = '/';
     } catch (error) {
@@ -405,29 +422,34 @@ const Settings: React.FC = () => {
   };
 
   // --- KEYWORD LOGIC ---
-  const handleSaveKeyword = (e: React.FormEvent) => {
+  const handleSaveKeyword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const storedPin = localStorage.getItem('homefin_user_pin');
-
-    if (keywordForm.currentPin !== storedPin) {
-        setKeywordError('PIN incorreto para autorizar a mudança.');
+    if (!/^\d{4}$/.test(keywordForm.currentPin)) {
+        setKeywordError('Informe o PIN atual de 4 dígitos.');
+        return;
+    }
+    if (keywordForm.keyword.trim().length < 8 || keywordForm.keyword.trim().length > 256) {
+        setKeywordError('A palavra-chave deve ter entre 8 e 256 caracteres.');
         return;
     }
 
-    if (!keywordForm.keyword || keywordForm.keyword.trim().length < 3) {
-        setKeywordError('A palavra-chave deve ter pelo menos 3 letras.');
-        return;
-    }
-
-    localStorage.setItem('homefin_user_keyword', keywordForm.keyword.trim().toLowerCase());
-    setKeywordError('');
-    setKeywordSuccess('Palavra-chave de recuperação salva!');
-    setKeywordForm({ currentPin: '', keyword: '' });
-
-    setTimeout(() => {
+    const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    try {
+      await familyAuthRequest(familyId, {
+        action: 'set-recovery',
+        currentPin: keywordForm.currentPin,
+        keyword: keywordForm.keyword,
+      }, true);
+      setKeywordError('');
+      setKeywordSuccess('Palavra-chave de recuperação salva no servidor.');
+      setKeywordForm({ currentPin: '', keyword: '' });
+      setTimeout(() => {
         setIsKeywordModalOpen(false);
         setKeywordSuccess('');
-    }, 1500);
+      }, 1500);
+    } catch (error) {
+      setKeywordError(error instanceof Error ? error.message : 'Não foi possível salvar a palavra-chave no servidor.');
+    }
   };
 
   return (
@@ -839,7 +861,7 @@ const Settings: React.FC = () => {
             onClick={handleSave}
             className="w-full bg-primary-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-primary-700 flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
         >
-            <Save size={20} /> {settingsSuccess ? 'Salvo com Sucesso!' : 'Salvar Alterações'}
+            <Save size={20} /> {settingsSuccess ? 'Salvo neste dispositivo' : 'Salvar Alterações'}
         </button>
       </div>
 

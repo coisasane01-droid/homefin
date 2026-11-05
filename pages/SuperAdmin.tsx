@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBannerConfig } from '../services/saasDb';
 import { supportService, SupportMessage } from '../services/supportService';
 import { familyDeletionService } from '../services/familyDeletionService';
-import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send } from 'lucide-react';
+import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotifications';
+import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send, Bell } from 'lucide-react';
 
 const SuperAdmin: React.FC = () => {
   const navigate = useNavigate();
@@ -14,8 +15,8 @@ const SuperAdmin: React.FC = () => {
   const [landingConfig, setLandingConfig] = useState<LandingConfig>(saasDb.getLandingConfig());
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>(saasDb.getPaymentConfig());
   const [appBannerConfig, setAppBannerConfig] = useState<AppBannerConfig>(saasDb.getAppBannerConfig());
-  const [activeTab, setActiveTab] = useState<'codes' | 'families' | 'support' | 'plans' | 'landing' | 'payments' | 'security' | 'banner'>('codes');
-  
+  const [activeTab, setActiveTab] = useState<'codes' | 'families' | 'support' | 'plans' | 'landing' | 'payments' | 'security' | 'banner' | 'notifications'>('codes');
+
   // Security State
   const [securityConfig, setSecurityConfig] = useState({
     newPassword: '',
@@ -29,10 +30,10 @@ const SuperAdmin: React.FC = () => {
   const [isUnlimited, setIsUnlimited] = useState(false);
   const [expiresAt, setExpiresAt] = useState('');
   const [discountPercent, setDiscountPercent] = useState<number | ''>('');
-  
+
   // Delete Confirmation State
   const [codeToDelete, setCodeToDelete] = useState<string | null>(null);
-  
+
   // Feedback State
   const [savedTabs, setSavedTabs] = useState<Record<string, boolean>>({});
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -59,20 +60,79 @@ const SuperAdmin: React.FC = () => {
   const [supportResolved, setSupportResolved] = useState(false);
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportSending, setSupportSending] = useState(false);
+  // Estado do envio de notificações em massa
+  const [broadcastTitle, setBroadcastTitle] = useState('Aviso importante');
+  const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{ sent: number; failed: number; failuresByStatus: Record<string, number>; failureMessages: { statusCode: string; message: string }[]; subscriptions: number; expiredRemoved: number } | null>(null);
+  const [broadcastError, setBroadcastError] = useState('');
+  const [adminPushSubscribed, setAdminPushSubscribed] = useState<boolean | null>(null);
+  const [adminPushBusy, setAdminPushBusy] = useState(false);
+
   const notifiedSupportMessageIds = useRef<Set<string>>(new Set());
   const supportNotificationsInitialized = useRef(false);
 
-  const notifyAdminSupportMessage = (messageText: string) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
+
+  const handleSendBroadcast = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBroadcastError('');
+    setBroadcastResult(null);
+
+    const adminToken = sessionStorage.getItem('homefin_admin_session_token');
+    const adminExpiresAt = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
+    if (!adminToken || adminExpiresAt <= Date.now()) {
+      setBroadcastError('A sessão administrativa expirou. Entre novamente.');
       return;
     }
 
-    if (Notification.permission === 'granted') {
-      new Notification('Suporte HomeFin', {
-        body: messageText || 'Uma família enviou uma nova mensagem.',
-        icon: '/icons/icon-192.png',
-      });
+    if (!window.confirm('Confirma o envio desta notificação para todos os dispositivos familiares registrados?')) {
+      return;
     }
+
+    setBroadcastLoading(true);
+    try {
+      const response = await fetch('/api/push-broadcast', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          title: broadcastTitle.trim(),
+          body: broadcastBody.trim(),
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || `Falha no envio (HTTP ${response.status}).`);
+      }
+
+      setBroadcastResult({
+        sent: Number(result.sent || 0),
+        failed: Number(result.failed || 0),
+        failuresByStatus: result.failuresByStatus && typeof result.failuresByStatus === 'object'
+          ? result.failuresByStatus
+          : {},
+        failureMessages: Array.isArray(result.failureMessages)
+          ? result.failureMessages.filter((item: any) => item && typeof item.message === 'string')
+              .map((item: any) => ({
+                statusCode: String(item.statusCode || 'unknown'),
+                message: String(item.message).slice(0, 300),
+              }))
+          : [],
+        subscriptions: Number(result.subscriptions || 0),
+        expiredRemoved: Number(result.expiredRemoved || 0),
+      });
+    } catch (error) {
+      setBroadcastError(error instanceof Error ? error.message : 'Não foi possível enviar a notificação.');
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
+  const notifyAdminSupportMessage = () => {
+    showNotification('Nova mensagem recebida no suporte de uma família.', 'info');
   };
 
   const checkUnreadSupportMessages = async () => {
@@ -91,7 +151,7 @@ const SuperAdmin: React.FC = () => {
       unreadMessages.forEach((item) => {
         if (!notifiedSupportMessageIds.current.has(item.id)) {
           notifiedSupportMessageIds.current.add(item.id);
-          notifyAdminSupportMessage(item.message);
+          notifyAdminSupportMessage();
         }
       });
     } catch (error) {
@@ -110,18 +170,61 @@ const SuperAdmin: React.FC = () => {
       checkUnreadSupportMessages();
     }, 5000);
 
-    if (
-      typeof window !== 'undefined' &&
-      'Notification' in window &&
-      Notification.permission === 'default'
-    ) {
-      Notification.requestPermission().catch((error) => {
-        console.error('Erro ao solicitar permissão de notificações:', error);
-      });
-    }
-
     return () => window.clearInterval(interval);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+
+    let active = true;
+    const readSubscription = async () => {
+      try {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+          if (active) setAdminPushSubscribed(false);
+          return;
+        }
+        const registration = await navigator.serviceWorker.getRegistration('/admin/');
+        const subscription = await registration?.pushManager.getSubscription();
+        if (active) setAdminPushSubscribed(Boolean(subscription));
+      } catch (error) {
+        console.error('Não foi possível consultar a inscrição Push administrativa:', error);
+        if (active) setAdminPushSubscribed(false);
+      }
+    };
+
+    void readSubscription();
+    return () => { active = false; };
+  }, [activeTab]);
+
+  const handleToggleAdminPush = async () => {
+    const adminToken = sessionStorage.getItem('homefin_admin_session_token');
+    const adminExpiresAt = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
+    if (!adminToken || adminExpiresAt <= Date.now()) {
+      showNotification('A sessão administrativa expirou. Entre novamente.', 'error');
+      return;
+    }
+
+    setAdminPushBusy(true);
+    try {
+      if (adminPushSubscribed) {
+        await unsubscribeFromPush('admin', 'admin', adminToken);
+        setAdminPushSubscribed(false);
+        showNotification('Notificações Push administrativas desativadas.', 'success');
+      } else {
+        await subscribeToPush('admin', 'admin', adminToken);
+        setAdminPushSubscribed(true);
+        showNotification('Notificações Push administrativas ativadas.', 'success');
+      }
+    } catch (error) {
+      console.error('Erro ao alterar inscrição Push administrativa:', error);
+      showNotification(
+        error instanceof Error ? error.message : 'Não foi possível atualizar as notificações.',
+        'error'
+      );
+    } finally {
+      setAdminPushBusy(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -133,28 +236,24 @@ const SuperAdmin: React.FC = () => {
     setPlans(saasDb.getPlans());
     setLandingConfig(saasDb.getLandingConfig());
     setPaymentConfig(saasDb.getPaymentConfig());
-    
+
     const adminConfig = saasDb.getAdminConfig();
     setSecurityConfig(prev => ({ ...prev, recoveryKeyword: adminConfig.recoveryKeyword || '' }));
   };
 
   const handleUpdateSecurity = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (securityConfig.newPassword && securityConfig.newPassword !== securityConfig.confirmPassword) {
-        showNotification('As novas senhas não coincidem.', 'error');
-        return;
-    }
 
-    const updates: any = {};
-    if (securityConfig.newPassword) updates.password = securityConfig.newPassword;
-    if (securityConfig.recoveryKeyword) updates.recoveryKeyword = securityConfig.recoveryKeyword;
-
-    if (Object.keys(updates).length > 0) {
-        saasDb.updateAdminConfig(updates);
-        showSavedFeedback('security');
-        setSecurityConfig(prev => ({ ...prev, newPassword: '', confirmPassword: '' }));
-    }
+    showNotification(
+      'A senha administrativa agora é validada no servidor. Para alterá-la, atualize HOMEFIN_ADMIN_SECRET nas variáveis de ambiente da Vercel e faça um novo deploy. Os campos antigos não alteram a senha do servidor.',
+      'error'
+    );
+    setSecurityConfig(prev => ({
+      ...prev,
+      newPassword: '',
+      confirmPassword: '',
+      recoveryKeyword: ''
+    }));
   };
 
   const handleUpdateLanding = (e: React.FormEvent) => {
@@ -190,8 +289,8 @@ const SuperAdmin: React.FC = () => {
   const handleCreateCode = () => {
     if (!newCode) return;
     saasDb.createCode(
-      newCode, 
-      isUnlimited ? -1 : maxUses, 
+      newCode,
+      isUnlimited ? -1 : maxUses,
       expiresAt || undefined,
       discountPercent === '' ? undefined : Number(discountPercent)
     );
@@ -217,7 +316,7 @@ const SuperAdmin: React.FC = () => {
 
   const handleCreatePlan = () => {
     if (!newPlanName) return;
-    
+
     const id = newPlanName.toLowerCase().replace(/\s+/g, '-');
     const newPlan: Plan = {
       id,
@@ -228,7 +327,7 @@ const SuperAdmin: React.FC = () => {
       cta: 'Assinar',
       popular: false
     };
-    
+
     saasDb.createPlan(newPlan);
     loadData();
     setNewPlanName('');
@@ -251,12 +350,17 @@ const SuperAdmin: React.FC = () => {
     try {
       setIsDeletingFamily(true);
 
-      await familyDeletionService.deleteFamilyCompletely(familyToDelete);
+      const deletion = await familyDeletionService.deleteFamilyCompletely(familyToDelete);
 
       setFamilyToDelete(null);
       loadData();
 
-      showNotification('Família excluída com sucesso.', 'success');
+      showNotification(
+        deletion.storageCleanupPending
+          ? 'Família excluída; alguns anexos ficaram na fila de limpeza.'
+          : 'Família excluída com sucesso.',
+        deletion.storageCleanupPending ? 'warning' : 'success'
+      );
     } catch (error) {
       console.error('Erro ao excluir família pelo Super Admin:', error);
 
@@ -273,26 +377,26 @@ const SuperAdmin: React.FC = () => {
 
   const handleCopyFamilyLink = async (familyId: string) => {
     const link = `${window.location.origin}/#/login?family=${familyId}`;
-    
+
     // Função auxiliar para o fallback
     const fallbackCopy = () => {
       try {
         const textArea = document.createElement("textarea");
         textArea.value = link;
-        
+
         // Mantém o elemento "visível" para o DOM, mas transparente
         textArea.style.position = "fixed";
         textArea.style.left = "0";
         textArea.style.top = "0";
         textArea.style.opacity = "0";
-        
+
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        
+
         const successful = document.execCommand('copy');
         document.body.removeChild(textArea);
-        
+
         if (successful) {
           showNotification('Link de acesso copiado!', 'success');
         } else {
@@ -448,59 +552,67 @@ const SuperAdmin: React.FC = () => {
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 text-center md:text-left">Painel Super Admin</h1>
           <div className="flex flex-col sm:flex-row gap-3 items-center w-full md:w-auto">
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <button 
+              <button
                 onClick={() => setActiveTab('codes')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'codes' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Códigos
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('families')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'families' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Famílias
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('support')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'support' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Suporte
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('plans')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'plans' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Planos
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('landing')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'landing' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Landing
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('banner')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'banner' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Banner App
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('payments')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'payments' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Pagamentos
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('security')}
                 className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'security' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 Segurança
               </button>
+              <button
+                onClick={() => setActiveTab('notifications')}
+                className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base ${activeTab === 'notifications' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <span className="inline-flex items-center gap-2"><Bell size={16} /> Notificações</span>
+              </button>
             </div>
-            
-            <button 
+
+            <button
               onClick={() => {
                 sessionStorage.removeItem('homefin_super_admin_authenticated');
+                sessionStorage.removeItem('homefin_admin_session_token');
+                sessionStorage.removeItem('homefin_admin_session_expires_at');
                 navigate('/admin', { replace: true });
               }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors text-sm md:text-base"
@@ -519,19 +631,19 @@ const SuperAdmin: React.FC = () => {
               <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                 <Plus className="text-indigo-600" /> Novo Código
               </h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Código</label>
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={newCode}
                       onChange={e => setNewCode(e.target.value.toUpperCase())}
                       className="flex-1 p-2 border rounded-lg uppercase font-mono"
                       placeholder="EX: PROMO2026"
                     />
-                    <button 
+                    <button
                       onClick={handleGenerateCode}
                       className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-gray-600"
                       title="Gerar Aleatório"
@@ -544,8 +656,8 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Limite de Usos</label>
                   <div className="flex gap-2 items-center">
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       min="1"
                       value={maxUses}
                       onChange={e => setMaxUses(Number(e.target.value))}
@@ -553,8 +665,8 @@ const SuperAdmin: React.FC = () => {
                       disabled={isUnlimited}
                     />
                     <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer whitespace-nowrap">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={isUnlimited}
                         onChange={e => setIsUnlimited(e.target.checked)}
                         className="rounded text-indigo-600 focus:ring-indigo-500"
@@ -566,8 +678,8 @@ const SuperAdmin: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Desconto (%) (Opcional)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     min="0"
                     max="100"
                     value={discountPercent}
@@ -579,15 +691,15 @@ const SuperAdmin: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Expiração (Opcional)</label>
-                  <input 
-                    type="date" 
+                  <input
+                    type="date"
                     value={expiresAt}
                     onChange={e => setExpiresAt(e.target.value)}
                     className="w-full p-2 border rounded-lg"
                   />
                 </div>
 
-                <button 
+                <button
                   onClick={handleCreateCode}
                   className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
                 >
@@ -626,10 +738,10 @@ const SuperAdmin: React.FC = () => {
                         </td>
                         <td className="py-2 px-1 sm:px-4 text-center">
                           <span className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold ${
-                            code.maxUses === -1 
-                              ? 'bg-blue-100 text-blue-700' 
-                              : code.usedCount >= code.maxUses 
-                                ? 'bg-red-100 text-red-700' 
+                            code.maxUses === -1
+                              ? 'bg-blue-100 text-blue-700'
+                              : code.usedCount >= code.maxUses
+                                ? 'bg-red-100 text-red-700'
                                 : 'bg-green-100 text-green-700'
                           }`}>
                             {code.usedCount} / {code.maxUses === -1 ? '∞' : code.maxUses}
@@ -639,7 +751,7 @@ const SuperAdmin: React.FC = () => {
                           {code.expiresAt ? new Date(code.expiresAt).toLocaleDateString() : '-'}
                         </td>
                         <td className="py-2 px-1 sm:px-4 text-center">
-                          <button 
+                          <button
                             onClick={() => handleToggleStatus(code.code, code.status)}
                             className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase transition-colors ${code.status === 'active' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                           >
@@ -647,7 +759,7 @@ const SuperAdmin: React.FC = () => {
                           </button>
                         </td>
                         <td className="py-2 px-1 sm:px-4 text-right">
-                          <button 
+                          <button
                             onClick={() => confirmDeleteCode(code.code)}
                             className="text-red-400 hover:text-red-600 p-1"
                           >
@@ -678,13 +790,13 @@ const SuperAdmin: React.FC = () => {
                 Esta ação não pode ser desfeita.
               </p>
               <div className="flex justify-end gap-3">
-                <button 
+                <button
                   onClick={() => setCodeToDelete(null)}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={executeDeleteCode}
                   className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition-colors shadow-lg shadow-red-500/30"
                 >
@@ -730,14 +842,14 @@ const SuperAdmin: React.FC = () => {
                         <span className="text-green-600 font-bold text-[10px] sm:text-xs uppercase">Ativo</span>
                       </td>
                       <td className="py-2 px-1 sm:px-4 text-right">
-                        <button 
+                        <button
                           onClick={() => handleCopyFamilyLink(family.id)}
                           className="text-blue-400 hover:text-blue-600 p-1 mr-2"
                           title="Copiar Link de Acesso"
                         >
                           <Copy size={16} />
                         </button>
-                        <button 
+                        <button
                           onClick={() => setFamilyToDelete(family.id)}
                           className="text-red-400 hover:text-red-600 p-1"
                           title="Excluir Família"
@@ -768,14 +880,14 @@ const SuperAdmin: React.FC = () => {
                 Esta ação removerá todos os dados associados e não pode ser desfeita.
               </p>
               <div className="flex justify-end gap-3">
-                <button 
+                <button
                   onClick={() => setFamilyToDelete(null)}
                   disabled={isDeletingFamily}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={executeDeleteFamily}
                   disabled={isDeletingFamily}
                   className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition-colors shadow-lg shadow-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -999,7 +1111,7 @@ const SuperAdmin: React.FC = () => {
         {activeTab === 'plans' && (
           <div className="space-y-6">
             <div className="flex justify-end">
-              <button 
+              <button
                 onClick={() => setIsPlanModalOpen(true)}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
               >
@@ -1010,7 +1122,7 @@ const SuperAdmin: React.FC = () => {
             <div className="grid lg:grid-cols-2 gap-8">
               {plans.map((plan, index) => (
                 <div key={`${plan.id}-${index}`} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative group">
-                  <button 
+                  <button
                     onClick={() => setPlanToDelete(plan.id)}
                     className="absolute top-4 right-4 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Excluir Plano"
@@ -1039,8 +1151,8 @@ const SuperAdmin: React.FC = () => {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Plano (URL ou Upload)</label>
                       <div className="flex gap-2 mb-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={plan.image || ''}
                           onChange={e => handleUpdatePlan({ ...plan, image: e.target.value })}
                           className="flex-1 p-2 border rounded-lg text-sm"
@@ -1048,9 +1160,9 @@ const SuperAdmin: React.FC = () => {
                         />
                         <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-2 rounded-lg text-gray-600 transition-colors">
                           <Image size={20} />
-                          <input 
-                            type="file" 
-                            className="hidden" 
+                          <input
+                            type="file"
+                            className="hidden"
                             accept="image/*"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1068,7 +1180,7 @@ const SuperAdmin: React.FC = () => {
                       {plan.image && (
                         <div className="relative w-full h-32 bg-gray-50 rounded-lg overflow-hidden border">
                           <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
-                          <button 
+                          <button
                             onClick={() => handleUpdatePlan({ ...plan, image: undefined })}
                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white"
                           >
@@ -1080,19 +1192,19 @@ const SuperAdmin: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Plano</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={plan.name || ''}
                         onChange={e => handleUpdatePlan({ ...plan, name: e.target.value })}
                         className="w-full p-2 border rounded-lg"
                       />
                     </div>
-                    
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={plan.price ?? 0}
                           onChange={e => handleUpdatePlan({ ...plan, price: Number(e.target.value) })}
                           className="w-full p-2 border rounded-lg"
@@ -1100,8 +1212,8 @@ const SuperAdmin: React.FC = () => {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Período</label>
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={plan.period || ''}
                           onChange={e => handleUpdatePlan({ ...plan, period: e.target.value })}
                           className="w-full p-2 border rounded-lg"
@@ -1111,8 +1223,8 @@ const SuperAdmin: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Texto do Botão (CTA)</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={plan.cta || ''}
                         onChange={e => handleUpdatePlan({ ...plan, cta: e.target.value })}
                         className="w-full p-2 border rounded-lg"
@@ -1121,7 +1233,7 @@ const SuperAdmin: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Funcionalidades (separadas por vírgula)</label>
-                      <textarea 
+                      <textarea
                         value={(plan.features || []).join(', ')}
                         onChange={e => handleUpdatePlan({ ...plan, features: e.target.value.split(',').map(f => f.trim()) })}
                         className="w-full p-2 border rounded-lg h-24"
@@ -1129,8 +1241,8 @@ const SuperAdmin: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={!!plan.popular}
                         onChange={e => handleUpdatePlan({ ...plan, popular: e.target.checked })}
                         className="rounded text-indigo-600 focus:ring-indigo-500"
@@ -1149,11 +1261,11 @@ const SuperAdmin: React.FC = () => {
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <Layout className="text-indigo-600" /> Configuração da Landing Page
             </h2>
-            
+
             <form onSubmit={handleUpdateLanding} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Título Principal</label>
-                <textarea 
+                <textarea
                   value={landingConfig.title || ''}
                   onChange={e => setLandingConfig({ ...landingConfig, title: e.target.value })}
                   className="w-full p-3 border rounded-lg h-24 font-bold text-lg"
@@ -1164,7 +1276,7 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Subtítulo</label>
-                <textarea 
+                <textarea
                   value={landingConfig.subtitle || ''}
                   onChange={e => setLandingConfig({ ...landingConfig, subtitle: e.target.value })}
                   className="w-full p-3 border rounded-lg h-20"
@@ -1173,8 +1285,8 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Texto do Botão Principal</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={landingConfig.buttonText || ''}
                   onChange={e => setLandingConfig({ ...landingConfig, buttonText: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1185,8 +1297,8 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Imagem de Fundo (URL ou Upload)</label>
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.bannerImage || ''}
                       onChange={e => setLandingConfig({ ...landingConfig, bannerImage: e.target.value })}
                       className="flex-1 p-3 border rounded-lg min-w-0"
@@ -1194,9 +1306,9 @@ const SuperAdmin: React.FC = () => {
                     />
                     <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-3 rounded-lg text-gray-600 transition-colors flex items-center justify-center">
                       <Image size={20} />
-                      <input 
-                        type="file" 
-                        className="hidden" 
+                      <input
+                        type="file"
+                        className="hidden"
                         accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
@@ -1214,7 +1326,7 @@ const SuperAdmin: React.FC = () => {
                   {landingConfig.bannerImage && (
                     <div className="mt-2 h-24 w-full rounded-lg bg-cover bg-center border relative group">
                         <div style={{ backgroundImage: `url(${landingConfig.bannerImage})` }} className="w-full h-full rounded-lg bg-cover bg-center"></div>
-                        <button 
+                        <button
                             type="button"
                             onClick={() => setLandingConfig({ ...landingConfig, bannerImage: '' })}
                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1228,8 +1340,8 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Logo (PNG Transparente Recomendado)</label>
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.logoImage || ''}
                       onChange={e => setLandingConfig({ ...landingConfig, logoImage: e.target.value })}
                       className="flex-1 p-3 border rounded-lg min-w-0"
@@ -1237,9 +1349,9 @@ const SuperAdmin: React.FC = () => {
                     />
                     <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-3 rounded-lg text-gray-600 transition-colors flex items-center justify-center">
                       <Image size={20} />
-                      <input 
-                        type="file" 
-                        className="hidden" 
+                      <input
+                        type="file"
+                        className="hidden"
                         accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
@@ -1256,16 +1368,16 @@ const SuperAdmin: React.FC = () => {
                   </div>
                   {landingConfig.logoImage && (
                     <div className="mt-2 p-4 bg-gray-100 rounded-lg flex justify-center relative group">
-                      <img 
-                        src={landingConfig.logoImage} 
-                        alt="Logo Preview" 
+                      <img
+                        src={landingConfig.logoImage}
+                        alt="Logo Preview"
                         className="object-contain transition-all duration-300"
-                        style={{ 
+                        style={{
                           width: landingConfig.logoWidth ? `${landingConfig.logoWidth}px` : '48px',
                           borderRadius: landingConfig.logoRadius ? `${landingConfig.logoRadius}px` : '0px'
-                        }} 
+                        }}
                       />
-                      <button 
+                      <button
                             type="button"
                             onClick={() => setLandingConfig({ ...landingConfig, logoImage: '' })}
                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1274,12 +1386,12 @@ const SuperAdmin: React.FC = () => {
                         </button>
                     </div>
                   )}
-                  
+
                   <div className="grid grid-cols-2 gap-4 mt-2">
                     <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Largura Logo (px)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             value={landingConfig.logoWidth || '48'}
                             onChange={e => setLandingConfig({ ...landingConfig, logoWidth: e.target.value })}
                             className="w-full p-2 border rounded-lg text-sm"
@@ -1288,8 +1400,8 @@ const SuperAdmin: React.FC = () => {
                     </div>
                     <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Raio Borda (px)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             value={landingConfig.logoRadius || '0'}
                             onChange={e => setLandingConfig({ ...landingConfig, logoRadius: e.target.value })}
                             className="w-full p-2 border rounded-lg text-sm"
@@ -1301,8 +1413,8 @@ const SuperAdmin: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nome do App (PWA)</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={landingConfig.pwaName || ''}
                     onChange={e => setLandingConfig({ ...landingConfig, pwaName: e.target.value })}
                     className="w-full p-3 border rounded-lg"
@@ -1313,8 +1425,8 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Ícone PWA (App Instalável)</label>
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.pwaIcon || ''}
                       onChange={e => setLandingConfig({ ...landingConfig, pwaIcon: e.target.value })}
                       className="flex-1 p-3 border rounded-lg min-w-0"
@@ -1322,9 +1434,9 @@ const SuperAdmin: React.FC = () => {
                     />
                     <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-3 rounded-lg text-gray-600 transition-colors flex items-center justify-center">
                       <Image size={20} />
-                      <input 
-                        type="file" 
-                        className="hidden" 
+                      <input
+                        type="file"
+                        className="hidden"
                         accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
@@ -1342,7 +1454,7 @@ const SuperAdmin: React.FC = () => {
                   {landingConfig.pwaIcon && (
                     <div className="mt-2 p-4 bg-gray-100 rounded-lg flex justify-center relative group">
                       <img src={landingConfig.pwaIcon} alt="PWA Icon Preview" className="h-12 w-12 object-contain rounded-lg" />
-                      <button 
+                      <button
                             type="button"
                             onClick={() => setLandingConfig({ ...landingConfig, pwaIcon: '' })}
                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1359,14 +1471,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor Inicial (Degradê)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.bgColorStart || '#312e81'}
                       onChange={e => setLandingConfig({ ...landingConfig, bgColorStart: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.bgColorStart || '#312e81'}
                       onChange={e => setLandingConfig({ ...landingConfig, bgColorStart: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1376,14 +1488,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor Final (Degradê)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.bgColorEnd || '#3730a3'}
                       onChange={e => setLandingConfig({ ...landingConfig, bgColorEnd: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.bgColorEnd || '#3730a3'}
                       onChange={e => setLandingConfig({ ...landingConfig, bgColorEnd: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1393,14 +1505,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor do Texto (Geral)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.textColor || '#ffffff'}
                       onChange={e => setLandingConfig({ ...landingConfig, textColor: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.textColor || '#ffffff'}
                       onChange={e => setLandingConfig({ ...landingConfig, textColor: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1413,14 +1525,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor do Título (Parte 1)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.titleColor || '#ffffff'}
                       onChange={e => setLandingConfig({ ...landingConfig, titleColor: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.titleColor || '#ffffff'}
                       onChange={e => setLandingConfig({ ...landingConfig, titleColor: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1430,14 +1542,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor Destaque Início (Parte 2)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.accentColorStart || '#818cf8'}
                       onChange={e => setLandingConfig({ ...landingConfig, accentColorStart: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.accentColorStart || '#818cf8'}
                       onChange={e => setLandingConfig({ ...landingConfig, accentColorStart: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1447,14 +1559,14 @@ const SuperAdmin: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cor Destaque Fim (Parte 2)</label>
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       value={landingConfig.accentColorEnd || '#c084fc'}
                       onChange={e => setLandingConfig({ ...landingConfig, accentColorEnd: e.target.value })}
                       className="h-10 w-10 rounded border cursor-pointer"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={landingConfig.accentColorEnd || '#c084fc'}
                       onChange={e => setLandingConfig({ ...landingConfig, accentColorEnd: e.target.value })}
                       className="flex-1 p-2 border rounded-lg uppercase"
@@ -1464,11 +1576,11 @@ const SuperAdmin: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t">
-                <button 
+                <button
                   type="submit"
                   className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${
-                    savedTabs['landing'] 
-                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg' 
+                    savedTabs['landing']
+                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg'
                       : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
                 >
@@ -1484,11 +1596,11 @@ const SuperAdmin: React.FC = () => {
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <MonitorPlay className="text-indigo-600" /> Configuração do Banner do App (Contas do Mês)
             </h2>
-            
+
             <form onSubmit={handleUpdateBanner} className="space-y-6">
               <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-lg border">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="bannerEnabled"
                   checked={appBannerConfig.enabled}
                   onChange={e => setAppBannerConfig({ ...appBannerConfig, enabled: e.target.checked })}
@@ -1699,8 +1811,8 @@ const SuperAdmin: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Banner (URL ou Upload)</label>
                 <div className="flex gap-2">
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={appBannerConfig.imageUrl || ''}
                     onChange={e => setAppBannerConfig({ ...appBannerConfig, imageUrl: e.target.value })}
                     className="flex-1 p-3 border rounded-lg min-w-0"
@@ -1708,9 +1820,9 @@ const SuperAdmin: React.FC = () => {
                   />
                   <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-3 rounded-lg text-gray-600 transition-colors flex items-center justify-center">
                     <Image size={20} />
-                    <input 
-                      type="file" 
-                      className="hidden" 
+                    <input
+                      type="file"
+                      className="hidden"
                       accept="image/*"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -1733,7 +1845,7 @@ const SuperAdmin: React.FC = () => {
                         className="w-full h-full rounded-lg object-cover"
                         style={{ objectPosition: `${appBannerConfig.imagePositionX ?? 50}% ${appBannerConfig.imagePositionY ?? 50}%` }}
                       />
-                      <button 
+                      <button
                           type="button"
                           onClick={() => setAppBannerConfig({ ...appBannerConfig, imageUrl: '' })}
                           className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1770,8 +1882,8 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Link de Destino (URL)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={appBannerConfig.linkUrl || ''}
                   onChange={e => setAppBannerConfig({ ...appBannerConfig, linkUrl: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1782,8 +1894,8 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Texto Alternativo (Acessibilidade)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={appBannerConfig.altText || ''}
                   onChange={e => setAppBannerConfig({ ...appBannerConfig, altText: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1792,7 +1904,7 @@ const SuperAdmin: React.FC = () => {
               </div>
 
               <div className="flex justify-end pt-4 border-t">
-                <button 
+                <button
                   type="submit"
                   className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
                 >
@@ -1809,12 +1921,12 @@ const SuperAdmin: React.FC = () => {
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <CreditCard className="text-indigo-600" /> Configuração de Pagamentos
             </h2>
-            
+
             <form onSubmit={handleUpdatePayment} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Chave PIX</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={paymentConfig.pixKey || ''}
                   onChange={e => setPaymentConfig({ ...paymentConfig, pixKey: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1826,8 +1938,8 @@ const SuperAdmin: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">URL do QR Code PIX (Opcional)</label>
                 <div className="flex gap-2">
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={paymentConfig.pixQrCodeUrl || ''}
                     onChange={e => setPaymentConfig({ ...paymentConfig, pixQrCodeUrl: e.target.value })}
                     className="flex-1 p-3 border rounded-lg min-w-0"
@@ -1835,9 +1947,9 @@ const SuperAdmin: React.FC = () => {
                   />
                   <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 p-3 rounded-lg text-gray-600 transition-colors flex items-center justify-center">
                     <Image size={20} />
-                    <input 
-                      type="file" 
-                      className="hidden" 
+                    <input
+                      type="file"
+                      className="hidden"
                       accept="image/*"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -1855,7 +1967,7 @@ const SuperAdmin: React.FC = () => {
                 {paymentConfig.pixQrCodeUrl && (
                   <div className="mt-4 p-4 bg-gray-50 rounded-lg flex justify-center relative group w-fit mx-auto border">
                     <img src={paymentConfig.pixQrCodeUrl} alt="QR Code Preview" className="w-32 h-32 object-contain" />
-                    <button 
+                    <button
                       type="button"
                       onClick={() => setPaymentConfig({ ...paymentConfig, pixQrCodeUrl: '' })}
                       className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1871,12 +1983,12 @@ const SuperAdmin: React.FC = () => {
                 <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                   <DollarSign className="text-blue-500" /> Integração Mercado Pago
                 </h3>
-                
+
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Public Key (Chave Pública)</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={paymentConfig.mercadoPagoPublicKey || ''}
                       onChange={e => setPaymentConfig({ ...paymentConfig, mercadoPagoPublicKey: e.target.value })}
                       className="w-full p-3 border rounded-lg font-mono text-sm"
@@ -1884,17 +1996,12 @@ const SuperAdmin: React.FC = () => {
                     />
                     <p className="text-xs text-gray-500 mt-1">Usada no frontend para criar tokens de cartão.</p>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Access Token (Token de Acesso)</label>
-                    <input 
-                      type="password" 
-                      value={paymentConfig.mercadoPagoAccessToken || ''}
-                      onChange={e => setPaymentConfig({ ...paymentConfig, mercadoPagoAccessToken: e.target.value })}
-                      className="w-full p-3 border rounded-lg font-mono text-sm"
-                      placeholder="TEST-..."
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Usada no backend para processar pagamentos. Mantenha em segredo!</p>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-sm font-semibold text-amber-900">Token privado protegido no servidor</p>
+                    <p className="mt-1 text-xs text-amber-800">
+                      Configure MERCADO_PAGO_ACCESS_TOKEN nas variáveis de ambiente do projeto Vercel.
+                      Não salve o token privado nesta tela nem o envie pelo navegador.
+                    </p>
                   </div>
 
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
@@ -1903,7 +2010,7 @@ const SuperAdmin: React.FC = () => {
                       <code className="text-xs text-gray-600 flex-1 overflow-x-auto whitespace-nowrap">
                         {window.location.origin}/api/webhook
                       </code>
-                      <button 
+                      <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(`${window.location.origin}/api/webhook`);
@@ -1923,11 +2030,11 @@ const SuperAdmin: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t">
-                <button 
+                <button
                   type="submit"
                   className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${
-                    savedTabs['payments'] 
-                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg' 
+                    savedTabs['payments']
+                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg'
                       : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
                 >
@@ -1944,7 +2051,7 @@ const SuperAdmin: React.FC = () => {
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <Settings className="text-indigo-600" /> Segurança do Painel
             </h2>
-            
+
             <form onSubmit={handleUpdateSecurity} className="space-y-6">
               <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
                 <div className="flex">
@@ -1958,8 +2065,8 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nova Senha de Acesso</label>
-                <input 
-                  type="password" 
+                <input
+                  type="password"
                   value={securityConfig.newPassword}
                   onChange={e => setSecurityConfig({ ...securityConfig, newPassword: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1969,8 +2076,8 @@ const SuperAdmin: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar Nova Senha</label>
-                <input 
-                  type="password" 
+                <input
+                  type="password"
                   value={securityConfig.confirmPassword}
                   onChange={e => setSecurityConfig({ ...securityConfig, confirmPassword: e.target.value })}
                   className="w-full p-3 border rounded-lg"
@@ -1980,24 +2087,24 @@ const SuperAdmin: React.FC = () => {
 
               <div className="pt-4 border-t border-gray-100">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Palavra-chave de Recuperação</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={securityConfig.recoveryKeyword}
                   onChange={e => setSecurityConfig({ ...securityConfig, recoveryKeyword: e.target.value })}
                   className="w-full p-3 border rounded-lg"
                   placeholder="Ex: nome do cachorro, cidade natal..."
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                    Esta palavra será solicitada caso você clique em "Esqueci a senha" na tela de login.
+                    Este campo antigo não recupera mais o acesso administrativo. A senha é validada no servidor; altere HOMEFIN_ADMIN_SECRET nas variáveis de ambiente da Vercel. Não informe o segredo neste painel.
                 </p>
               </div>
 
               <div className="pt-4 border-t">
-                <button 
+                <button
                   type="submit"
                   className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${
-                    savedTabs['security'] 
-                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg' 
+                    savedTabs['security']
+                      ? 'bg-green-600 text-white scale-[1.02] shadow-lg'
                       : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
                 >
@@ -2009,13 +2116,114 @@ const SuperAdmin: React.FC = () => {
           </div>
         )}
 
+        {activeTab === 'notifications' && (
+          <div className="max-w-3xl mx-auto bg-white p-5 md:p-8 rounded-xl shadow-sm">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 mb-2">
+              <Bell className="text-indigo-600" /> Notificações em Massa
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Envie um aviso aos dispositivos familiares com inscrição Push ativa e permissão para receber notificações.
+            </p>
+
+            <section className="mb-8 rounded-lg border border-indigo-100 bg-indigo-50 p-4">
+              <h3 className="font-semibold text-gray-900">Notificações do suporte neste dispositivo</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Receba um aviso quando uma família enviar uma mensagem, inclusive com o painel em segundo plano quando o navegador oferecer suporte.
+              </p>
+              <button
+                type="button"
+                onClick={handleToggleAdminPush}
+                disabled={adminPushBusy || adminPushSubscribed === null}
+                className="mt-3 rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {adminPushBusy
+                  ? 'Atualizando...'
+                  : adminPushSubscribed === null
+                    ? 'Verificando inscrição...'
+                    : adminPushSubscribed
+                      ? 'Desativar neste dispositivo'
+                      : 'Ativar neste dispositivo'}
+              </button>
+            </section>
+
+            <form onSubmit={handleSendBroadcast} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                <input
+                  type="text"
+                  required
+                  maxLength={80}
+                  value={broadcastTitle}
+                  onChange={e => setBroadcastTitle(e.target.value)}
+                  className="w-full p-3 border rounded-lg"
+                  placeholder="Ex.: Aviso importante"
+                />
+                <p className="text-xs text-gray-500 mt-1">O prefixo “HomeFin - ” será adicionado automaticamente.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem</label>
+                <textarea
+                  required
+                  maxLength={500}
+                  rows={4}
+                  value={broadcastBody}
+                  onChange={e => setBroadcastBody(e.target.value)}
+                  className="w-full p-3 border rounded-lg resize-y"
+                  placeholder="Digite a mensagem que as famílias receberão..."
+                />
+                <p className="text-xs text-gray-500 mt-1">{broadcastBody.length}/500 caracteres</p>
+              </div>
+
+              {broadcastError && (
+                <div role="alert" className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">
+                  {broadcastError}
+                </div>
+              )}
+
+              {broadcastResult && (
+                <div role="status" className="p-4 rounded-lg bg-green-50 text-green-800 text-sm space-y-1">
+                  <p className="font-bold">Processamento concluído pela API.</p>
+                  <p>Envios Push aceitos: {broadcastResult.sent}</p>
+                  <p>Falhas no envio: {broadcastResult.failed}</p>
+                  <p>Inscrições encontradas: {broadcastResult.subscriptions}</p>
+                  {Object.keys(broadcastResult.failuresByStatus).length > 0 && (
+                    <p>Códigos das falhas: {Object.entries(broadcastResult.failuresByStatus).map(([code, count]) => `${code}: ${count}`).join(', ')}</p>
+                  )}
+                  {broadcastResult.failureMessages.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      <p className="font-semibold">Detalhes técnicos das falhas:</p>
+                      {broadcastResult.failureMessages.map((item, index) => (
+                        <p key={`${item.statusCode}-${index}`} className="break-words">
+                          HTTP {item.statusCode}: {item.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {broadcastResult.expiredRemoved > 0 && <p>Inscrições expiradas removidas: {broadcastResult.expiredRemoved}</p>}
+                  <p className="text-xs mt-2">Envio aceito não garante que a notificação foi exibida ou lida.</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={broadcastLoading || !broadcastTitle.trim() || !broadcastBody.trim()}
+                className="w-full py-3 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                <Send size={18} />
+                {broadcastLoading ? 'Enviando...' : 'Enviar para todas as famílias'}
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* Plan Creation Modal */}
         {isPlanModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
               <h3 className="text-lg font-bold text-gray-900 mb-4">Novo Plano</h3>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={newPlanName}
                 onChange={e => setNewPlanName(e.target.value)}
                 className="w-full p-3 border rounded-lg mb-6"
@@ -2023,13 +2231,13 @@ const SuperAdmin: React.FC = () => {
                 autoFocus
               />
               <div className="flex justify-end gap-3">
-                <button 
+                <button
                   onClick={() => setIsPlanModalOpen(false)}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={handleCreatePlan}
                   className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg font-bold transition-colors"
                   disabled={!newPlanName}
@@ -2050,13 +2258,13 @@ const SuperAdmin: React.FC = () => {
                 Tem certeza que deseja excluir este plano? Esta ação não pode ser desfeita.
               </p>
               <div className="flex justify-end gap-3">
-                <button 
+                <button
                   onClick={() => setPlanToDelete(null)}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={executeDeletePlan}
                   className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition-colors shadow-lg shadow-red-500/30"
                 >

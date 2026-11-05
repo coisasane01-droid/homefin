@@ -1,74 +1,65 @@
 import type { AppData } from '../types';
 
-type ProxyMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type FamilyAction = 'get' | 'save' | 'exists';
 
-async function requestSupabase(
-  path: string,
-  method: ProxyMethod = 'GET',
-  body?: unknown
+async function requestFamilyData(
+  action: FamilyAction,
+  familyId: string,
+  data?: AppData
 ): Promise<any> {
-  const response = await fetch('/api/supabase', {
+  if (!familyId || familyId === 'v1') {
+    throw new Error('Esta família precisa concluir a migração de segurança para sincronizar online.');
+  }
+
+  const tokenKey = `homefin_family_session_token_${familyId}`;
+  const expiryKey = `homefin_family_session_expires_at_${familyId}`;
+  const token = localStorage.getItem(tokenKey);
+  const expiresAt = Number(localStorage.getItem(expiryKey) || 0);
+
+  if (!token || !expiresAt || expiresAt <= Date.now()) {
+    throw new Error('Sua sessão familiar expirou ou não está autenticada. Entre novamente com seu código.');
+  }
+
+  const response = await fetch('/api/family-data', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      path,
-      method,
-      body,
-    }),
+    cache: 'no-store',
+    body: JSON.stringify({ action, familyId, ...(data ? { data } : {}) }),
   });
 
   const text = await response.text();
-
-  let data: any = null;
+  let result: any = null;
 
   try {
-    data = text ? JSON.parse(text) : null;
+    result = text ? JSON.parse(text) : null;
   } catch {
-    data = text;
+    result = null;
   }
 
   if (!response.ok) {
     throw new Error(
-      data?.message ||
-      data?.error ||
-      `Erro no proxy Supabase: HTTP ${response.status}`
+      result?.error || `Erro ao acessar dados familiares: HTTP ${response.status}`
     );
   }
 
-  return data;
+  return result;
 }
 
 export const homefinProxy = {
   getFamilyData: async (familyId: string): Promise<AppData | null> => {
-    const data = await requestSupabase(
-      `homefin_data?select=data&family_id=eq.${encodeURIComponent(familyId)}`
-    );
-
-    return data?.[0]?.data ?? null;
+    const result = await requestFamilyData('get', familyId);
+    return result?.data ?? null;
   },
 
-  saveFamilyData: async (
-    familyId: string,
-    appData: AppData
-  ): Promise<void> => {
-    await requestSupabase(
-      'homefin_data?on_conflict=family_id',
-      'POST',
-      {
-        family_id: familyId,
-        data: appData,
-        updated_at: new Date().toISOString(),
-      }
-    );
+  saveFamilyData: async (familyId: string, appData: AppData): Promise<void> => {
+    await requestFamilyData('save', familyId, appData);
   },
 
   familyExists: async (familyId: string): Promise<boolean> => {
-    const data = await requestSupabase(
-      `homefin_data?select=family_id&family_id=eq.${encodeURIComponent(familyId)}`
-    );
-
-    return Array.isArray(data) && data.length > 0;
+    const result = await requestFamilyData('exists', familyId);
+    return result?.exists === true;
   },
 };
