@@ -1,6 +1,6 @@
 import { AppData, Bill, ShoppingItem, Goal, Asset, UserSettings, KnownProduct, CalendarEvent, Debt } from '../types';
 import { supabase } from './supabaseService';
-import { homefinProxy } from './homefinProxy';
+import { FamilyDataConflictError, homefinProxy } from './homefinProxy';
 import { sendFamilyPushNotification } from './pushNotifications';
 /*
   Persistência: Supabase (com cache local para funcionamento offline).
@@ -17,6 +17,8 @@ let currentFamilyId = localStorage.getItem('homefin_current_family_id') || 'v1';
 
 const getStorageKey = () => `homefin_data_${currentFamilyId}`;
 const getPendingSyncKey = (familyId: string) => `homefin_pending_sync_${familyId}`;
+const getRemoteUpdatedAtKey = (familyId: string) => `homefin_remote_updated_at_${familyId}`;
+const getSyncConflictKey = (familyId: string) => `homefin_sync_conflict_${familyId}`;
 
 const defaultSettings: UserSettings = {
   theme: 'light',
@@ -43,7 +45,7 @@ const initialData: AppData = {
 let cachedData: AppData = initialData;
 let syncPromise: Promise<void> = Promise.resolve();
 
-const publishSyncStatus = (familyId: string, status: 'pending' | 'synced') => {
+const publishSyncStatus = (familyId: string, status: 'pending' | 'synced' | 'conflict') => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('homefin-family-sync-status', {
       detail: { familyId, status },
@@ -69,15 +71,24 @@ const enqueueRemoteSave = (
   serializedSnapshot: string
 ): Promise<void> => {
   const pendingKey = getPendingSyncKey(familyId);
-  const snapshot = JSON.parse(serializedSnapshot) as AppData;
 
   const currentSync = syncPromise
     .catch(() => undefined)
     .then(async () => {
-      await homefinProxy.saveFamilyData(familyId, snapshot);
+      const currentSerializedSnapshot = localStorage.getItem(storageKey);
+      const latestSerializedSnapshot = currentSerializedSnapshot || serializedSnapshot;
+      const latestSnapshot = JSON.parse(latestSerializedSnapshot) as AppData;
+      const expectedUpdatedAt = localStorage.getItem(getRemoteUpdatedAtKey(familyId));
+      const updatedAt = await homefinProxy.saveFamilyData(
+        familyId,
+        latestSnapshot,
+        expectedUpdatedAt
+      );
+      localStorage.setItem(getRemoteUpdatedAtKey(familyId), updatedAt);
 
-      if (localStorage.getItem(storageKey) === serializedSnapshot) {
+      if (localStorage.getItem(storageKey) === latestSerializedSnapshot) {
         localStorage.removeItem(pendingKey);
+        localStorage.removeItem(getSyncConflictKey(familyId));
         publishSyncStatus(familyId, 'synced');
       } else {
         publishSyncStatus(familyId, 'pending');
@@ -85,7 +96,12 @@ const enqueueRemoteSave = (
     });
 
   syncPromise = currentSync.catch((error) => {
-    publishSyncStatus(familyId, 'pending');
+    if (error instanceof FamilyDataConflictError) {
+      localStorage.setItem(getSyncConflictKey(familyId), '1');
+      publishSyncStatus(familyId, 'conflict');
+    } else {
+      publishSyncStatus(familyId, 'pending');
+    }
     console.error('HomeFin: erro ao sincronizar com Supabase:', error);
   });
 
@@ -152,15 +168,17 @@ const loadFromSupabase = async (familyIdToLoad: string) => {
   // Protege dados locais que ainda aguardam confirmação do servidor.
   if (localStorage.getItem(getPendingSyncKey(familyIdToLoad))) return;
 
-  if (data) {
+  if (data?.data) {
     const localBeforeSync = getLocalData();
-    const normalizedRemote = normalizeData(data);
+    const normalizedRemote = normalizeData(data.data);
+    let hasUnpersistedLocalImages = false;
 
     if (
       localBeforeSync.settings.logoImage &&
       !normalizedRemote.settings.logoImage
     ) {
       normalizedRemote.settings.logoImage = localBeforeSync.settings.logoImage;
+      hasUnpersistedLocalImages = true;
     }
 
     if (
@@ -168,11 +186,30 @@ const loadFromSupabase = async (familyIdToLoad: string) => {
       !normalizedRemote.settings.backgroundImage
     ) {
       normalizedRemote.settings.backgroundImage = localBeforeSync.settings.backgroundImage;
+      hasUnpersistedLocalImages = true;
     }
 
     cachedData = normalizedRemote;
     localStorage.setItem(`homefin_data_${familyIdToLoad}`, JSON.stringify(cachedData));
-    publishSyncStatus(familyIdToLoad, 'synced');
+
+    if (data.updatedAt) {
+      localStorage.setItem(getRemoteUpdatedAtKey(familyIdToLoad), data.updatedAt);
+    }
+
+    if (hasUnpersistedLocalImages) {
+      await saveLocalData(cachedData);
+      return;
+    }
+  }
+
+  if (data?.updatedAt) {
+    localStorage.setItem(getRemoteUpdatedAtKey(familyIdToLoad), data.updatedAt);
+    if (data?.data) {
+      localStorage.removeItem(getSyncConflictKey(familyIdToLoad));
+      publishSyncStatus(familyIdToLoad, 'synced');
+    }
+  } else {
+    localStorage.removeItem(getRemoteUpdatedAtKey(familyIdToLoad));
   }
 };
 
@@ -235,6 +272,7 @@ export const db = {
 
       if (!snapshot) {
         localStorage.removeItem(pendingKey);
+        localStorage.removeItem(getSyncConflictKey(familyIdToSync));
       } else {
         try {
           await enqueueRemoteSave(familyIdToSync, storageKey, snapshot);
@@ -258,6 +296,13 @@ export const db = {
     if (currentFamilyId === familyIdToSync) {
       console.log('HomeFin: sincronização concluída.');
     }
+  },
+
+  getSyncStatus: (familyId: string = currentFamilyId): 'pending' | 'conflict' | 'synced' | null => {
+    if (localStorage.getItem(getSyncConflictKey(familyId))) return 'conflict';
+    if (localStorage.getItem(getPendingSyncKey(familyId))) return 'pending';
+    if (localStorage.getItem(getRemoteUpdatedAtKey(familyId))) return 'synced';
+    return null;
   },
 
   // --- Settings ---
@@ -781,5 +826,17 @@ if (typeof window !== 'undefined') {
     
     window.addEventListener('load', () => {
         db.sync();
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (
+        event.key === getStorageKey() ||
+        event.key === getPendingSyncKey(currentFamilyId)
+      ) {
+        loadLocalCache();
+        if (localStorage.getItem(getPendingSyncKey(currentFamilyId))) {
+          void db.sync();
+        }
+      }
     });
 }

@@ -5,7 +5,7 @@ import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig, AppBann
 import { supportService, SupportMessage } from '../services/supportService';
 import { familyDeletionService } from '../services/familyDeletionService';
 import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotifications';
-import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send, Bell } from 'lucide-react';
+import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send, Bell, KeyRound, ShieldCheck } from 'lucide-react';
 
 const SuperAdmin: React.FC = () => {
   const navigate = useNavigate();
@@ -68,6 +68,14 @@ const SuperAdmin: React.FC = () => {
   const [broadcastError, setBroadcastError] = useState('');
   const [adminPushSubscribed, setAdminPushSubscribed] = useState<boolean | null>(null);
   const [adminPushBusy, setAdminPushBusy] = useState(false);
+  const [enrollmentFamilyId, setEnrollmentFamilyId] = useState('');
+  const [enrollmentPurpose, setEnrollmentPurpose] = useState<'provision' | 'pin_recovery'>('provision');
+  const [enrollmentVerificationMethod, setEnrollmentVerificationMethod] = useState('');
+  const [enrollmentOwnershipVerified, setEnrollmentOwnershipVerified] = useState(false);
+  const [enrollmentCode, setEnrollmentCode] = useState('');
+  const [enrollmentExpiresAt, setEnrollmentExpiresAt] = useState('');
+  const [enrollmentError, setEnrollmentError] = useState('');
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
   const notifiedSupportMessageIds = useRef<Set<string>>(new Set());
   const supportNotificationsInitialized = useRef(false);
@@ -418,6 +426,72 @@ const SuperAdmin: React.FC = () => {
       }
     } else {
       fallbackCopy();
+    }
+  };
+
+  const handleIssueFamilyEnrollment = async () => {
+    setEnrollmentError('');
+
+    if (!enrollmentFamilyId || !enrollmentOwnershipVerified) {
+      setEnrollmentError('Selecione a família e confirme a verificação independente da titularidade.');
+      return;
+    }
+
+    const adminToken = sessionStorage.getItem('homefin_admin_session_token');
+    const adminExpiresAt = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
+    if (!adminToken || adminExpiresAt <= Date.now()) {
+      setEnrollmentError('A sessão administrativa expirou. Entre novamente.');
+      return;
+    }
+
+    if (enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now() &&
+        !window.confirm('Emitir outro código invalida imediatamente o código ainda não utilizado. Continuar?')) {
+      return;
+    }
+    if (enrollmentPurpose === 'pin_recovery' &&
+        !window.confirm('Redefinir o PIN invalida todas as sessões familiares atuais. Os dados financeiros serão mantidos. Continuar?')) {
+      return;
+    }
+
+    setEnrollmentLoading(true);
+    try {
+      const response = await fetch('/api/family-enrollment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          action: 'issue-enrollment',
+          familyId: enrollmentFamilyId,
+          ownershipVerified: enrollmentOwnershipVerified,
+          verificationMethod: enrollmentVerificationMethod,
+          purpose: enrollmentPurpose,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.success !== true || typeof result.authorizationCode !== 'string') {
+        throw new Error(result?.error || 'Não foi possível emitir a autorização.');
+      }
+
+      setEnrollmentCode(result.authorizationCode);
+      setEnrollmentExpiresAt(result.expiresAt);
+      showNotification('Autorização emitida. Ela aparece somente nesta sessão e expira em 15 minutos.', 'success');
+    } catch (error) {
+      setEnrollmentError(error instanceof Error ? error.message : 'Falha ao emitir a autorização.');
+    } finally {
+      setEnrollmentLoading(false);
+    }
+  };
+
+  const copyEnrollmentCode = async () => {
+    if (!enrollmentCode) return;
+    try {
+      await navigator.clipboard.writeText(enrollmentCode);
+      showNotification('Código copiado. Entregue-o somente pelo canal independente verificado.', 'success');
+    } catch {
+      setEnrollmentError('Não foi possível copiar. Selecione e copie o código manualmente, sem enviá-lo por canal não verificado.');
     }
   };
 
@@ -810,6 +884,142 @@ const SuperAdmin: React.FC = () => {
         {activeTab === 'families' && (
           <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm">
             <h2 className="text-xl font-bold mb-4">Famílias Cadastradas</h2>
+            <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-1 shrink-0 text-amber-700" size={22} />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-amber-900">Regularização controlada de família legada</h3>
+                  <p className="mt-1 text-sm text-amber-900">
+                    Confirme a titularidade por um canal oficial previamente conhecido, fora deste aplicativo. Nunca peça o PIN antigo nem dados financeiros. O código abaixo é de uso único, vale 15 minutos e deve ser entregue apenas pelo canal verificado. A sessão administrativa validada será registrada por uma referência pseudônima; o login administrativo atual não identifica uma pessoa individualmente.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Família
+                  <select
+                    value={enrollmentFamilyId}
+                    disabled={Boolean(enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now())}
+                    onChange={(event) => {
+                      setEnrollmentFamilyId(event.target.value);
+                      setEnrollmentCode('');
+                      setEnrollmentExpiresAt('');
+                      setEnrollmentError('');
+                      setEnrollmentOwnershipVerified(false);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+                  >
+                    <option value="">Selecione uma família</option>
+                    {families.map((family) => (
+                      <option key={family.id} value={family.id}>
+                        {family.name} ({family.id})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700">
+                  Operação
+                  <select
+                    value={enrollmentPurpose}
+                    disabled={Boolean(enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now())}
+                    onChange={(event) => {
+                      setEnrollmentPurpose(event.target.value as 'provision' | 'pin_recovery');
+                      setEnrollmentCode('');
+                      setEnrollmentExpiresAt('');
+                      setEnrollmentOwnershipVerified(false);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+                  >
+                    <option value="provision">Provisionar família sem credencial</option>
+                    <option value="pin_recovery">Redefinir PIN perdido</option>
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700">
+                  Canal independente usado para confirmar
+                  <select
+                    value={enrollmentVerificationMethod}
+                    disabled={Boolean(enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now())}
+                    onChange={(event) => setEnrollmentVerificationMethod(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+                  >
+                    <option value="">Selecione o canal</option>
+                    <option value="known_phone">Telefone previamente conhecido</option>
+                    <option value="previously_verified_email">E-mail previamente verificado</option>
+                    <option value="in_person">Presencialmente</option>
+                    <option value="other_official_channel">Outro canal oficial</option>
+                  </select>
+                </label>
+                <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-white p-3 text-sm text-gray-800 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={enrollmentOwnershipVerified}
+                    disabled={Boolean(enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now())}
+                    onChange={(event) => setEnrollmentOwnershipVerified(event.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>
+                    Declaro que confirmei a titularidade por esse canal independente. Esta declaração será registrada junto à referência da sessão administrativa.
+                  </span>
+                </label>
+              </div>
+              {enrollmentError && (
+                <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert">
+                  {enrollmentError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleIssueFamilyEnrollment()}
+                disabled={enrollmentLoading}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-700 px-4 py-2 font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <KeyRound size={17} />
+                {enrollmentLoading ? 'Emitindo…' : 'Emitir autorização de uso único'}
+              </button>
+              {enrollmentCode && (
+                <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3">
+                  <p className="text-sm font-semibold text-emerald-900">
+                    {enrollmentPurpose === 'pin_recovery'
+                      ? 'Código de redefinição de PIN. O consumo invalida as sessões antigas sem alterar dados financeiros.'
+                      : 'Código de provisionamento para família sem credencial. Copie e entregue somente pelo canal verificado.'}
+                    {' '}Código de uso único; não será salvo para consulta posterior.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      readOnly
+                      value={enrollmentCode}
+                      aria-label="Autorização temporária de uso único"
+                      className="min-w-0 flex-1 rounded border border-emerald-300 bg-white px-2 py-2 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void copyEnrollmentCode()}
+                      className="rounded bg-emerald-700 px-3 py-2 text-white"
+                      aria-label="Copiar autorização temporária"
+                    >
+                      <Copy size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnrollmentCode('');
+                      }}
+                      className="rounded border border-emerald-700 px-3 py-2 text-emerald-900"
+                    >
+                      Ocultar
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-emerald-900">
+                    Expira em: {new Date(enrollmentExpiresAt).toLocaleString()}
+                  </p>
+                </div>
+              )}
+              {!enrollmentCode && enrollmentExpiresAt && Date.parse(enrollmentExpiresAt) > Date.now() && (
+                <p className="mt-3 text-sm text-amber-900" role="status">
+                  O código foi ocultado, mas continua válido até a expiração. Emitir outro para esta família invalida o código anterior.
+                </p>
+              )}
+            </section>
             <div className="w-full">
               <table className="w-full text-left border-collapse text-xs sm:text-sm">
                 <thead>

@@ -30,13 +30,18 @@ const getInitialFamilySettings = (): UserSettings | null => {
 
 const Auth: React.FC = () => {
   const [pin, setPin] = useState('');
-  const [mode, setMode] = useState<'login' | 'recovery' | 'reset_warning'>('login');
+  const [mode, setMode] = useState<'login' | 'recovery' | 'enroll' | 'reset_warning'>('login');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState<UserSettings | null>(getInitialFamilySettings);
   const [recoveryInput, setRecoveryInput] = useState('');
   const [recoveryPin, setRecoveryPin] = useState('');
+  const [enrollmentCode, setEnrollmentCode] = useState('');
+  const [enrollmentPin, setEnrollmentPin] = useState('');
+  const [enrollmentPinConfirm, setEnrollmentPinConfirm] = useState('');
+  const [enrollmentBusy, setEnrollmentBusy] = useState(false);
   const [hasRecovery, setHasRecovery] = useState(false);
+  const [familyEnrolled, setFamilyEnrolled] = useState<boolean | null>(null);
   const [authStatusReady, setAuthStatusReady] = useState(false);
 
   useEffect(() => {
@@ -59,6 +64,7 @@ const Auth: React.FC = () => {
       .then((result) => {
         if (!active) return;
         setHasRecovery(result.hasRecovery === true);
+        setFamilyEnrolled(result.enrolled === true);
         setMode(result.enrolled ? 'login' : 'reset_warning');
         setMessage(result.enrolled ? 'Digite seu código de acesso' : 'Acesso familiar ainda não configurado no servidor');
         setAuthStatusReady(true);
@@ -152,6 +158,58 @@ const Auth: React.FC = () => {
     }
   };
 
+  const beginEnrollment = () => {
+    setMode('enroll');
+    setEnrollmentCode('');
+    setEnrollmentPin('');
+    setEnrollmentPinConfirm('');
+    setError('');
+    setMessage('Regularize seu acesso com a autorização temporária do administrador');
+  };
+
+  const submitEnrollment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+    const code = enrollmentCode.trim();
+
+    if (!/^[A-Za-z0-9_-]{43}$/.test(code)) {
+      setError('Informe o código temporário completo recebido pelo canal verificado.');
+      return;
+    }
+    if (!/^\d{4}$/.test(enrollmentPin)) {
+      setError('O novo PIN deve conter exatamente 4 dígitos.');
+      return;
+    }
+    if (enrollmentPin !== enrollmentPinConfirm) {
+      setError('A confirmação do PIN não corresponde.');
+      return;
+    }
+    setEnrollmentBusy(true);
+    try {
+      const result = await familyAuthRequest(familyId, {
+        action: 'enroll',
+        authorizationCode: code,
+        newPin: enrollmentPin,
+      });
+      setFamilyEnrolled(true);
+      setHasRecovery(result.hasRecovery === true);
+      try {
+        storeFamilySession(familyId, result);
+        window.location.hash = '/dashboard';
+      } catch {
+        setMode('login');
+        setPin('');
+        setMessage('O novo PIN foi confirmado pelo servidor. Entre para continuar.');
+        setError('Não foi possível guardar a sessão neste dispositivo; a credencial já foi criada e não foi substituída.');
+      }
+    } catch (enrollmentError) {
+      setError(enrollmentError instanceof Error ? enrollmentError.message : 'Não foi possível regularizar o acesso.');
+    } finally {
+      setEnrollmentBusy(false);
+    }
+  };
+
   const cancelRecovery = () => {
     setMode(hasRecovery ? 'login' : 'reset_warning');
     setMessage(hasRecovery ? 'Digite seu código de acesso' : 'Acesso precisa de configuração');
@@ -228,7 +286,63 @@ const Auth: React.FC = () => {
           </p>
         </div>
 
-        {mode === 'recovery' ? (
+        {mode === 'enroll' ? (
+           <form onSubmit={submitEnrollment} className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
+              <div className={`text-center text-sm p-3 rounded-lg ${hasBackground ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300'}`}>
+                Use somente a autorização de uso único recebida do administrador pelo canal previamente verificado. Escolha um novo PIN; o PIN antigo não é solicitado nem recuperado.
+              </div>
+              <input
+                type="text"
+                autoComplete="off"
+                maxLength={43}
+                value={enrollmentCode}
+                onChange={event => setEnrollmentCode(event.target.value.trim())}
+                className={`w-full text-center font-mono p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
+                placeholder="Código temporário"
+                aria-label="Código temporário de uso único"
+                required
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                maxLength={4}
+                value={enrollmentPin}
+                onChange={event => setEnrollmentPin(event.target.value.replace(/\D/g, ''))}
+                className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
+                placeholder="Novo PIN de 4 dígitos"
+                required
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                maxLength={4}
+                value={enrollmentPinConfirm}
+                onChange={event => setEnrollmentPinConfirm(event.target.value.replace(/\D/g, ''))}
+                className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
+                placeholder="Confirme o novo PIN"
+                required
+              />
+              <button
+                type="submit"
+                disabled={enrollmentBusy || !authStatusReady}
+                className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 disabled:opacity-60"
+              >
+                {enrollmentBusy ? 'Validando autorização…' : 'Regularizar acesso'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('reset_warning');
+                  setError('');
+                }}
+                className={`w-full py-2 hover:opacity-80 ${hasBackground ? 'text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                Voltar
+              </button>
+           </form>
+        ) : mode === 'recovery' ? (
            <form onSubmit={checkRecovery} className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
               <div className={`text-center text-sm mb-4 p-3 rounded-lg ${hasBackground ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/20 text-gray-500'}`}>
                   Confirme a palavra-chave cadastrada no servidor e escolha um novo PIN de 4 dígitos.
@@ -275,11 +389,22 @@ const Auth: React.FC = () => {
                   <p className="text-sm text-amber-700 dark:text-amber-300">
                     {localStorage.getItem('homefin_current_family_id') === 'v1'
                       ? 'Abra o HomeFin e escolha a família para entrar.'
-                      : 'Esta família ainda não possui uma credencial verificada no servidor.'}
+                      : familyEnrolled
+                        ? 'A recuperação por palavra-chave não está disponível. Solicite uma redefinição controlada ao administrador.'
+                        : 'Esta família ainda não possui uma credencial verificada no servidor.'}
                   </p>
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    Os dados locais foram preservados. Não crie outra família nem apague este dispositivo; solicite ao administrador a migração segura da credencial.
+                    Seus dados locais foram preservados. Não crie outra família nem apague este dispositivo. A autenticação antiga não pode ser comprovada apenas pelo navegador: contate o administrador pelo canal oficial para confirmar a titularidade e solicitar o provisionamento controlado. Não envie seu PIN antigo ou dados financeiros.
                   </p>
+                  {familyEnrolled !== null && localStorage.getItem('homefin_current_family_id') !== 'v1' && (
+                    <button
+                      type="button"
+                      onClick={beginEnrollment}
+                      className="w-full rounded-xl border border-amber-400 bg-white px-4 py-3 font-bold text-amber-900 hover:bg-amber-100"
+                    >
+                      Tenho um código temporário do administrador
+                    </button>
+                  )}
               </div>
 
               <button 
@@ -403,6 +528,13 @@ const Auth: React.FC = () => {
                   className={`text-sm hover:underline font-medium opacity-80 hover:opacity-100 ${hasBackground ? 'text-white' : 'text-primary-600 dark:text-primary-400'}`}
                 >
                   Esqueci minha senha
+                </button>
+                <button
+                  type="button"
+                  onClick={beginEnrollment}
+                  className={`mt-3 block w-full text-sm underline underline-offset-4 font-medium opacity-80 hover:opacity-100 ${hasBackground ? 'text-white' : 'text-amber-700 dark:text-amber-300'}`}
+                >
+                  Tenho um código temporário do administrador
                 </button>
               </div>
             )}

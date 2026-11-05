@@ -1,9 +1,87 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { saasDb } from '../services/saasDb';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
-import { ArrowLeft, Upload, Copy, Check, Share, PlusSquare, X, Download, Smartphone } from 'lucide-react';
+import { ArrowLeft, Upload, Copy, Check, Share, PlusSquare, X, Download, Smartphone, Loader2, Cloud, CloudOff } from 'lucide-react';
+
+const MAX_IMAGE_FILE_BYTES = 40 * 1024 * 1024;
+const MAX_IMAGE_DATA_URI_CHARS = 850_000;
+const MAX_IMAGES_TOTAL_CHARS = 1_500_000;
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Não foi possível reduzir a imagem.'));
+    }, type, quality);
+  });
+}
+
+function blobToDataUri(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Não foi possível carregar a imagem processada.'));
+    };
+    reader.onerror = () => reject(new Error('Falha ao ler a imagem processada.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function compressFamilyImage(
+  file: File,
+  maxDimension: number,
+  maxDataUriChars: number
+) {
+  if (file.size > MAX_IMAGE_FILE_BYTES) {
+    throw new Error('O arquivo original ultrapassa o limite de 40 MB. Escolha uma imagem menor.');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Não foi possível abrir a imagem selecionada.'));
+      image.src = objectUrl;
+    });
+
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error('A imagem selecionada não possui dimensões válidas.');
+    }
+
+    const initialScale = Math.min(
+      1,
+      maxDimension / Math.max(image.naturalWidth, image.naturalHeight)
+    );
+    const canvas = document.createElement('canvas');
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const scale = initialScale * Math.pow(0.86, attempt);
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Não foi possível processar a imagem.');
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const quality = Math.max(0.48, 0.86 - attempt * 0.045);
+      const blob = await canvasToBlob(canvas, 'image/webp', quality);
+      const dataUri = await blobToDataUri(blob);
+
+      if (!/^data:image\/(?:webp|jpeg|png);base64,/.test(dataUri)) {
+        throw new Error('O navegador gerou um formato de imagem não suportado.');
+      }
+      if (dataUri.length <= maxDataUriChars) return dataUri;
+    }
+
+    throw new Error('A imagem continua acima do limite após a compressão. Escolha outra imagem.');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 const colors = {
   slate: '#64748b',
@@ -50,6 +128,24 @@ const PreConfiguracaoFamilia: React.FC = () => {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [creationCompleted, setCreationCompleted] = useState(false);
+  const [createdFamilyId, setCreatedFamilyId] = useState('');
+  const [familySyncStatus, setFamilySyncStatus] = useState<'pending' | 'synced' | 'conflict' | null>(null);
+  const saveInProgressRef = useRef(false);
+
+  useEffect(() => {
+    const handleFamilySyncStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        familyId: string;
+        status: 'pending' | 'synced' | 'conflict';
+      }>).detail;
+      if (detail?.familyId === createdFamilyId) setFamilySyncStatus(detail.status);
+    };
+    window.addEventListener('homefin-family-sync-status', handleFamilySyncStatus);
+    return () => window.removeEventListener('homefin-family-sync-status', handleFamilySyncStatus);
+  }, [createdFamilyId]);
 
   useEffect(() => {
     const isStandalone =
@@ -98,74 +194,62 @@ const PreConfiguracaoFamilia: React.FC = () => {
     setShowInstallHelp(true);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'background' | 'logo') => {
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: 'background' | 'logo'
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (saveInProgressRef.current) return;
     if (!file.type.startsWith('image/')) {
       setError('Selecione um arquivo de imagem válido.');
       e.target.value = '';
       return;
     }
 
-    const objectUrl = URL.createObjectURL(file);
-    const image = new Image();
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      setError('O arquivo original ultrapassa o limite de 40 MB. Escolha uma imagem menor.');
+      e.target.value = '';
+      return;
+    }
+
+    const otherImageLength = type === 'background'
+      ? formData.logoImage.length
+      : formData.backgroundImage.length;
+    const availableChars = Math.min(
+      MAX_IMAGE_DATA_URI_CHARS,
+      MAX_IMAGES_TOTAL_CHARS - otherImageLength
+    );
+    if (availableChars < 1000) {
+      setError('Não há espaço suficiente para outra imagem. Remova ou substitua a imagem atual.');
+      e.target.value = '';
+      return;
+    }
+
     const maxDimension = type === 'background' ? 1600 : 600;
-    const quality = type === 'background' ? 0.82 : 0.86;
-
-    image.onload = () => {
-      try {
-        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Não foi possível processar a imagem.');
-
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          URL.revokeObjectURL(objectUrl);
-
-          if (!blob) {
-            setError('Não foi possível reduzir a imagem. Tente outro arquivo.');
-            return;
-          }
-
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (typeof reader.result !== 'string') {
-              setError('Não foi possível carregar a imagem processada.');
-              return;
-            }
-
-            const base64String = reader.result;
-            if (type === 'background') {
-              setFormData(prev => ({ ...prev, backgroundImage: base64String }));
-            } else {
-              setFormData(prev => ({ ...prev, logoImage: base64String }));
-            }
-            setError('');
-          };
-          reader.onerror = () => setError('Falha ao ler a imagem processada.');
-          reader.readAsDataURL(blob);
-        }, 'image/webp', quality);
-      } catch {
-        URL.revokeObjectURL(objectUrl);
-        setError('Não foi possível processar a imagem. Tente outro arquivo.');
+    setIsCompressing(true);
+    setError('');
+    try {
+      const dataUri = await compressFamilyImage(file, maxDimension, availableChars);
+      if (type === 'background') {
+        setFormData(prev => ({ ...prev, backgroundImage: dataUri }));
+      } else {
+        setFormData(prev => ({ ...prev, logoImage: dataUri }));
       }
-    };
-
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      setError('Não foi possível abrir a imagem selecionada.');
-    };
-
-    image.src = objectUrl;
+    } catch (imageError) {
+      setError(imageError instanceof Error
+        ? imageError.message
+        : 'Não foi possível processar a imagem. Tente outro arquivo.');
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saveInProgressRef.current || isCompressing || creationCompleted) return;
     if (!formData.familyName || !formData.pin || !formData.keyword) {
       setError('Preencha todos os campos obrigatórios.');
       return;
@@ -180,6 +264,11 @@ const PreConfiguracaoFamilia: React.FC = () => {
       return;
     }
 
+    saveInProgressRef.current = true;
+    setIsSubmitting(true);
+    setError('');
+    let familyCreated = false;
+    try {
     // Novos cadastros ficam no plano gratuito até a confirmação real do pagamento.
     const plan = 'free';
 
@@ -209,27 +298,19 @@ const PreConfiguracaoFamilia: React.FC = () => {
     };
 
     // O servidor grava a família e o hash do PIN na mesma transação.
-    let enrollmentResponse: Response;
-    let enrollmentData: any;
-
-    try {
-      enrollmentResponse = await fetch('/api/family-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create',
-          familyId,
-          family: familyData,
-          pin: formData.pin,
-          keyword: formData.keyword
-        }),
-        cache: 'no-store'
-      });
-      enrollmentData = await enrollmentResponse.json();
-    } catch {
-      setError('Não foi possível conectar ao servidor. Tente novamente.');
-      return;
-    }
+    const enrollmentResponse = await fetch('/api/family-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'create',
+        familyId,
+        family: familyData,
+        pin: formData.pin,
+        keyword: formData.keyword
+      }),
+      cache: 'no-store'
+    });
+    const enrollmentData = await enrollmentResponse.json().catch(() => null);
 
     if (!enrollmentResponse.ok || !enrollmentData?.success) {
       setError(
@@ -238,12 +319,21 @@ const PreConfiguracaoFamilia: React.FC = () => {
       );
       return;
     }
+    familyCreated = true;
+    setCreationCompleted(true);
 
     const newFamily = enrollmentData.family;
+    const confirmedFamilyId = String(newFamily?.id || familyId);
+    const link = `${window.location.origin}/#/login?family=${encodeURIComponent(confirmedFamilyId)}`;
+    setCreatedFamilyId(confirmedFamilyId);
+    setGeneratedLink(link);
+    setFamilySyncStatus('pending');
+    localStorage.setItem('homefin_current_family_id', newFamily.id);
+    localStorage.setItem('homefin_current_family_name', newFamily.name);
 
     // Guardar a sessão do servidor antes de inicializar ou sincronizar dados.
     if (!enrollmentData.token) {
-      setError('A família foi criada, mas não foi possível iniciar a sessão. Entre novamente com seu código.');
+      setError('A família foi criada no servidor, mas a sessão automática falhou. Use o link de acesso abaixo e entre com o PIN informado.');
       return;
     }
 
@@ -255,9 +345,6 @@ const PreConfiguracaoFamilia: React.FC = () => {
       `homefin_family_session_expires_at_${newFamily.id}`,
       String(Date.now() + (Number(enrollmentData.expiresIn) || 43200) * 1000)
     );
-    localStorage.setItem('homefin_current_family_id', newFamily.id);
-    localStorage.setItem('homefin_current_family_name', newFamily.name);
-
     // Atualizar o contexto local da família sem gravar uma cópia SaaS antiga.
     try {
       const remoteSaasData = await (await import('../services/supabaseService')).supabaseService.getSaasData();
@@ -298,6 +385,8 @@ const PreConfiguracaoFamilia: React.FC = () => {
     };
 
     await db.updateSettings(newSettings);
+    await db.sync();
+    setFamilySyncStatus(db.getSyncStatus(newFamily.id) || 'pending');
 
     // Registrar o uso do código promocional após atualizar o cache com os dados atuais.
     if (code) {
@@ -309,11 +398,18 @@ const PreConfiguracaoFamilia: React.FC = () => {
     }
 
     // Generate Link
-    const link = `${window.location.origin}/#/login?family=${newFamily.id}`;
-    setGeneratedLink(link);
-
     // Show success modal instead of alert
     setShowSuccessModal(true);
+    } catch (saveError) {
+      console.error('Falha ao concluir o cadastro familiar:', saveError);
+      setError(familyCreated
+        ? `A família ${createdFamilyId || 'recém-criada'} foi criada no servidor, mas a preparação deste dispositivo falhou. Não tente cadastrá-la novamente. Use o link de acesso abaixo e entre com o PIN informado.`
+        : 'Não foi possível concluir o cadastro. Os dados preenchidos foram mantidos; verifique a conexão e tente novamente.');
+      if (familyCreated) setCreationCompleted(true);
+    } finally {
+      saveInProgressRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const copyLink = () => {
@@ -326,6 +422,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 animate-in zoom-in duration-300 relative">
         <button 
+          disabled={isCompressing || isSubmitting}
           onClick={() => {
             if (location.state?.plan) {
               navigate('/plans', { state: { flow: 'signup' } });
@@ -333,7 +430,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
               navigate('/');
             }
           }} 
-          className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           title="Voltar"
         >
           <ArrowLeft size={24} />
@@ -342,8 +439,27 @@ const PreConfiguracaoFamilia: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-900 mb-2 mt-6 text-center">Configuração Inicial</h2>
         <p className="text-gray-500 mb-6 text-center">Vamos preparar o ambiente para sua família.</p>
 
-        <form onSubmit={handleSave} className="space-y-4">
-          {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</div>}
+        <form onSubmit={handleSave}>
+          <fieldset disabled={isCompressing || isSubmitting || creationCompleted} className="space-y-4 border-0 p-0 m-0 min-w-0">
+          {error && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm" role="alert">
+              {error}
+              {creationCompleted && createdFamilyId && (
+                <p className="mt-2 font-semibold">Código da família: {createdFamilyId}</p>
+              )}
+              {creationCompleted && generatedLink && (
+                <a href={generatedLink} className="mt-2 block font-semibold underline">
+                  Abrir acesso da família
+                </a>
+              )}
+            </div>
+          )}
+          {(isCompressing || isSubmitting) && (
+            <div className="flex items-center justify-center gap-2 rounded-lg bg-indigo-50 p-3 text-sm font-medium text-indigo-700" role="status" aria-live="polite">
+              <Loader2 size={18} className="animate-spin" />
+              {isCompressing ? 'Redimensionando e comprimindo a imagem…' : 'Salvando a família no servidor…'}
+            </div>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Família / Casa</label>
@@ -391,7 +507,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
                       <span className="text-xs mt-1">Upload</span>
                     </div>
                   )}
-                  <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'logo')} />
+                  <input type="file" accept="image/*" className="hidden" onChange={e => void handleImageUpload(e, 'logo')} />
                 </label>
              </div>
              <div>
@@ -405,7 +521,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
                       <span className="text-xs mt-1">Upload</span>
                     </div>
                   )}
-                  <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'background')} />
+                  <input type="file" accept="image/*" className="hidden" onChange={e => void handleImageUpload(e, 'background')} />
                 </label>
              </div>
           </div>
@@ -460,10 +576,12 @@ const PreConfiguracaoFamilia: React.FC = () => {
 
           <button 
             type="submit"
-            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30 mt-4"
+            disabled={isCompressing || isSubmitting || creationCompleted}
+            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30 mt-4 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Finalizar Configuração
+            {isSubmitting ? 'Salvando…' : creationCompleted ? 'Cadastro realizado' : 'Finalizar Configuração'}
           </button>
+          </fieldset>
         </form>
       </div>
 
@@ -481,6 +599,27 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 Seu login foi criado com sucesso.<br/>
                 <span className="font-medium text-gray-900">Seja bem-vindo à família {formData.familyName}!</span>
               </p>
+
+              <div
+                role="status"
+                aria-live="polite"
+                className={`flex items-start gap-2 rounded-xl p-3 text-left text-sm ${
+                  familySyncStatus === 'synced'
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'bg-amber-50 text-amber-800'
+                }`}
+              >
+                {familySyncStatus === 'synced'
+                  ? <Cloud size={18} className="mt-0.5 shrink-0" />
+                  : <CloudOff size={18} className="mt-0.5 shrink-0" />}
+                <span>
+                  {familySyncStatus === 'synced'
+                    ? 'Dados financeiros confirmados na nuvem.'
+                    : familySyncStatus === 'conflict'
+                      ? 'Cadastro confirmado. Os dados financeiros estão neste dispositivo; a sincronização foi bloqueada para proteger uma versão mais recente na nuvem. Contate o suporte para reconciliar.'
+                      : 'Cadastro confirmado no servidor. Os dados financeiros estão salvos neste dispositivo e aguardam confirmação da nuvem.'}
+                </span>
+              </div>
 
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mt-4">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2 text-left">Link de Acesso</label>

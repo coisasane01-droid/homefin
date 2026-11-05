@@ -43,14 +43,20 @@ function verify(token, secret) {
 // Validação reutilizável pelas APIs administrativas do servidor.
 // Não confia em flags armazenadas no navegador.
 export function verifyAdminSession(req) {
+  return getAdminSessionReference(req) !== null;
+}
+
+export function getAdminSessionReference(req) {
   const secret = process.env.HOMEFIN_ADMIN_SECRET;
-  if (!secret || secret.length < 20) return false;
+  if (!secret || secret.length < 20) return null;
 
   const authorization = String(req.headers?.authorization || '');
   const match = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
+  if (!match || !verify(match[1], secret)) return null;
 
-  return verify(match[1], secret);
+  return crypto.createHash('sha256')
+    .update(match[1])
+    .digest('hex');
 }
 
 export default async function handler(req, res) {
@@ -80,6 +86,7 @@ export default async function handler(req, res) {
     const expiresAt = (now + 12 * 60 * 60) * 1000;
     const token = sign({
       role: 'admin',
+      jti: crypto.randomUUID(),
       iat: now,
       exp: Math.floor(expiresAt / 1000)
     }, secret);

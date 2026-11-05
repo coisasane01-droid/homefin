@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     return json(res, 405, { error: 'Método não permitido.' });
   }
 
-  const { action, data } = req.body || {};
+  const { action, data, expectedUpdatedAt } = req.body || {};
   const familyId = String(req.body?.familyId || '').trim();
   if (!FAMILY_ID_PATTERN.test(familyId)) {
     return json(res, 400, { error: 'Identificador familiar inválido.' });
@@ -80,20 +80,43 @@ export default async function handler(req, res) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return json(res, 400, { error: 'Dados familiares inválidos.' });
     }
+    if (
+      !Object.prototype.hasOwnProperty.call(req.body || {}, 'expectedUpdatedAt') ||
+      (expectedUpdatedAt !== null &&
+        (typeof expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(expectedUpdatedAt))))
+    ) {
+      return json(res, 400, { error: 'Versão remota esperada ausente ou inválida. Atualize o aplicativo e tente novamente.' });
+    }
     if (Buffer.byteLength(JSON.stringify(data), 'utf8') > 3_500_000) {
       return json(res, 413, { error: 'Os dados enviados excedem o limite permitido.' });
     }
 
-    await supabaseRequest('homefin_data?on_conflict=family_id', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({
-        family_id: familyId,
-        data,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    return json(res, 200, { success: true });
+    const record = {
+      family_id: familyId,
+      data,
+      updated_at: new Date().toISOString(),
+    };
+    const saved = expectedUpdatedAt === null
+      ? await supabaseRequest('homefin_data?on_conflict=family_id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
+          body: JSON.stringify(record),
+        })
+      : await supabaseRequest(
+          `homefin_data?family_id=eq.${encodeURIComponent(familyId)}&updated_at=eq.${encodeURIComponent(expectedUpdatedAt)}`,
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify(record),
+          }
+        );
+
+    if (!Array.isArray(saved) || saved.length !== 1) {
+      return json(res, 409, {
+        error: 'Os dados na nuvem foram atualizados em outro dispositivo. As alterações deste dispositivo foram preservadas localmente; revise a versão mais recente antes de sincronizar novamente.',
+      });
+    }
+    return json(res, 200, { success: true, updatedAt: saved[0].updated_at });
   } catch (error) {
     console.error('Erro na API de dados familiares:', error instanceof Error ? error.message : error);
     return json(res, 503, { error: 'Não foi possível acessar os dados familiares.' });

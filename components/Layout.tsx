@@ -64,18 +64,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | null>(() => {
+  const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | 'conflict' | null>(() => {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
-    return familyId && localStorage.getItem(`homefin_pending_sync_${familyId}`)
-      ? 'pending'
-      : null;
+    if (!familyId) return null;
+    if (localStorage.getItem(`homefin_sync_conflict_${familyId}`)) return 'conflict';
+    return localStorage.getItem(`homefin_pending_sync_${familyId}`) ? 'pending' : null;
   });
 
   useEffect(() => {
     loadSettings();
     checkPlanStatus();
     const handleSyncStatus = (event: Event) => {
-      const detail = (event as CustomEvent<{ familyId: string; status: 'pending' | 'synced' }>).detail;
+      const detail = (event as CustomEvent<{ familyId: string; status: 'pending' | 'synced' | 'conflict' }>).detail;
       if (detail?.familyId === localStorage.getItem('homefin_current_family_id')) {
         setSyncStatus(detail.status);
       }
@@ -238,14 +238,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div
               role="status"
               className={`mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                syncStatus === 'pending'
+                syncStatus !== 'synced'
                   ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200'
                   : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200'
               }`}
             >
-              {syncStatus === 'pending' ? <CloudOff size={16} /> : <Cloud size={16} />}
-              {syncStatus === 'pending'
-                ? 'Alterações salvas neste dispositivo; a nuvem ainda não confirmou a sincronização.'
+              {syncStatus !== 'synced' ? <CloudOff size={16} /> : <Cloud size={16} />}
+              {syncStatus === 'conflict'
+                ? 'Há uma versão mais recente na nuvem. As alterações deste dispositivo foram preservadas e a sincronização foi bloqueada para evitar sobrescrita; contate o suporte para reconciliar.'
+                : syncStatus === 'pending'
+                  ? 'Alterações salvas neste dispositivo; a nuvem ainda não confirmou a sincronização.'
                 : 'Sincronização com a nuvem confirmada.'}
             </div>
           )}

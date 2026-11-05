@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/family-enrollment",
+      "destination": "/api/family-auth"
+    },
+    {
       "source": "/api/push-subscribe",
       "destination": "/api/push?mode=subscribe"
     },

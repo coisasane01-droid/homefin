@@ -4,8 +4,11 @@ import {
   createFamilySessionToken,
   validateFamilySession,
 } from './_family-session.js';
+import familyEnrollmentHandler from './_family-enrollment.js';
 
 const scrypt = promisify(crypto.scrypt);
+const MAX_IMAGE_DATA_URI_CHARS = 850_000;
+const MAX_IMAGES_TOTAL_CHARS = 1_500_000;
 // O identificador da família é validado em cada requisição.
 
 function safeEqual(a, b) {
@@ -114,6 +117,9 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido.' });
   }
+  if (req.body?.action === 'issue-enrollment') {
+    return familyEnrollmentHandler(req, res);
+  }
 
   try {
     const {
@@ -123,7 +129,7 @@ export default async function handler(req, res) {
       keyword,
       currentPin,
       newPin,
-      enrollmentSecret,
+      authorizationCode,
       family,
     } = req.body || {};
     const targetFamilyId = String(familyId || '').trim();
@@ -257,17 +263,27 @@ export default async function handler(req, res) {
           ? family.settings
           : {};
 
+      let totalImageChars = 0;
       for (const imageField of ['backgroundImage', 'logoImage']) {
         const imageValue = suppliedSettings[imageField];
-        if (
-          imageValue != null &&
-          imageValue !== '' &&
-          (typeof imageValue !== 'string' || imageValue.length > 1500000)
-        ) {
+        if (imageValue == null || imageValue === '') continue;
+        if (typeof imageValue !== 'string') {
+          return res.status(400).json({ error: `A imagem de ${imageField === 'logoImage' ? 'logo' : 'fundo'} é inválida.` });
+        }
+        if (imageValue.length > MAX_IMAGE_DATA_URI_CHARS) {
           return res.status(413).json({
-            error: 'Uma das imagens é muito grande. Escolha uma imagem menor.'
+            error: `A imagem de ${imageField === 'logoImage' ? 'logo' : 'fundo'} ultrapassa o limite permitido. Escolha outra imagem.`
           });
         }
+        if (!/^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageValue)) {
+          return res.status(400).json({ error: `A imagem de ${imageField === 'logoImage' ? 'logo' : 'fundo'} possui formato inválido.` });
+        }
+        totalImageChars += imageValue.length;
+      }
+      if (totalImageChars > MAX_IMAGES_TOTAL_CHARS) {
+        return res.status(413).json({
+          error: 'As imagens juntas ultrapassam o limite permitido. Remova ou reduza uma delas.'
+        });
       }
 
       const familyRecord = {
@@ -326,49 +342,72 @@ export default async function handler(req, res) {
     }
 
     if (action === 'enroll') {
-      const expected = process.env.HOMEFIN_FAMILY_ENROLL_SECRET;
-
-      if (!expected || expected.length < 32 || !safeEqual(enrollmentSecret || '', expected)) {
-        return res.status(401).json({ error: 'Não autorizado.' });
+      if (!isValidPin(newPin)) {
+        return res.status(400).json({ error: 'Escolha um novo PIN de exatamente 4 dígitos.' });
       }
-
-      if (!isValidPin(pin)) {
-        return res.status(400).json({ error: 'O PIN deve conter exatamente 4 dígitos.' });
+      if (typeof authorizationCode !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(authorizationCode)) {
+        return res.status(400).json({ error: 'Informe a autorização temporária recebida do administrador.' });
       }
 
       const globalRows = await db('homefin_saas?id=eq.global&select=data');
       const families = globalRows?.[0]?.data?.families;
       if (!Array.isArray(families) || !families.some((item) => item?.id === targetFamilyId)) {
-        return res.status(404).json({ error: 'Família não encontrada para migração de credencial.' });
+        return res.status(404).json({ error: 'Família não encontrada para regularização de acesso.' });
       }
 
-      const existing = await db(
-        `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=family_id`
-      );
-
-      if (existing.length) {
-        return res.status(409).json({
-          error: 'Esta família já possui credencial. Cadastro bloqueado.',
+      const ipHash = getIpHash(req);
+      const attemptStatus = await db('rpc/homefin_register_family_enrollment_attempt', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_family_id: targetFamilyId,
+          p_ip_hash: ipHash,
+        }),
+      });
+      if (attemptStatus?.allowed !== true) {
+        return res.status(429).json({
+          error: 'Muitas tentativas de regularização. Aguarde uma hora ou contate o administrador.',
         });
       }
 
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = await makeHash(String(pin), salt);
-
-      await db('homefin_family_credentials', {
+      const pinHash = await makeHash(newPin, salt);
+      const authorizationHash = crypto.createHash('sha256')
+        .update(authorizationCode)
+        .digest('hex');
+      const result = await db('rpc/homefin_consume_family_enrollment_authorization', {
         method: 'POST',
-        headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
-          family_id: targetFamilyId,
-          pin_salt: salt,
-          pin_hash: hash,
-          recovery_salt: null,
-          recovery_hash: null,
-          session_version: 1,
+          p_family_id: targetFamilyId,
+          p_authorization_hash: authorizationHash,
+          p_pin_salt: salt,
+          p_pin_hash: pinHash,
+          p_ip_hash: ipHash,
         }),
       });
 
-      return res.status(201).json({ success: true });
+      if (result?.success !== true) {
+        const failures = {
+          invalid_authorization: [401, 'A autorização é inválida para esta família.'],
+          authorization_expired: [410, 'A autorização expirou. Solicite uma nova após nova verificação de titularidade.'],
+          authorization_reused: [409, 'Esta autorização já foi utilizada e não pode ser reutilizada.'],
+          credential_exists: [409, 'Esta família já possui credencial; nenhuma foi substituída.'],
+          invalid_request: [400, 'Os dados de regularização foram rejeitados.'],
+        };
+        const [status, error] = failures[result?.reason] || [
+          503,
+          'Não foi possível regularizar a credencial no servidor.',
+        ];
+        return res.status(status).json({ error });
+      }
+
+      const sessionVersion = Number(result.sessionVersion || 1);
+      return res.status(201).json({
+        success: true,
+        token: createFamilySessionToken(targetFamilyId, sessionVersion),
+        expiresIn: 43200,
+        hasRecovery: result.hasRecovery === true,
+        purpose: result.purpose,
+      });
     }
 
     if (action === 'recover') {

@@ -118,7 +118,8 @@ async function requestSaasData(action: 'get' | 'save', saasData?: any): Promise<
 async function requestFamilyData(
   action: 'get' | 'save' | 'exists' | 'delete',
   familyId: string,
-  appData?: AppData
+  appData?: AppData,
+  expectedUpdatedAt?: string | null
 ): Promise<any> {
   const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
   const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
@@ -132,7 +133,11 @@ async function requestFamilyData(
       Authorization: `Bearer ${token}`,
     },
     cache: 'no-store',
-    body: JSON.stringify({ action, familyId, ...(appData ? { data: appData } : {}) }),
+    body: JSON.stringify({
+      action,
+      familyId,
+      ...(appData ? { data: appData, expectedUpdatedAt } : {}),
+    }),
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || result?.success !== true) {
@@ -163,17 +168,18 @@ export const supabaseService = {
 
   saveFamilyData: async (
     familyId: string,
-    appData: AppData
+    appData: AppData,
+    expectedUpdatedAt: string | null
   ): Promise<HomeFinDataRow> => {
     if (!familyId) {
       throw new Error('familyId não informado.');
     }
 
-    await requestFamilyData('save', familyId, appData);
+    const result = await requestFamilyData('save', familyId, appData, expectedUpdatedAt);
     return {
       family_id: familyId,
       data: appData,
-      updated_at: new Date().toISOString(),
+      updated_at: result.updatedAt,
     };
   },
 
@@ -185,7 +191,7 @@ export const supabaseService = {
       throw new Error('familyId não informado.');
     }
 
-    return supabaseService.saveFamilyData(familyId, appData);
+    return supabaseService.saveFamilyData(familyId, appData, null);
   },
 
   familyExists: async (familyId: string): Promise<boolean> => {

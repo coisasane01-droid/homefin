@@ -139,6 +139,101 @@ test('financial data API scopes reads to the authenticated family', async () => 
   assert.ok(requested[1].includes('family_id=eq.family-one'));
 });
 
+test('financial data API saves only when the expected remote version still matches', async () => {
+  const token = createFamilySessionToken('family-one', 1);
+  const expectedUpdatedAt = '2026-10-01T00:00:00.000Z';
+  const latestUpdatedAt = '2026-10-02T00:00:00.000Z';
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    requests.push({ target, options });
+    if (target.includes('homefin_family_credentials')) {
+      return apiResponse(200, [{ session_version: 1 }]);
+    }
+    if (target.includes('homefin_data?') && options.method === 'PATCH') {
+      assert.match(target, /updated_at=eq\.2026-10-01T00%3A00%3A00\.000Z/);
+      return apiResponse(200, [{
+        family_id: 'family-one',
+        updated_at: latestUpdatedAt,
+      }]);
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const res = responseCapture();
+  await familyDataHandler({
+    method: 'POST',
+    headers: authRequest(token),
+    body: {
+      action: 'save',
+      familyId: 'family-one',
+      expectedUpdatedAt,
+      data: { bills: [{ id: 'preserved-record' }] },
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.updatedAt, latestUpdatedAt);
+  assert.equal(requests[1].options.method, 'PATCH');
+});
+
+test('financial data API refuses stale writes and inserts only when no remote version exists', async () => {
+  const token = createFamilySessionToken('family-one', 1);
+  let writeRequest;
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (target.includes('homefin_family_credentials')) {
+      return apiResponse(200, [{ session_version: 1 }]);
+    }
+    writeRequest = { target, options };
+    if (options.method === 'PATCH') return apiResponse(200, []);
+    if (options.method === 'POST') return apiResponse(200, []);
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const stale = responseCapture();
+  await familyDataHandler({
+    method: 'POST',
+    headers: authRequest(token),
+    body: {
+      action: 'save',
+      familyId: 'family-one',
+      expectedUpdatedAt: '2026-10-01T00:00:00.000Z',
+      data: { bills: [{ id: 'local-only-record' }] },
+    },
+  }, stale);
+  assert.equal(stale.statusCode, 409);
+  assert.equal(writeRequest.options.method, 'PATCH');
+  assert.match(stale.body.error, /preservadas localmente/);
+
+  const noKnownRemoteVersion = responseCapture();
+  await familyDataHandler({
+    method: 'POST',
+    headers: authRequest(token),
+    body: {
+      action: 'save',
+      familyId: 'family-one',
+      expectedUpdatedAt: null,
+      data: { bills: [] },
+    },
+  }, noKnownRemoteVersion);
+  assert.equal(noKnownRemoteVersion.statusCode, 409);
+  assert.equal(writeRequest.options.method, 'POST');
+  assert.match(writeRequest.options.headers.Prefer, /resolution=ignore-duplicates/);
+
+  const missingVersion = responseCapture();
+  await familyDataHandler({
+    method: 'POST',
+    headers: authRequest(token),
+    body: {
+      action: 'save',
+      familyId: 'family-one',
+      data: { bills: [] },
+    },
+  }, missingVersion);
+  assert.equal(missingVersion.statusCode, 400);
+});
+
 test('financial data API does not claim cloud access when Supabase is unavailable', async () => {
   const token = createFamilySessionToken('family-one', 1);
   global.fetch = async () => { throw new Error('offline'); };
@@ -146,7 +241,12 @@ test('financial data API does not claim cloud access when Supabase is unavailabl
   await familyDataHandler({
     method: 'POST',
     headers: authRequest(token),
-    body: { action: 'save', familyId: 'family-one', data: { bills: [] } },
+    body: {
+      action: 'save',
+      familyId: 'family-one',
+      expectedUpdatedAt: null,
+      data: { bills: [] },
+    },
   }, res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.success, undefined);
@@ -651,6 +751,488 @@ test('family login rejects an incorrect PIN and issues a token only after server
   }, valid);
   assert.equal(valid.statusCode, 200);
   assert.equal(verifyFamilySession({ headers: authRequest(valid.body.token) }, 'family-one').valid, true);
+});
+
+test('family signup rejects oversized or invalid images before calling Supabase', async () => {
+  const image = `data:image/webp;base64,${'A'.repeat(850_001)}`;
+  global.fetch = async () => {
+    throw new Error('Supabase must not be called for an invalid image');
+  };
+  const oversized = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'create',
+      familyId: 'family-one',
+      pin: '1234',
+      keyword: 'recovery phrase',
+      family: { id: 'family-one', name: 'Família', settings: { logoImage: image } },
+    },
+  }, oversized);
+  assert.equal(oversized.statusCode, 413);
+  assert.match(oversized.body.error, /logo/);
+
+  const invalidFormat = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'create',
+      familyId: 'family-one',
+      pin: '1234',
+      keyword: 'recovery phrase',
+      family: { id: 'family-one', name: 'Família', settings: { logoImage: 'https://example.test/image.webp' } },
+    },
+  }, invalidFormat);
+  assert.equal(invalidFormat.statusCode, 400);
+  assert.match(invalidFormat.body.error, /formato inválido/);
+
+  const imageUnderIndividualLimit = `data:image/webp;base64,${'A'.repeat(760_000)}`;
+  const oversizedCombinedPayload = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'create',
+      familyId: 'family-one',
+      pin: '1234',
+      keyword: 'recovery phrase',
+      family: {
+        id: 'family-one',
+        name: 'Família',
+        settings: {
+          logoImage: imageUnderIndividualLimit,
+          backgroundImage: imageUnderIndividualLimit,
+        },
+      },
+    },
+  }, oversizedCombinedPayload);
+  assert.equal(oversizedCombinedPayload.statusCode, 413);
+  assert.match(oversizedCombinedPayload.body.error, /juntas/);
+});
+
+test('family signup accepts compressed images within individual and aggregate payload limits', async () => {
+  const image = `data:image/webp;base64,${'A'.repeat(700_000)}`;
+  let rpcRequest;
+  global.fetch = async (url, options = {}) => {
+    assert.match(String(url), /rpc\/homefin_create_family_with_credentials$/);
+    rpcRequest = JSON.parse(options.body);
+    return apiResponse(200, true);
+  };
+
+  const res = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'create',
+      familyId: 'family-one',
+      pin: '1234',
+      keyword: 'recovery phrase',
+      family: {
+        id: 'family-one',
+        name: 'Família',
+        settings: { backgroundImage: image, logoImage: image },
+      },
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.success, true);
+  assert.equal(res.body.family.settings.backgroundImage, image);
+  assert.equal(rpcRequest.p_family.settings.logoImage, image);
+  assert.equal(JSON.stringify(rpcRequest).includes('"1234"'), false);
+  assert.equal(JSON.stringify(rpcRequest).includes('recovery phrase'), false);
+});
+
+test('family enrollment authorization requires an admin session and explicit independent verification', async () => {
+  let rpcRequest;
+  global.fetch = async (url, options = {}) => {
+    assert.match(String(url), /rpc\/homefin_issue_family_enrollment_authorization$/);
+    rpcRequest = JSON.parse(options.body);
+    return apiResponse(200, { success: true, expiresAt: rpcRequest.p_expires_at });
+  };
+
+  const unauthenticated = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'issue-enrollment',
+      familyId: 'legacy-family',
+      ownershipVerified: true,
+      verificationMethod: 'known_phone',
+      purpose: 'provision',
+      verifiedBy: 'client-supplied-operator',
+    },
+  }, unauthenticated);
+  assert.equal(unauthenticated.statusCode, 401);
+
+  const incomplete = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { authorization: 'Bearer invalid' },
+    body: { action: 'issue-enrollment', familyId: 'legacy-family', ownershipVerified: true },
+  }, incomplete);
+  assert.equal(incomplete.statusCode, 401);
+
+  const login = responseCapture();
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+  }, login);
+  assert.equal(login.statusCode, 200);
+
+  const invalidVerification = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { authorization: `Bearer ${login.body.token}` },
+    body: {
+      action: 'issue-enrollment',
+      familyId: 'legacy-family',
+      ownershipVerified: true,
+      verificationMethod: 'browser_only',
+      purpose: 'provision',
+    },
+  }, invalidVerification);
+  assert.equal(invalidVerification.statusCode, 400);
+  assert.equal(rpcRequest, undefined);
+
+  const issued = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { authorization: `Bearer ${login.body.token}`, 'x-real-ip': '192.0.2.20' },
+    socket: {},
+    body: {
+      action: 'issue-enrollment',
+      familyId: 'legacy-family',
+      ownershipVerified: true,
+      verificationMethod: 'known_phone',
+      purpose: 'provision',
+    },
+  }, issued);
+  assert.equal(issued.statusCode, 201);
+  assert.equal(issued.body.oneTime, true);
+  assert.match(issued.body.authorizationCode, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(rpcRequest.p_family_id, 'legacy-family');
+  assert.match(rpcRequest.p_authorization_hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(rpcRequest.p_authorization_hash, issued.body.authorizationCode);
+  assert.match(rpcRequest.p_verified_by, /^admin-session:[a-f0-9]{64}$/);
+  assert.notEqual(rpcRequest.p_verified_by, 'client-supplied-operator');
+  assert.equal(rpcRequest.p_ownership_verified, true);
+  assert.equal(rpcRequest.p_purpose, 'provision');
+  assert.equal(Object.hasOwn(rpcRequest, 'p_operator_name'), false);
+});
+
+test('family enrollment consumes a family-scoped one-time code and permits login without returning the PIN', async () => {
+  const authorizationCode = crypto.randomBytes(32).toString('base64url');
+  let credential;
+  const requested = [];
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    requested.push({ target, options });
+    if (target.includes('homefin_saas?id=eq.global')) {
+      return apiResponse(200, [{ data: { families: [
+        { id: 'legacy-family', name: 'Família antiga' },
+        { id: 'another-family', name: 'Outra família' },
+      ] } }]);
+    }
+    if (target.includes('rpc/homefin_register_family_enrollment_attempt')) {
+      return apiResponse(200, { allowed: true });
+    }
+    if (target.includes('rpc/homefin_consume_family_enrollment_authorization')) {
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.p_family_id, 'legacy-family');
+      assert.equal(payload.p_authorization_hash, crypto.createHash('sha256').update(authorizationCode).digest('hex'));
+      assert.match(payload.p_pin_salt, /^[a-f0-9]{32}$/);
+      assert.match(payload.p_pin_hash, /^[a-f0-9]{128}$/);
+      assert.equal(JSON.stringify(payload).includes('2468'), false);
+      credential = {
+        family_id: payload.p_family_id,
+        pin_salt: payload.p_pin_salt,
+        pin_hash: payload.p_pin_hash,
+        session_version: 1,
+        recovery_hash: null,
+      };
+      return apiResponse(200, { success: true, sessionVersion: 1 });
+    }
+    if (target.includes('homefin_auth_attempts')) return apiResponse(200, []);
+    if (target.includes('homefin_family_credentials')) {
+      return apiResponse(200, credential ? [credential] : []);
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const enrolled = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.21' },
+    socket: {},
+    body: {
+      action: 'enroll',
+      familyId: 'legacy-family',
+      authorizationCode,
+      newPin: '2468',
+    },
+  }, enrolled);
+  assert.equal(enrolled.statusCode, 201);
+  assert.equal(enrolled.body.hasRecovery, false);
+  assert.equal(credential.family_id, 'legacy-family');
+  assert.equal(credential.recovery_hash, null);
+  assert.equal(credential.pin_hash, (await scrypt('2468', credential.pin_salt, 64)).toString('hex'));
+  assert.equal(JSON.stringify(enrolled.body).includes(authorizationCode), false);
+
+  const login = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.22' },
+    socket: {},
+    body: { action: 'login', familyId: 'legacy-family', pin: '2468' },
+  }, login);
+  assert.equal(login.statusCode, 200);
+  assert.equal(verifyFamilySession({ headers: authRequest(login.body.token) }, 'legacy-family').valid, true);
+  assert.ok(requested.some(({ target }) => target.includes('family_id=eq.legacy-family')));
+});
+
+test('family enrollment rejects a code for another family, reused codes and concurrent replay', async () => {
+  const authorizationCode = crypto.randomBytes(32).toString('base64url');
+  let consumed = false;
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (target.includes('homefin_saas?id=eq.global')) {
+      return apiResponse(200, [{ data: { families: [
+        { id: 'legacy-family' },
+        { id: 'another-family' },
+      ] } }]);
+    }
+    if (target.includes('rpc/homefin_register_family_enrollment_attempt')) {
+      return apiResponse(200, { allowed: true });
+    }
+    if (target.includes('rpc/homefin_consume_family_enrollment_authorization')) {
+      const payload = JSON.parse(options.body);
+      if (payload.p_family_id !== 'legacy-family') {
+        return apiResponse(200, { success: false, reason: 'invalid_authorization' });
+      }
+      if (consumed) return apiResponse(200, { success: false, reason: 'authorization_reused' });
+      consumed = true;
+      return apiResponse(200, { success: true, sessionVersion: 1 });
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const otherFamily = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.23' },
+    socket: {},
+    body: { action: 'enroll', familyId: 'another-family', authorizationCode, newPin: '2468' },
+  }, otherFamily);
+  assert.equal(otherFamily.statusCode, 401);
+
+  const concurrent = await Promise.all([1, 2].map(async () => {
+    const response = responseCapture();
+    await familyAuthHandler({
+      method: 'POST',
+      headers: { 'x-real-ip': '192.0.2.24' },
+      socket: {},
+      body: { action: 'enroll', familyId: 'legacy-family', authorizationCode, newPin: '2468' },
+    }, response);
+    return response;
+  }));
+  assert.deepEqual(concurrent.map((response) => response.statusCode).sort(), [201, 409]);
+  assert.equal(consumed, true);
+});
+
+test('family enrollment applies server-side rate limits and never replaces an existing credential', async () => {
+  let denyAttempts = true;
+  let consumeRequests = 0;
+  global.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes('homefin_saas?id=eq.global')) {
+      return apiResponse(200, [{ data: { families: [{ id: 'legacy-family' }] } }]);
+    }
+    if (target.includes('rpc/homefin_register_family_enrollment_attempt')) {
+      return apiResponse(200, { allowed: !denyAttempts });
+    }
+    if (target.includes('rpc/homefin_consume_family_enrollment_authorization')) {
+      consumeRequests += 1;
+      return apiResponse(200, { success: false, reason: 'credential_exists' });
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const rateLimited = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.25' },
+    socket: {},
+    body: {
+      action: 'enroll',
+      familyId: 'legacy-family',
+      authorizationCode: crypto.randomBytes(32).toString('base64url'),
+      newPin: '2468',
+    },
+  }, rateLimited);
+  assert.equal(rateLimited.statusCode, 429);
+  assert.equal(consumeRequests, 0);
+
+  denyAttempts = false;
+  const alreadyEnrolled = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.26' },
+    socket: {},
+    body: {
+      action: 'enroll',
+      familyId: 'legacy-family',
+      authorizationCode: crypto.randomBytes(32).toString('base64url'),
+      newPin: '2468',
+    },
+  }, alreadyEnrolled);
+  assert.equal(alreadyEnrolled.statusCode, 409);
+  assert.match(alreadyEnrolled.body.error, /nenhuma foi substituída/);
+  assert.equal(consumeRequests, 1);
+});
+
+test('admin PIN recovery uses a one-time authorization, preserves recovery, and revokes older sessions', async () => {
+  const authorizationCode = crypto.randomBytes(32).toString('base64url');
+  const recoverySalt = crypto.randomBytes(16).toString('hex');
+  const recoveryHash = (await scrypt('family recovery phrase', recoverySalt, 64)).toString('hex');
+  const credential = {
+    family_id: 'legacy-family',
+    pin_salt: crypto.randomBytes(16).toString('hex'),
+    pin_hash: crypto.randomBytes(64).toString('hex'),
+    recovery_salt: recoverySalt,
+    recovery_hash: recoveryHash,
+    session_version: 4,
+  };
+  const priorSession = createFamilySessionToken('legacy-family', 4);
+  let issuePayload;
+  let consumePayload;
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (target.includes('rpc/homefin_issue_family_enrollment_authorization')) {
+      issuePayload = JSON.parse(options.body);
+      return apiResponse(200, {
+        success: true,
+        expiresAt: issuePayload.p_expires_at,
+        purpose: issuePayload.p_purpose,
+      });
+    }
+    if (target.includes('homefin_saas?id=eq.global')) {
+      return apiResponse(200, [{ data: { families: [{ id: 'legacy-family' }] } }]);
+    }
+    if (target.includes('rpc/homefin_register_family_enrollment_attempt')) {
+      return apiResponse(200, { allowed: true });
+    }
+    if (target.includes('rpc/homefin_consume_family_enrollment_authorization')) {
+      consumePayload = JSON.parse(options.body);
+      assert.equal(consumePayload.p_family_id, 'legacy-family');
+      assert.equal(
+        consumePayload.p_authorization_hash,
+        crypto.createHash('sha256').update(authorizationCode).digest('hex')
+      );
+      credential.pin_salt = consumePayload.p_pin_salt;
+      credential.pin_hash = consumePayload.p_pin_hash;
+      credential.session_version += 1;
+      return apiResponse(200, {
+        success: true,
+        sessionVersion: credential.session_version,
+        hasRecovery: true,
+        purpose: 'pin_recovery',
+      });
+    }
+    if (target.includes('homefin_family_credentials')) {
+      return apiResponse(200, [credential]);
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const adminLogin = responseCapture();
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+  }, adminLogin);
+  assert.equal(adminLogin.statusCode, 200);
+
+  const authorization = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { authorization: `Bearer ${adminLogin.body.token}`, 'x-real-ip': '192.0.2.27' },
+    socket: {},
+    body: {
+      action: 'issue-enrollment',
+      familyId: 'legacy-family',
+      ownershipVerified: true,
+      verificationMethod: 'previously_verified_email',
+      purpose: 'pin_recovery',
+    },
+  }, authorization);
+  assert.equal(authorization.statusCode, 201);
+  assert.equal(issuePayload.p_purpose, 'pin_recovery');
+  assert.equal(issuePayload.p_ownership_verified, true);
+
+  const reset = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: { 'x-real-ip': '192.0.2.28' },
+    socket: {},
+    body: {
+      action: 'enroll',
+      familyId: 'legacy-family',
+      authorizationCode,
+      newPin: '8642',
+    },
+  }, reset);
+  assert.equal(reset.statusCode, 201);
+  assert.equal(reset.body.hasRecovery, true);
+  assert.equal(reset.body.purpose, 'pin_recovery');
+  assert.equal(credential.recovery_salt, recoverySalt);
+  assert.equal(credential.recovery_hash, recoveryHash);
+  assert.equal(credential.session_version, 5);
+  assert.equal(credential.pin_hash, (await scrypt('8642', credential.pin_salt, 64)).toString('hex'));
+  assert.match(consumePayload.p_pin_hash, /^[a-f0-9]{128}$/);
+  assert.equal(verifyFamilySession({ headers: authRequest(priorSession) }, 'legacy-family').valid, true);
+  assert.equal((await validateFamilySession({ headers: authRequest(priorSession) }, 'legacy-family')).valid, false);
+});
+
+test('admin login distinguishes a missing server secret from an invalid password', async () => {
+  const previousSecret = process.env.HOMEFIN_ADMIN_SECRET;
+  try {
+    delete process.env.HOMEFIN_ADMIN_SECRET;
+    const unconfigured = responseCapture();
+    await adminAuthHandler({
+      method: 'POST',
+      headers: {},
+      body: { action: 'login', password: 'anything' },
+    }, unconfigured);
+    assert.equal(unconfigured.statusCode, 503);
+    assert.match(unconfigured.body.error, /não configurada/);
+
+    process.env.HOMEFIN_ADMIN_SECRET = 'test-admin-secret-with-more-than-twenty';
+    const incorrect = responseCapture();
+    await adminAuthHandler({
+      method: 'POST',
+      headers: {},
+      body: { action: 'login', password: 'incorrect' },
+    }, incorrect);
+    assert.equal(incorrect.statusCode, 401);
+
+    const correct = responseCapture();
+    await adminAuthHandler({
+      method: 'POST',
+      headers: {},
+      body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+    }, correct);
+    assert.equal(correct.statusCode, 200);
+    assert.ok(correct.body.token);
+  } finally {
+    if (previousSecret === undefined) delete process.env.HOMEFIN_ADMIN_SECRET;
+    else process.env.HOMEFIN_ADMIN_SECRET = previousSecret;
+  }
 });
 
 test('family PIN recovery verifies the server-side keyword, updates the PIN and issues a new session', async () => {
