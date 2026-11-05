@@ -44,7 +44,7 @@ function publicData(data) {
       ? safe.codes.map(({ code, status, expiresAt, discountPercent, maxUses, usedCount }) =>
           ({ code, status, expiresAt, discountPercent, maxUses, usedCount }))
       : [],
-    families: [],
+    families: Array.isArray(safe.families) ? safe.families.map(({ id, name }) => ({ id, name })) : [],
     plans: Array.isArray(safe.plans) ? safe.plans : [],
     landingConfig: safe.landingConfig || {},
     paymentConfig: safe.paymentConfig || {},
