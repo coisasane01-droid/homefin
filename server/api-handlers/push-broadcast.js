@@ -1,6 +1,6 @@
 import webpush from 'web-push';
-import { verifyAdminSession } from './admin-auth.js';
-import { isSupportedPushEndpoint } from './_push-endpoint.js';
+import { verifyAdminSession } from '../../api/admin-auth.js';
+import { isSupportedPushEndpoint } from '../../api/_push-endpoint.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -57,14 +57,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido.' });
   }
 
+  if (!verifyAdminSession(req)) {
+    return res.status(401).json({ error: 'Acesso não autorizado.' });
+  }
+
   if (!SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_URL) {
     return res.status(500).json({
       error: 'Configuração segura de envio em massa incompleta no servidor.',
     });
-  }
-
-  if (!verifyAdminSession(req)) {
-    return res.status(401).json({ error: 'Acesso não autorizado.' });
   }
 
   const title = String(req.body?.title || '').trim();

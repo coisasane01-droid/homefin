@@ -7,7 +7,7 @@ import {
   removeStorageObjects,
   signFamilyObject,
   uploadFamilyObject,
-} from './_family-storage.js';
+} from '../../api/_family-storage.js';
 
 export const config = {
   api: { bodyParser: false },

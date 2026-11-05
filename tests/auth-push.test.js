@@ -9,13 +9,13 @@ import {
   verifyFamilySession,
 } from '../api/_family-session.js';
 import familyDataHandler from '../api/family-data.js';
-import familyAttachmentsHandler from '../api/family-attachments.js';
-import familyDeleteHandler from '../api/family-delete.js';
-import familyStorageCleanupHandler from '../api/family-storage-cleanup.js';
+import familyAttachmentsHandler from '../server/api-handlers/family-attachments.js';
+import familyDeleteHandler from '../server/api-handlers/family-delete.js';
+import familyStorageCleanupHandler from '../server/api-handlers/family-storage-cleanup.js';
 import familyAuthHandler from '../api/family-auth.js';
 import supportHandler from '../api/support.js';
-import pushSubscribeHandler from '../api/push-subscribe.js';
-import pushHandler from '../api/push.js';
+import pushSubscribeHandler from '../server/api-handlers/push-subscribe.js';
+import pushHandler from '../server/api-handlers/push-send.js';
 import adminAuthHandler from '../api/admin-auth.js';
 
 process.env.HOMEFIN_SESSION_SECRET = 'test-secret-with-more-than-thirty-two-characters';
@@ -24,7 +24,9 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
 process.env.VAPID_PUBLIC_KEY = 'test-public';
 process.env.VAPID_PRIVATE_KEY = 'test-private';
 process.env.HOMEFIN_ADMIN_SECRET = 'test-admin-secret-with-more-than-twenty';
-const { default: pushBroadcastHandler } = await import('../api/push-broadcast.js');
+const { default: pushBroadcastHandler } = await import('../server/api-handlers/push-broadcast.js');
+const { default: pushApiHandler } = await import('../api/push.js');
+const { default: familyFilesApiHandler } = await import('../api/family-files.js');
 
 const originalFetch = global.fetch;
 const originalSetVapidDetails = webpush.setVapidDetails;
@@ -930,4 +932,52 @@ test('admin broadcast requires an admin session and removes only expired registr
   assert.ok(cleanup.url.includes(encodeURIComponent(expiredEndpoint)));
   assert.ok(cleanup.url.includes('family_id=eq.family-one'));
   assert.ok(cleanup.url.includes('user_type=eq.family'));
+});
+
+
+test('roteador agrupado encaminha operações Push e arquivos com autenticação', async () => {
+  const pushSubscribe = responseCapture();
+  await pushApiHandler({
+    method: 'POST',
+    query: { mode: 'subscribe' },
+    headers: {},
+    body: { familyId: 'family-one', userType: 'family' },
+  }, pushSubscribe);
+  assert.equal(pushSubscribe.statusCode, 401);
+
+  const pushBroadcast = responseCapture();
+  await pushApiHandler({
+    method: 'POST',
+    query: { mode: 'broadcast' },
+    headers: {},
+    body: { title: 'Aviso', body: 'Teste' },
+  }, pushBroadcast);
+  assert.equal(pushBroadcast.statusCode, 401);
+
+  const attachments = responseCapture();
+  await familyFilesApiHandler({
+    method: 'POST',
+    query: { mode: 'attachments' },
+    headers: {},
+    body: { action: 'sign', familyId: 'family-one' },
+  }, attachments);
+  assert.equal(attachments.statusCode, 401);
+
+  const deletion = responseCapture();
+  await familyFilesApiHandler({
+    method: 'POST',
+    query: { mode: 'delete' },
+    headers: {},
+    body: { familyId: 'family-one' },
+  }, deletion);
+  assert.equal(deletion.statusCode, 401);
+
+  const cleanup = responseCapture();
+  await familyFilesApiHandler({
+    method: 'POST',
+    query: { mode: 'cleanup' },
+    headers: {},
+    body: {},
+  }, cleanup);
+  assert.equal(cleanup.statusCode, 401);
 });

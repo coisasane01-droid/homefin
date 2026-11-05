@@ -1,10 +1,10 @@
-import { validateFamilySession } from './_family-session.js';
+import { validateFamilySession } from '../../api/_family-session.js';
 import {
   enqueueStorageCleanup,
   getFamilyStorageObjectPaths,
   removeStorageObjects,
   completeStorageCleanupJob,
-} from './_family-storage.js';
+} from '../../api/_family-storage.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');

@@ -1,5 +1,5 @@
-import { authorizePushIdentity } from './_push-authorization.js';
-import { isSupportedPushEndpoint } from './_push-endpoint.js';
+import { authorizePushIdentity } from '../../api/_push-authorization.js';
+import { isSupportedPushEndpoint } from '../../api/_push-endpoint.js';
 
 async function supabaseRequest(path, options = {}) {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
