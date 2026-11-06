@@ -4,6 +4,8 @@ import type {
   SpreadsheetRow,
 } from '../types/spreadsheets';
 
+export const SPREADSHEET_TOTAL_COMMISSION_BASE = '__total_general__';
+
 export const parseSpreadsheetCurrency = (value: string): number | null => {
   const cleaned = value.replace(/R\$/gi, '').replace(/\s/g, '');
   if (!cleaned) return 0;
@@ -44,10 +46,20 @@ export const calculateSpreadsheetTotal = (
 };
 
 export const calculateSpreadsheetCommissionBase = (
-  spreadsheet: Pick<HomeFinSpreadsheet, 'rows'>,
+  spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows'>,
   columnId: string | null | undefined
 ): number => {
   if (!columnId) return 0;
+  if (columnId === SPREADSHEET_TOTAL_COMMISSION_BASE) {
+    return spreadsheet.rows.reduce((grandTotal, row) => (
+      grandTotal + spreadsheet.columns.reduce((rowTotal, column) => {
+        if (column.type !== 'currency') return rowTotal;
+        const amount = parseSpreadsheetCurrency(row.cells[column.id] || '');
+        return amount === null ? rowTotal : rowTotal + amount;
+      }, 0)
+    ), 0);
+  }
+
   return spreadsheet.rows.reduce((total, row) => {
     const value = row.cells[columnId]?.trim() || '';
     if (!value) return total;
@@ -66,7 +78,7 @@ export const parseSpreadsheetCommissionPercentage = (value: string): number | nu
 };
 
 export const calculateSpreadsheetCommission = (
-  spreadsheet: Pick<HomeFinSpreadsheet, 'rows' | 'commissionColumnId' | 'commissionPercentage'>
+  spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows' | 'commissionColumnId' | 'commissionPercentage'>
 ): number => {
   const commission = calculateSpreadsheetCommissionBase(
     spreadsheet,

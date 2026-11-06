@@ -26,6 +26,7 @@ import {
   hasInvalidSpreadsheetCurrency,
   parseSpreadsheetCommissionPercentage,
   parseSpreadsheetCurrency,
+  SPREADSHEET_TOTAL_COMMISSION_BASE,
 } from '../services/spreadsheetMath';
 import type {
   HomeFinSpreadsheet,
@@ -352,7 +353,9 @@ const Spreadsheets: React.FC = () => {
       name: `${selected.name} (cópia)`.slice(0, 120),
       columns: duplicatedColumns,
       commissionColumnId: selected.commissionColumnId
-        ? duplicatedColumns[selected.columns.findIndex((column) => column.id === selected.commissionColumnId)]?.id || null
+        ? selected.commissionColumnId === SPREADSHEET_TOTAL_COMMISSION_BASE
+          ? SPREADSHEET_TOTAL_COMMISSION_BASE
+          : duplicatedColumns[selected.columns.findIndex((column) => column.id === selected.commissionColumnId)]?.id || null
         : null,
       rows: selected.rows.map((row) => ({
         id: crypto.randomUUID(),
@@ -1082,6 +1085,7 @@ const Spreadsheets: React.FC = () => {
                     onChange={(event) => updateSelected({ commissionColumnId: event.target.value || null })}
                     className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
                   >
+                    <option value={SPREADSHEET_TOTAL_COMMISSION_BASE}>Valor total geral</option>
                     {selected.columns
                       .filter((column) => column.type === 'currency')
                       .map((column) => <option key={column.id} value={column.id}>{column.name}</option>)}

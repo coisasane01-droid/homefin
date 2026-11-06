@@ -1,5 +1,6 @@
 import { validateFamilySession } from './_family-session.js';
 
+const TOTAL_COMMISSION_BASE_ID = '__total_general__';
 const FAMILY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BRAZILIAN_CURRENCY_PATTERN = /^-?(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?$/;
@@ -57,7 +58,11 @@ function validSpreadsheet(spreadsheet) {
     if (column.type === 'currency') currencyColumnIds.add(column.id);
   }
 
-  if (commissionColumnId !== null && !columnIds.has(commissionColumnId)) return false;
+  if (
+    commissionColumnId !== null &&
+    commissionColumnId !== TOTAL_COMMISSION_BASE_ID &&
+    !columnIds.has(commissionColumnId)
+  ) return false;
   if (spreadsheet.commissionEnabled && !commissionColumnId) return false;
 
   const rowIds = new Set();
