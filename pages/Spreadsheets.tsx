@@ -8,7 +8,6 @@ import {
   Copy,
   Download,
   FilePlus2,
-  GripVertical,
   LoaderCircle,
   Plus,
   Search,
@@ -25,6 +24,7 @@ import {
   calculateSpreadsheetCommission,
   calculateSpreadsheetCommissionBase,
   hasInvalidSpreadsheetCurrency,
+  parseSpreadsheetCommissionPercentage,
   parseSpreadsheetCurrency,
 } from '../services/spreadsheetMath';
 import type {
@@ -149,7 +149,16 @@ interface SpreadsheetDragSession {
   active: boolean;
   targetId: string;
   before: boolean;
+  sourceElement: HTMLButtonElement;
 }
+
+const DragHandleIcon: React.FC = () => (
+  <svg aria-hidden="true" viewBox="0 0 16 20" className="h-5 w-4 fill-current">
+    {[3, 10, 17].flatMap((y) => [4, 12].map((x) => (
+      <circle key={`${x}-${y}`} cx={x} cy={y} r="1.5" />
+    )))}
+  </svg>
+);
 
 const Spreadsheets: React.FC = () => {
   const familyId = localStorage.getItem('homefin_current_family_id') || '';
@@ -165,6 +174,8 @@ const Spreadsheets: React.FC = () => {
   const [columnModal, setColumnModal] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnType, setColumnType] = useState<SpreadsheetColumnType>('text');
+  const [commissionInput, setCommissionInput] = useState('0');
+  const [commissionInputError, setCommissionInputError] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
   const [showExampleNotice, setShowExampleNotice] = useState(false);
   const [dragging, setDragging] = useState<{
@@ -176,6 +187,11 @@ const Spreadsheets: React.FC = () => {
   const dragSession = useRef<SpreadsheetDragSession | null>(null);
   const dragTimer = useRef<number | null>(null);
   const exampleCreationStarted = useRef(false);
+
+  useEffect(() => {
+    setCommissionInput(String(selected?.commissionPercentage ?? 0).replace('.', ','));
+    setCommissionInputError('');
+  }, [selected?.id]);
 
   const loadRecords = async () => {
     if (!familyId || familyId === 'v1') {
@@ -418,18 +434,20 @@ const Spreadsheets: React.FC = () => {
       active: false,
       targetId: sourceId,
       before: false,
+      sourceElement: event.currentTarget,
     };
     dragSession.current = session;
     dragTimer.current = window.setTimeout(() => {
       if (dragSession.current !== session) return;
       session.active = true;
+      if ('vibrate' in navigator) navigator.vibrate?.(15);
       setDragging({
         kind: session.kind,
         sourceId: session.sourceId,
         targetId: session.sourceId,
         before: false,
       });
-    }, event.pointerType === 'touch' ? 450 : 250);
+    }, 250);
   };
 
   const handleDragPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -448,7 +466,16 @@ const Spreadsheets: React.FC = () => {
     const selector = session.kind === 'column' ? '[data-column-id]' : '[data-row-id]';
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>(selector);
     const targetId = target?.dataset[session.kind === 'column' ? 'columnId' : 'rowId'];
-    if (!target || !targetId) return;
+    if (!target || !targetId) {
+      session.targetId = '';
+      setDragging({
+        kind: session.kind,
+        sourceId: session.sourceId,
+        targetId: '',
+        before: false,
+      });
+      return;
+    }
     const rect = target.getBoundingClientRect();
     session.targetId = targetId;
     session.before = session.kind === 'column'
@@ -469,7 +496,10 @@ const Spreadsheets: React.FC = () => {
     dragTimer.current = null;
     dragSession.current = null;
     setDragging(null);
-    if (session.active) finishDrag(session);
+    if (session.active && session.targetId) {
+      finishDrag(session);
+      if ('vibrate' in navigator) navigator.vibrate?.([10, 35, 10]);
+    }
   };
 
   const handleDragPointerCancel = () => {
@@ -477,6 +507,68 @@ const Spreadsheets: React.FC = () => {
     dragTimer.current = null;
     dragSession.current = null;
     setDragging(null);
+  };
+
+  const cancelDrag = () => {
+    const session = dragSession.current;
+    if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
+    dragTimer.current = null;
+    dragSession.current = null;
+    setDragging(null);
+    if (session?.sourceElement.hasPointerCapture(session.pointerId)) {
+      session.sourceElement.releasePointerCapture(session.pointerId);
+    }
+  };
+
+  useEffect(() => {
+    const handleDragKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && dragSession.current) cancelDrag();
+    };
+    document.addEventListener('keydown', handleDragKeyDown);
+    return () => document.removeEventListener('keydown', handleDragKeyDown);
+  }, []);
+
+  const handleCommissionPercentageChange = (rawValue: string) => {
+    const withComma = rawValue.replace(/\./g, ',');
+    if (!/^\d*(?:,\d{0,2})?$/.test(withComma)) return;
+
+    const [rawInteger = '', fraction] = withComma.split(',');
+    const integer = rawInteger.replace(/^0+(?=\d)/, '') || (rawInteger ? '0' : '');
+    const normalized = fraction === undefined
+      ? integer
+      : `${integer || '0'},${fraction}`;
+    if (!normalized) {
+      setCommissionInput('');
+      setCommissionInputError('');
+      updateSelected({ commissionPercentage: 0 });
+      return;
+    }
+
+    const percentage = parseSpreadsheetCommissionPercentage(normalized);
+    if (percentage === null && !normalized.endsWith(',')) {
+      setCommissionInputError('Informe um percentual entre 0 e 100, com até duas casas decimais.');
+      return;
+    }
+
+    if (percentage !== null) {
+      setCommissionInputError('');
+      updateSelected({ commissionPercentage: percentage });
+    } else {
+      setCommissionInputError('');
+    }
+    setCommissionInput(normalized);
+  };
+
+  const handleCommissionPercentageBlur = () => {
+    const percentage = parseSpreadsheetCommissionPercentage(commissionInput);
+    if (percentage === null) {
+      const savedValue = selected?.commissionPercentage ?? 0;
+      setCommissionInput(String(savedValue).replace('.', ','));
+      setCommissionInputError('');
+      return;
+    }
+    updateSelected({ commissionPercentage: percentage });
+    setCommissionInput(String(percentage).replace('.', ','));
   };
 
   const handleAddColumn = () => {
@@ -747,7 +839,7 @@ const Spreadsheets: React.FC = () => {
               ].map(([title, description], index) => (
                 <li key={title} className="flex gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900/60">
                   <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
-                    {index === 6 ? <GripVertical size={18} /> : index === 8 ? <Download size={18} /> : <Sparkles size={18} />}
+                    {index === 6 ? <DragHandleIcon /> : index === 8 ? <Download size={18} /> : <Sparkles size={18} />}
                   </span>
                   <div>
                     <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
@@ -999,18 +1091,25 @@ const Spreadsheets: React.FC = () => {
                   Percentual da comissão
                   <div className="mt-1 flex items-center rounded-lg border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900">
                     <input
-                      type="number"
-                      min="0"
-                      max="10000"
-                      step="0.1"
-                      value={selected.commissionPercentage ?? 0}
-                      onChange={(event) => updateSelected({ commissionPercentage: Number(event.target.value) || 0 })}
-                      className="w-full rounded-lg bg-transparent px-3 py-2 text-right outline-none dark:text-white"
-                    />
-                    <span className="px-3 text-gray-500">%</span>
-                  </div>
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
+                            type="text"
+                            inputMode="decimal"
+                            value={commissionInput}
+                            onFocus={(event) => event.currentTarget.select()}
+                            onChange={(event) => handleCommissionPercentageChange(event.target.value)}
+                            onBlur={handleCommissionPercentageBlur}
+                            aria-invalid={!!commissionInputError}
+                            aria-describedby={commissionInputError ? 'commission-percentage-error' : undefined}
+                            className="w-full rounded-lg bg-transparent px-3 py-2 text-right outline-none dark:text-white"
+                          />
+                          <span className="px-3 text-gray-500">%</span>
+                        </div>
+                      </label>
+                      {commissionInputError && (
+                        <p id="commission-percentage-error" role="alert" className="text-xs text-red-600 sm:col-span-2 dark:text-red-400">
+                          {commissionInputError}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
                   Base da comissão: {formatCurrency(calculateSpreadsheetCommissionBase(selected, selected.commissionColumnId))}.
                   Células vazias e textos são ignorados.
                 </p>
@@ -1043,10 +1142,12 @@ const Spreadsheets: React.FC = () => {
                       key={column.id}
                       data-column-id={column.id}
                       className={`min-w-[170px] border-b border-r border-gray-200 px-3 py-2 text-left transition dark:border-gray-700 ${
-                        dragging?.kind === 'column' && dragging.sourceId === column.id ? 'opacity-50' : ''
+                        dragging?.kind === 'column' && dragging.sourceId === column.id
+                          ? 'relative z-20 scale-[1.02] bg-primary-100 opacity-90 shadow-lg ring-2 ring-inset ring-primary-500 dark:bg-primary-900/70'
+                          : ''
                       } ${
                         dragging?.kind === 'column' && dragging.targetId === column.id
-                          ? dragging.before ? 'border-l-4 border-l-primary-500' : 'border-r-4 border-r-primary-500'
+                          ? dragging.before ? 'border-l-4 border-l-primary-500 shadow-[inset_4px_0_0_0_rgba(99,102,241,0.9)]' : 'border-r-4 border-r-primary-500 shadow-[inset_-4px_0_0_0_rgba(99,102,241,0.9)]'
                           : ''
                       }`}
                     >
@@ -1060,10 +1161,11 @@ const Spreadsheets: React.FC = () => {
                             onPointerMove={handleDragPointerMove}
                             onPointerUp={handleDragPointerUp}
                             onPointerCancel={handleDragPointerCancel}
-                            className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-primary-600 dark:hover:bg-gray-700"
-                            style={{ touchAction: 'none', cursor: 'grab' }}
+                            onContextMenu={(event) => event.preventDefault()}
+                            className="flex h-11 w-11 shrink-0 touch-none select-none items-center justify-center rounded-xl text-gray-500 hover:bg-primary-100 hover:text-primary-700 active:bg-primary-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                            style={{ touchAction: 'none', userSelect: 'none', WebkitTouchCallout: 'none', cursor: 'grab' }}
                           >
-                            <GripVertical size={17} />
+                            <DragHandleIcon />
                           </button>
                           <button onClick={() => handleRenameColumn(column)} className="truncate font-semibold text-gray-700 hover:text-primary-600 dark:text-gray-200">
                             {column.name}
@@ -1085,11 +1187,15 @@ const Spreadsheets: React.FC = () => {
                   <tr
                     key={row.id}
                     data-row-id={row.id}
-                    className={`odd:bg-white even:bg-gray-50 dark:odd:bg-gray-800 dark:even:bg-gray-800/60 ${
-                      dragging?.kind === 'row' && dragging.sourceId === row.id ? 'opacity-50' : ''
+                    className={`odd:bg-white even:bg-gray-50 dark:odd:bg-gray-800 dark:even:bg-gray-800/60 transition ${
+                      dragging?.kind === 'row' && dragging.sourceId === row.id
+                        ? 'relative z-20 bg-primary-100 opacity-90 shadow-lg ring-2 ring-inset ring-primary-500 dark:bg-primary-900/70'
+                        : ''
                     } ${
                       dragging?.kind === 'row' && dragging.targetId === row.id
-                        ? dragging.before ? 'border-t-4 border-t-primary-500' : 'border-b-4 border-b-primary-500'
+                        ? dragging.before
+                          ? 'border-t-4 border-t-primary-500 shadow-[inset_0_4px_0_0_rgba(99,102,241,0.9)]'
+                          : 'border-b-4 border-b-primary-500 shadow-[inset_0_-4px_0_0_rgba(99,102,241,0.9)]'
                         : ''
                     }`}
                   >
@@ -1103,10 +1209,11 @@ const Spreadsheets: React.FC = () => {
                           onPointerMove={handleDragPointerMove}
                           onPointerUp={handleDragPointerUp}
                           onPointerCancel={handleDragPointerCancel}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-primary-600 dark:hover:bg-gray-700"
-                          style={{ touchAction: 'none', cursor: 'grab' }}
+                          onContextMenu={(event) => event.preventDefault()}
+                          className="flex h-11 w-11 touch-none select-none items-center justify-center rounded-xl text-gray-500 hover:bg-primary-100 hover:text-primary-700 active:bg-primary-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                          style={{ touchAction: 'none', userSelect: 'none', WebkitTouchCallout: 'none', cursor: 'grab' }}
                         >
-                          <GripVertical size={17} />
+                          <DragHandleIcon />
                         </button>
                         {rowIndex + 1}
                       </div>

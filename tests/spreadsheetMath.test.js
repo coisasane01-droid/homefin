@@ -4,6 +4,7 @@ import {
   calculateSpreadsheetCommission,
   calculateSpreadsheetCommissionBase,
   calculateSpreadsheetTotal,
+  parseSpreadsheetCommissionPercentage,
 } from '../services/spreadsheetMath.ts';
 
 const spreadsheet = {
@@ -37,4 +38,29 @@ test('commission sums only numeric values in the selected column', () => {
 test('commission remains separate from the spreadsheet total', () => {
   assert.equal(calculateSpreadsheetTotal(spreadsheet), 125.5);
   assert.equal(calculateSpreadsheetCommission(spreadsheet), 5);
+});
+
+test('commission percentage accepts Brazilian decimal percentages from zero to one hundred', () => {
+  for (const [value, expected] of [
+    ['5', 5],
+    ['10,5', 10.5],
+    ['12,75', 12.75],
+    ['15,5', 15.5],
+    ['99,99', 99.99],
+    ['100', 100],
+  ]) {
+    assert.equal(parseSpreadsheetCommissionPercentage(value), expected);
+  }
+  for (const value of ['-1', '100,01', '10,555', 'abc', '']) {
+    assert.equal(parseSpreadsheetCommissionPercentage(value), null);
+  }
+});
+
+test('commission rounds the money result only after applying the full percentage', () => {
+  assert.equal(calculateSpreadsheetCommission({
+    ...spreadsheet,
+    commissionColumnId: 'servico',
+    commissionPercentage: 12.75,
+    rows: [{ id: '1', cells: { servico: '10,00' } }],
+  }), 1.28);
 });

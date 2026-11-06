@@ -56,12 +56,24 @@ export const calculateSpreadsheetCommissionBase = (
   }, 0);
 };
 
+export const parseSpreadsheetCommissionPercentage = (value: string): number | null => {
+  const cleaned = value.trim().replace(',', '.');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(cleaned)) return null;
+  const percentage = Number(cleaned);
+  return Number.isFinite(percentage) && percentage >= 0 && percentage <= 100
+    ? percentage
+    : null;
+};
+
 export const calculateSpreadsheetCommission = (
   spreadsheet: Pick<HomeFinSpreadsheet, 'rows' | 'commissionColumnId' | 'commissionPercentage'>
-): number => (
-  calculateSpreadsheetCommissionBase(spreadsheet, spreadsheet.commissionColumnId) *
-  (Number(spreadsheet.commissionPercentage) || 0) / 100
-);
+): number => {
+  const commission = calculateSpreadsheetCommissionBase(
+    spreadsheet,
+    spreadsheet.commissionColumnId
+  ) * (Number(spreadsheet.commissionPercentage) || 0) / 100;
+  return Math.round((commission + Number.EPSILON) * 100) / 100;
+};
 
 export const hasInvalidSpreadsheetCurrency = (
   spreadsheet: HomeFinSpreadsheet

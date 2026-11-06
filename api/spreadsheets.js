@@ -33,7 +33,7 @@ function validSpreadsheet(spreadsheet) {
     (commissionColumnId !== null && typeof commissionColumnId !== 'string') ||
     !Number.isFinite(commissionPercentage) ||
     commissionPercentage < 0 ||
-    commissionPercentage > 10000
+    commissionPercentage > 100
   ) {
     return false;
   }
