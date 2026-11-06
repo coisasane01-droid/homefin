@@ -1,0 +1,127 @@
+# Auditoria de autenticacao familiar e notificacoes Push
+
+## Escopo e resultado
+
+Esta auditoria removeu caminhos de acesso a dados familiares sem sessao do servidor, levou o PIN e a recuperacao para validacao server-side e exigiu identidade autenticada nas operacoes Push. Os dados financeiros locais pendentes continuam preservados quando a nuvem nao confirma a gravacao.
+
+As alteracoes sao somente locais. Nenhum SQL foi executado, nenhuma variavel externa foi alterada e nao houve deploy, commit ou push. A protecao no banco de dados so fica efetiva depois da migracao manual abaixo.
+
+## Problemas encontrados e correcoes
+
+### Autenticacao e dados
+
+- O login permitia fallback para PIN no `localStorage`, e a recuperacao confiava em palavra-chave local. O login agora consulta a existencia da credencial no servidor, valida o PIN com `scrypt` e nao autoriza um PIN apenas local. A recuperacao e a troca de PIN sao verificadas no servidor.
+- O token familiar e assinado, expira em 12 horas e inclui versao de sessao. A API consulta a versao atual no banco; logout, troca e recuperacao do PIN revogam tokens anteriores.
+- As rotas privadas do aplicativo verificam a sessao no servidor antes de renderizar. As APIs de dados, planilhas, suporte, pagamento, exclusao familiar e Push tambem validam a sessao e vinculam consultas ao `familyId` assinado.
+- O login aplica limite de 5 falhas por familia/hora e 20 por IP/hora. O IP e armazenado apenas como HMAC.
+- O proxy Supabase generico e o endpoint publico de diagnostico foram desativados. Dados SaaS passaram a usar API especifica; leituras publicas sao minimizadas e gravacoes exigem sessao administrativa.
+- O suporte deixou de acessar tabelas diretamente com a chave publica. A API define o perfil remetente e restringe leitura e alteracao por familia ou administrador.
+- Salvamentos financeiros locais continuam marcados como pendentes ate o servidor confirmar. O aplicativo exibe o estado local/pendente e nao anuncia sincronizacao confirmada sem resposta de sucesso.
+- Exclusao de familia agora exige sessao valida e confirmacao server-side; o SQL associado remove os dados relacionados atomicamente.
+
+### Push
+
+- Cadastro, remocao e envio Push exigem sessao familiar ou administrativa. Familia e perfil sao vinculados no servidor; envios familiares consultam somente os dispositivos daquela familia.
+- O envio em massa exige token de sessao administrativa. A chave administrativa nao e mais solicitada nem guardada na tela do navegador.
+- O painel permite ativar/desativar Push administrativo por dispositivo; novas mensagens de suporte enviam um aviso genérico aos dispositivos admin inscritos. A permissão só é solicitada por ação explícita do administrador.
+- Inscricoes antigas com VAPID diferente sao removidas do servidor antes de substituir a inscricao local. Endpoints Push aceitos sao limitados a provedores HTTPS conhecidos.
+- Respostas 404/410 removem apenas o endpoint expirado, com filtro da familia/perfil no envio individual e filtro do endpoint no broadcast.
+- O app principal e o painel admin registram service workers em escopos distintos. Eventos Push e cliques mantem o destino na mesma origem.
+
+## Arquivos
+
+Principais arquivos alterados:
+
+- `App.tsx`, `components/FamilySessionGuard.tsx`, `components/Layout.tsx`
+- `pages/Auth.tsx`, `pages/PreConfiguracaoFamilia.tsx`, `pages/Settings.tsx`, `pages/SuperAdmin.tsx`, `pages/Shopping.tsx`
+- `api/_family-session.js`, `api/_push-authorization.js`, `api/admin-auth.js`, `api/family-auth.js`, `api/family-data.js`, `api/family-delete.js`
+- `api/saas-data.js`, `api/support.js`, `api/payment.js`, `api/spreadsheets.js`
+- `api/push-subscribe.js`, `api/push.js`, `api/push-broadcast.js`, `api/supabase.js`, `api/supabase-test.js`
+- `index.tsx`, `public/sw.js`, `public/admin/sw.js`
+- `services/db.ts`, `services/familyAuth.ts`, `services/familyDeletionService.ts`, `services/homefinProxy.ts`, `services/pushNotifications.ts`, `services/saasDb.ts`, `services/supabaseService.ts`, `services/supportService.ts`
+- `scripts/migracao-hardening-autenticacao-push.sql`, `tests/auth-push.test.js`
+
+Backups anteriores as edicoes desta auditoria foram preservados fora do repositorio:
+
+- `/home/codespace/.copilot/session-state/895f0d26-cd7b-40f4-a48b-27070a71a18d/files/auth-audit-backup-20261105-1348`
+- `/home/codespace/.copilot/session-state/895f0d26-cd7b-40f4-a48b-27070a71a18d/files/auth-push-backup-20261105-1338`
+
+## Migracao manual do Supabase
+
+O arquivo novo [migracao-hardening-autenticacao-push.sql](../scripts/migracao-hardening-autenticacao-push.sql) **nao foi executado**. Ele adiciona recuperacao e versao de sessao, bloqueio atomico de tentativas, RPCs de cadastro/exclusao, tabelas de suporte/Push/planilhas quando ausentes, RLS e revogacao de grants publicos para dados familiares e Storage.
+
+Antes de executar:
+
+1. Faça backup do banco e confira se `homefin_data` e `homefin_saas` existem.
+2. Execute/revise primeiro `scripts/migracao-autenticacao-familiar.sql` e `scripts/migracao-cadastro-familiar-seguro.sql` caso ainda nao tenham sido aplicadas.
+3. Execute/revise `scripts/migracao-planilhas.sql` se a tabela de planilhas ainda nao existir. A migracao nova tambem a cria de forma idempotente.
+4. Se a tabela de pagamentos estiver em uso, confira `scripts/migracao-pagamentos-segura.sql`.
+5. Revise as tabelas de suporte existentes para confirmar compatibilidade de colunas; `CREATE TABLE IF NOT EXISTS` nao altera uma tabela preexistente.
+6. Revise o SQL novo e execute-o manualmente no SQL Editor do Supabase.
+7. Para habilitar a regularizacao de familias antigas, aplique depois `scripts/migracao-provisionamento-familiar-controlado.sql`; ela depende de `homefin_saas` e `homefin_family_credentials`.
+
+Depois, confirme que uma consulta direta a `homefin_data` usando a anon key falha para `anon`/`authenticated`, enquanto as APIs autenticadas continuam funcionando com `SUPABASE_SERVICE_ROLE_KEY`.
+
+Familias legadas sem credencial server-side nao podem mais usar PIN local como prova de identidade. Depois de aplicar a migracao de provisionamento controlado, um administrador com sessao valida precisa confirmar a titularidade por canal independente e emitir um codigo de uso unico, com validade de 15 minutos. A familia resgata o codigo para cadastrar um novo PIN; o servidor guarda somente o hash do codigo e registra a operacao. Codigos sao limitados a uma familia, consumidos atomicamente, sujeitos a rate limit e nao substituem credenciais existentes. Nenhum PIN antigo/local e importado. Familias com credencial sem hash de recuperacao devem configurar a palavra-chave depois de entrar com PIN valido. Nao reutilize PIN ou palavra-chave local como prova automatica.
+
+## Variaveis externas a conferir
+
+Nao foram lidas nem alteradas nesta tarefa. Confira no ambiente da Vercel:
+
+- `SUPABASE_URL` ou `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (somente server-side; nunca `VITE_`)
+- `HOMEFIN_SESSION_SECRET` (minimo de 32 caracteres, aleatorio)
+- `HOMEFIN_ADMIN_SECRET` (minimo de 20 caracteres)
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+- `VITE_VAPID_PUBLIC_KEY` no build; deve corresponder a `VAPID_PUBLIC_KEY`
+- `MERCADO_PAGO_ACCESS_TOKEN`, se pagamentos estiverem habilitados
+
+`HOMEFIN_PUSH_ADMIN_SECRET` nao e mais usado pelo broadcast no codigo alterado; nao o remova do ambiente sem verificar outros deploys/versoes.
+
+## Validacao executada
+
+- `npm run build`: aprovado. Vite reportou avisos de chunk acima de 500 kB e importacao dinamica/estatica; sem erro de build.
+- `node --check` nas APIs alteradas: aprovado.
+- `node --test tests/auth-push.test.js`: 36 testes aprovados na validacao atual; inclui autenticacao e sessao, sincronizacao, anexos, suporte, Push e provisionamento controlado simulado.
+- `git diff --check`: aprovado.
+- `npx tsc --noEmit`: aprovado depois de excluir backups do projeto TypeScript; os arquivos de backup permanecem preservados.
+- `node --test tests/auth-push.test.js`: 36 testes aprovados na validacao atual, incluindo os testes simulados do provisionamento controlado.
+- A migracao `migracao-provisionamento-familiar-controlado.sql` foi revisada, mas nao executada. Os testes usam mocks e nao comprovam o funcionamento transacional das RPCs em um Supabase real.
+
+Os testes usam mocks HTTP; nao verificam uma instancia real do Supabase nem entrega real do Push. Nao houve teste em navegador/dispositivo, nem SQL ou deploy.
+
+## Validacao manual apos migracao e deploy futuro
+
+1. Criar uma familia nova; confirmar uma linha de credencial com hash de PIN e recuperacao, e entrar em outro navegador com o PIN.
+2. Testar PIN incorreto, limite de tentativas, troca de PIN, recuperacao e expiracao/revogacao da sessao.
+3. Com token de uma familia, tentar obter/alterar dados de outra alterando `familyId`; esperar 401 sem alteracao.
+4. Chamar as APIs financeiras e de suporte sem token; esperar rejeicao.
+5. Com a anon key, tentar ler `homefin_data`, `homefin_saas`, planilhas, suporte e inscricoes Push; esperar permissao negada.
+6. Salvar alteracoes online e offline; confirmar que a indicacao pendente permanece ate resposta confirmada do servidor e que a fila local continua apos falha.
+7. Em HTTPS, ativar notificacoes por acao do usuario em Android Chrome e Chrome desktop; conferir a inscricao ligada a familia/perfil correto.
+8. Com o app fechado/segundo plano, enviar Push familiar e broadcast administrativo. Conferir clique, escopo do service worker e remocao isolada de endpoints que retornem 404/410.
+9. Testar navegador sem suporte Push e permissao bloqueada: a interface deve informar a limitacao sem indicar ativacao bem-sucedida.
+
+## Segunda auditoria
+
+- As chamadas de autenticacao, dados financeiros, planilhas, pagamentos, suporte e Push vinculam as operacoes a uma sessao familiar validada no servidor; APIs de painel/broadcast e alteracoes SaaS exigem sessao admin. O status de credencial/cadastro e a criacao inicial sao deliberadamente pre-login; a criacao publica nao revalida um codigo promocional no servidor.
+- A recuperacao funciona no servidor quando a credencial tem `recovery_hash`: valida a palavra-chave, atualiza o hash do PIN com comparacao de versao e emite nova sessao. As linhas de credenciais antigas recebem `recovery_salt/hash` nulos; precisam entrar com PIN e cadastrar recuperacao em Configuracoes. Familias sem credencial server-side requerem provisionamento manual controlado. A recuperacao nao pode ser declarada funcional para essas familias legadas ate a migracao.
+- A migracao combina com as RPCs de autenticacao/exclusao, colunas e consultas REST de dados, suporte, Push e planilhas. Porem, revogar globalmente os grants de `storage.objects` e tornar `attachments` privado bloqueia as operacoes ainda feitas pelo cliente em `services/supabaseService.ts` (`upload`, `remove`, `createSignedUrl`). Nao executar essa parte sem uma API de Storage autenticada ou uma estrategia de politicas equivalente.
+- A exclusao transacional apaga dados, planilhas, suporte, Push, credenciais e tentativas, mas nao remove registros de `homefin_payments` nem objetos do Storage; revisar a politica de retencao antes de prometer exclusao completa.
+- O listener global de `beforeinstallprompt`, o service worker principal/admin e o botao de instalacao da configuracao inicial estao no codigo. O botao abre o prompt apenas quando o navegador o disponibiliza; nao existe instalacao silenciosa/forcada. A tela admin nao tem botao proprio; a instalacao depende da interface do navegador e dos criterios do PWA.
+- A criacao de familia e o endpoint `status` sao pre-login e publicos. A criacao nao valida/redeem o codigo promocional no servidor; o uso e atualizado no cache cliente e o salvamento SaaS exige sessao admin. Se codigos forem uma regra de elegibilidade/limite, validar e consumir atomicamente no servidor antes de tratar a regra como aplicada.
+
+## Complemento: imagens e regularizacao de acessos
+
+- As imagens do cadastro de familia nao sao enviadas ao Storage: ficam nos campos de configuracao da familia dentro da chamada autenticada pelo servidor ao RPC de criacao. O cliente limita o arquivo original a 40 MB, redimensiona iterativamente (ate 1600 px para fundo e 600 px para logo) e comprime antes de serializar em Base64. O servidor aceita somente data URIs PNG, JPEG ou WebP, com ate 850.000 caracteres por imagem e 1.500.000 caracteres combinados. Assim, a mensagem antiga de imagem grande deixa de ser o unico limite percebido depois da transferencia; o servidor continua validando o tamanho real do payload antes de persistir.
+- O cadastro mostra progresso durante compressao e envio, impede submissao repetida e preserva os campos/imagens existentes se a operacao falhar. Sucesso so e mostrado depois de o RPC confirmar a criacao; se a gravacao no servidor confirmar mas a inicializacao local falhar, a tela informa para nao repetir o cadastro. A validacao foi feita em testes de API com imagens de data URI; ainda requer teste em navegadores/dispositivos com fotos reais.
+- O login administrativo permanece validado somente no servidor. `api/admin-auth.js` usa `HOMEFIN_ADMIN_SECRET`, retorna `503` quando a variavel nao esta configurada ou e curta, `401` para senha incorreta e emite sessao assinada somente para senha valida. A tela informa a atualizacao manual da variavel na Vercel e novo deploy; nenhum segredo foi alterado ou incluído no frontend. A mensagem de producao reportada como “Senha incorreta” nao corresponde ao texto atual da API (“Acesso negado”), portanto pode indicar uma versao diferente em producao. Conferir a variavel no projeto/ambiente e o deployment ativo na Vercel.
+- Familias antigas sem credencial server-side nao podem autenticar usando apenas o PIN do navegador; o servidor nao tem hash legado para comparar. `HOMEFIN_FAMILY_ENROLL_SECRET` foi removido do fluxo ativo. A emissao exige sessao admin assinada e uma declaracao de confirmacao de titularidade por canal independente. O login administrativo usa segredo compartilhado e nao identifica individualmente uma pessoa; a auditoria grava uma referencia pseudonima derivada do token da sessao, a declaracao e o metodo, sem documentos pessoais.
+- O resgate verifica o codigo contra o `familyId`, aplica limite de tentativas e consome a autorizacao em RPC transacional. O PIN novo e armazenado por hash com salt. Provisionamento so insere se nao existir credencial. A recuperacao administrativa de PIN exige nova autorizacao e atualiza somente PIN/salt/versao, preserva `recovery_salt` e `recovery_hash`, incrementa `session_version` para revogar sessoes antigas e nao altera dados financeiros.
+- A tela administrativa permite selecionar provisionamento ou recuperacao de PIN; a tela familiar resgata o codigo. Ambas dependem da aplicacao manual da migracao `scripts/migracao-provisionamento-familiar-controlado.sql`; ate a migracao ser aplicada e as RPCs verificadas no banco, o fluxo nao esta disponivel em producao. Nunca inserir codigos, PINs ou dados da titularidade em GitHub, frontend persistente, tickets ou mensagens sem protecao.
+
+## Confirmacao de sincronizacao e conflitos
+
+- O estado local e separado da confirmacao remota: a interface informa quando os dados estao apenas neste dispositivo, quando a nuvem confirmou a gravacao e quando a sincronizacao esta bloqueada por conflito.
+- Salvamentos autenticados usam `updated_at` como versao esperada. A API atualiza somente se a versao ainda coincidir; a primeira insercao ignora conflitos em vez de substituir uma linha existente. Uma versao concorrente retorna conflito HTTP 409 e mantem a copia local pendente.
+- Em abas do mesmo navegador, alteracoes locais mais recentes substituem snapshots ainda nao enviados na fila e disparam nova sincronizacao. Entre dispositivos, conflitos nao sao mesclados automaticamente: a sincronizacao e bloqueada para evitar perda, e os dados precisam ser reconciliados com suporte. Nao foi feita alteracao ou migracao no Supabase.

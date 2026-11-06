@@ -1,0 +1,150 @@
+import webpush from 'web-push';
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ADMIN_SECRET = process.env.HOMEFIN_PUSH_ADMIN_SECRET;
+
+function configureWebPush() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+
+  if (!publicKey || !privateKey) {
+    throw new Error('Chaves VAPID não configuradas no servidor.');
+  }
+
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'https://homefinapp.vercel.app',
+    publicKey,
+    privateKey
+  );
+}
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}${path}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await response.text();
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      typeof data === 'string'
+        ? data
+        : data?.message || data?.error || `Supabase HTTP ${response.status}`
+    );
+  }
+
+  return data;
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido.' });
+  }
+
+  if (!ADMIN_SECRET || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_URL) {
+    return res.status(500).json({
+      error: 'Configuração segura de envio em massa incompleta no servidor.',
+    });
+  }
+
+  const authorization = req.headers.authorization || '';
+  const suppliedSecret = authorization.startsWith('Bearer ')
+    ? authorization.slice(7)
+    : '';
+
+  if (suppliedSecret.length !== ADMIN_SECRET.length) {
+    return res.status(401).json({ error: 'Acesso não autorizado.' });
+  }
+
+  let secretMatches = true;
+  for (let i = 0; i < ADMIN_SECRET.length; i++) {
+    if (suppliedSecret.charCodeAt(i) !== ADMIN_SECRET.charCodeAt(i)) {
+      secretMatches = false;
+    }
+  }
+
+  if (!secretMatches) {
+    return res.status(401).json({ error: 'Acesso não autorizado.' });
+  }
+
+  const title = String(req.body?.title || '').trim();
+  const body = String(req.body?.body || '').trim();
+
+  if (!title || title.length > 80 || !body || body.length > 500) {
+    return res.status(400).json({
+      error: 'Informe título (até 80 caracteres) e mensagem (até 500 caracteres).',
+    });
+  }
+
+  try {
+    configureWebPush();
+
+    const subscriptions = await supabaseRequest(
+      '/rest/v1/homefin_push_subscriptions?user_type=eq.family&select=subscription,endpoint'
+    );
+
+    const payload = JSON.stringify({
+      title: title.startsWith('HomeFin - ') ? title : `HomeFin - ${title}`,
+      body,
+      icon: '/pwa-192x192.png',
+      badge: '/pwa-192x192.png',
+      url: '/',
+    });
+
+    const results = await Promise.allSettled(
+      (subscriptions || []).map(async (row) => {
+        try {
+          await webpush.sendNotification(row.subscription, payload);
+          return { success: true };
+        } catch (error) {
+          if (error?.statusCode === 404 || error?.statusCode === 410) {
+            return { success: false, expired: true, endpoint: row.endpoint };
+          }
+          return { success: false };
+        }
+      })
+    );
+
+    const expiredEndpoints = results
+      .filter((result) => result.status === 'fulfilled' && result.value?.expired)
+      .map((result) => result.value.endpoint)
+      .filter(Boolean);
+
+    for (const endpoint of expiredEndpoints) {
+      await supabaseRequest(
+        `/rest/v1/homefin_push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,
+        { method: 'DELETE' }
+      );
+    }
+
+    const sent = results.filter(
+      (result) => result.status === 'fulfilled' && result.value?.success
+    ).length;
+
+    return res.status(200).json({
+      success: true,
+      sent,
+      subscriptions: subscriptions?.length || 0,
+      expiredRemoved: expiredEndpoints.length,
+    });
+  } catch (error) {
+    console.error('Erro no Push em massa HomeFin:', error);
+    return res.status(500).json({
+      error: 'Não foi possível concluir o envio em massa.',
+    });
+  }
+}

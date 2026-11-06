@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/push-subscribe",
+      "destination": "/api/push?mode=subscribe"
+    },
+    {
+      "source": "/api/push-broadcast",
+      "destination": "/api/push?mode=broadcast"
+    },
+    {
+      "source": "/api/family-attachments",
+      "destination": "/api/family-files?mode=attachments"
+    },
+    {
+      "source": "/api/family-delete",
+      "destination": "/api/family-files?mode=delete"
+    },
+    {
+      "source": "/api/family-storage-cleanup",
+      "destination": "/api/family-files?mode=cleanup"
+    }
+  ]
+}

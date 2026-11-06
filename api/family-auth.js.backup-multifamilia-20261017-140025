@@ -1,0 +1,153 @@
+import crypto from 'node:crypto';
+import { promisify } from 'node:util';
+
+const scrypt = promisify(crypto.scrypt);
+const FAMILY_ID = 'familia-pedro-e-ane';
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+async function db(path, options = {}) {
+  const url = process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) throw new Error('Configuração do servidor incompleta.');
+
+  const response = await fetch(`${url}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Supabase HTTP ${response.status}`);
+  return text ? JSON.parse(text) : null;
+}
+
+async function makeHash(pin, salt) {
+  return (await scrypt(pin, salt, 64)).toString('hex');
+}
+
+function createSession(familyId) {
+  const secret = process.env.HOMEFIN_SESSION_SECRET;
+  if (!secret) throw new Error('Chave de sessão não configurada.');
+
+  const payload = Buffer.from(JSON.stringify({
+    familyId,
+    exp: Math.floor(Date.now() / 1000) + 43200,
+  })).toString('base64url');
+
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('base64url');
+
+  return `${payload}.${signature}`;
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido.' });
+  }
+
+  try {
+    const { action, familyId, pin, enrollmentSecret } = req.body || {};
+
+    if (familyId !== FAMILY_ID || !/^\d{4}$/.test(String(pin || ''))) {
+      return res.status(400).json({ error: 'Dados inválidos.' });
+    }
+
+    if (action === 'enroll') {
+      const expected = process.env.HOMEFIN_FAMILY_ENROLL_SECRET;
+
+      if (!expected || !safeEqual(enrollmentSecret || '', expected)) {
+        return res.status(401).json({ error: 'Não autorizado.' });
+      }
+
+      const existing = await db(
+        `homefin_family_credentials?family_id=eq.${encodeURIComponent(FAMILY_ID)}&select=family_id`
+      );
+
+      if (existing.length) {
+        return res.status(409).json({
+          error: 'Esta família já possui credencial. Cadastro bloqueado.',
+        });
+      }
+
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = await makeHash(String(pin), salt);
+
+      await db('homefin_family_credentials', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          family_id: FAMILY_ID,
+          pin_salt: salt,
+          pin_hash: hash,
+        }),
+      });
+
+      return res.status(201).json({ success: true });
+    }
+
+    if (action !== 'login') {
+      return res.status(400).json({ error: 'Ação inválida.' });
+    }
+
+    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const attempts = await db(
+      `homefin_auth_attempts?family_id=eq.${encodeURIComponent(FAMILY_ID)}&attempted_at=gte.${encodeURIComponent(since)}&select=id&limit=10`
+    );
+
+    if (attempts.length >= 10) {
+      return res.status(429).json({
+        error: 'Muitas tentativas incorretas. Aguarde 15 minutos.',
+      });
+    }
+
+    const rows = await db(
+      `homefin_family_credentials?family_id=eq.${encodeURIComponent(FAMILY_ID)}&select=pin_salt,pin_hash`
+    );
+
+    if (!rows.length) {
+      return res.status(409).json({
+        error: 'Cadastro inicial ainda não realizado.',
+      });
+    }
+
+    const hash = await makeHash(String(pin), rows[0].pin_salt);
+
+    if (!safeEqual(hash, rows[0].pin_hash)) {
+      const allowed = await db('rpc/homefin_register_auth_failure', {
+        method: 'POST',
+        body: JSON.stringify({ p_family_id: FAMILY_ID }),
+      });
+
+      if (allowed !== true) {
+        return res.status(429).json({
+          error: 'Muitas tentativas incorretas. Aguarde 15 minutos.',
+        });
+      }
+
+      return res.status(401).json({ error: 'Código incorreto.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      token: createSession(FAMILY_ID),
+      expiresIn: 43200,
+    });
+  } catch (error) {
+    console.error('Erro na autenticação familiar:', error);
+    return res.status(500).json({ error: 'Erro interno de autenticação.' });
+  }
+}

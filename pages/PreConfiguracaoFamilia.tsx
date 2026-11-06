@@ -5,6 +5,16 @@ import { db } from '../services/db';
 import { UserSettings } from '../types';
 import { ArrowLeft, Upload, Copy, Check, Share, PlusSquare, X, Download, Smartphone, Loader2, Cloud, CloudOff } from 'lucide-react';
 
+type HomeFinInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
+
+type HomeFinWindow = Window & {
+  __homefinInstallPrompt?: HomeFinInstallPromptEvent | null;
+  __homefinAppInstalled?: boolean;
+};
+
 const MAX_IMAGE_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_IMAGE_DATA_URI_CHARS = 850_000;
 const MAX_IMAGES_TOTAL_CHARS = 1_500_000;
@@ -125,9 +135,12 @@ const PreConfiguracaoFamilia: React.FC = () => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [generatedLink, setGeneratedLink] = useState('');
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [installPrompt, setInstallPrompt] = useState<HomeFinInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [isSafari, setIsSafari] = useState(false);
+  const [completionWarning, setCompletionWarning] = useState('');
   const [isCompressing, setIsCompressing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [creationCompleted, setCreationCompleted] = useState(false);
@@ -148,30 +161,39 @@ const PreConfiguracaoFamilia: React.FC = () => {
   }, [createdFamilyId]);
 
   useEffect(() => {
+    const userAgent = navigator.userAgent;
+    const iosDevice =
+      /iPhone|iPad|iPod/i.test(userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const safariBrowser =
+      /Safari/i.test(userAgent) &&
+      !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Android/i.test(userAgent);
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true;
 
-    setIsInstalled(isStandalone);
+    setIsIOS(iosDevice);
+    setIsSafari(safariBrowser);
+    setIsInstalled(isStandalone || Boolean((window as HomeFinWindow).__homefinAppInstalled));
+    setShowInstallHelp(iosDevice && !isStandalone);
 
     const syncInstallPrompt = () => {
-      setInstallPrompt((window as any).__homefinInstallPrompt || null);
+      setInstallPrompt((window as HomeFinWindow).__homefinInstallPrompt || null);
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setInstallPrompt(null);
       setShowInstallHelp(false);
-      (window as any).__homefinInstallPrompt = null;
     };
 
     syncInstallPrompt();
     window.addEventListener('homefin-install-available', syncInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('homefin-app-installed', handleAppInstalled);
 
     return () => {
       window.removeEventListener('homefin-install-available', syncInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('homefin-app-installed', handleAppInstalled);
     };
   }, []);
 
@@ -179,18 +201,18 @@ const PreConfiguracaoFamilia: React.FC = () => {
     if (installPrompt) {
       try {
         await installPrompt.prompt();
-        await installPrompt.userChoice;
+        const choice = await installPrompt.userChoice;
+        if (choice.outcome === 'dismissed') setShowInstallHelp(true);
       } catch (error) {
         console.error('Não foi possível abrir a instalação do HomeFin:', error);
         setShowInstallHelp(true);
       } finally {
         setInstallPrompt(null);
-        (window as any).__homefinInstallPrompt = null;
+        (window as HomeFinWindow).__homefinInstallPrompt = null;
       }
       return;
     }
 
-    // Sem o evento nativo, o navegador não permite forçar o diálogo de instalação.
     setShowInstallHelp(true);
   };
 
@@ -330,10 +352,11 @@ const PreConfiguracaoFamilia: React.FC = () => {
     setFamilySyncStatus('pending');
     localStorage.setItem('homefin_current_family_id', newFamily.id);
     localStorage.setItem('homefin_current_family_name', newFamily.name);
+    setShowSuccessModal(true);
 
     // Guardar a sessão do servidor antes de inicializar ou sincronizar dados.
     if (!enrollmentData.token) {
-      setError('A família foi criada no servidor, mas a sessão automática falhou. Use o link de acesso abaixo e entre com o PIN informado.');
+      setCompletionWarning('A família foi criada, mas a sessão automática não foi confirmada. Use o link de acesso e entre com o PIN informado.');
       return;
     }
 
@@ -397,15 +420,15 @@ const PreConfiguracaoFamilia: React.FC = () => {
       }
     }
 
-    // Generate Link
-    // Show success modal instead of alert
-    setShowSuccessModal(true);
     } catch (saveError) {
       console.error('Falha ao concluir o cadastro familiar:', saveError);
-      setError(familyCreated
-        ? `A família ${createdFamilyId || 'recém-criada'} foi criada no servidor, mas a preparação deste dispositivo falhou. Não tente cadastrá-la novamente. Use o link de acesso abaixo e entre com o PIN informado.`
-        : 'Não foi possível concluir o cadastro. Os dados preenchidos foram mantidos; verifique a conexão e tente novamente.');
-      if (familyCreated) setCreationCompleted(true);
+      if (familyCreated) {
+        setCompletionWarning('A família foi criada no servidor, mas a preparação ou sincronização deste dispositivo não foi concluída. Não tente cadastrá-la novamente. Seus dados de acesso foram preservados; tente entrar pelo link abaixo.');
+        setShowSuccessModal(true);
+        setCreationCompleted(true);
+      } else {
+        setError('Não foi possível concluir o cadastro. Os dados preenchidos foram mantidos; verifique a conexão e tente novamente.');
+      }
     } finally {
       saveInProgressRef.current = false;
       setIsSubmitting(false);
@@ -600,6 +623,12 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 <span className="font-medium text-gray-900">Seja bem-vindo à família {formData.familyName}!</span>
               </p>
 
+              {completionWarning && (
+                <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-800">
+                  {completionWarning}
+                </p>
+              )}
+
               <div
                 role="status"
                 aria-live="polite"
@@ -647,40 +676,49 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 Ir para Login
               </button>
 
-              <div className="space-y-3 pt-4 border-t">
-                <h3 className="font-bold text-gray-900 text-sm">Instale o HomeFin no seu aparelho</h3>
-                {isInstalled ? (
-                  <div className="w-full bg-green-50 text-green-700 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2">
-                    <Check size={20} /> Aplicativo já instalado
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleInstallApp}
-                    className="w-full bg-green-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
-                  >
-                    <Download size={20} /> Instalar aplicativo
-                  </button>
-                )}
+              {!isInstalled && (
+                <div className="space-y-3 pt-4 border-t">
+                  <h3 className="font-bold text-gray-900 text-sm">Adicione o HomeFin à Tela de Início</h3>
+                  {isIOS ? (
+                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700">
+                      <strong className="mb-1 flex items-center gap-1 text-blue-900">
+                        <Smartphone size={15} /> iPhone / iPad
+                      </strong>
+                      {isSafari
+                        ? 'No Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”. A instalação é feita por esse menu; não pode ser iniciada automaticamente pelo site.'
+                        : 'Abra este link no Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”. A instalação é feita por esse menu; não pode ser iniciada automaticamente pelo site.'}
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleInstallApp}
+                        className="w-full bg-green-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+                      >
+                        {installPrompt ? (
+                          <><Download size={20} /> Instalar aplicativo</>
+                        ) : (
+                          <><PlusSquare size={20} /> Ver instruções de instalação</>
+                        )}
+                      </button>
 
-                {showInstallHelp && !isInstalled && (
-                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700 space-y-3">
-                    <p className="font-bold text-blue-900">Como instalar no seu aparelho</p>
-                    <div>
-                      <strong className="flex items-center gap-1"><Smartphone size={15} /> iPhone / iPad</strong>
-                      Abra este link no Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”.
-                    </div>
-                    <div>
-                      <strong className="flex items-center gap-1"><PlusSquare size={15} /> Android</strong>
-                      Se a instalação não abrir automaticamente, use o menu do navegador e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”.
-                    </div>
-                    <div>
-                      <strong className="flex items-center gap-1"><Download size={15} /> Computador</strong>
-                      No Chrome ou Edge, procure o ícone de instalação na barra de endereço ou no menu do navegador.
-                    </div>
-                  </div>
-                )}
-              </div>
+                      {showInstallHelp && (
+                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700 space-y-3">
+                          <p className="font-bold text-blue-900">A instalação nativa não está disponível agora</p>
+                          <div>
+                            <strong className="flex items-center gap-1"><PlusSquare size={15} /> Android</strong>
+                            No Chrome, abra o menu ⋮ e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”, se a opção estiver disponível.
+                          </div>
+                          <div>
+                            <strong className="flex items-center gap-1"><Download size={15} /> Computador</strong>
+                            No Chrome ou Edge, procure “Instalar HomeFin” no menu do navegador ou o ícone de instalação na barra de endereço.
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
             </div>
           </div>

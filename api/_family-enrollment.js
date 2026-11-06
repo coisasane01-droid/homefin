@@ -9,6 +9,15 @@ const VERIFICATION_METHODS = new Set([
   'other_official_channel',
 ]);
 
+class SupabaseRpcError extends Error {
+  constructor(status, code, message) {
+    super(message || `Supabase RPC returned HTTP ${status}.`);
+    this.name = 'SupabaseRpcError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -29,8 +38,72 @@ async function callRpc(name, payload) {
     cache: 'no-store',
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Supabase RPC ${name} HTTP ${response.status}`);
+  if (!response.ok) {
+    let responseError = {};
+    try {
+      responseError = text ? JSON.parse(text) : {};
+    } catch {
+      responseError = {};
+    }
+    throw new SupabaseRpcError(
+      response.status,
+      typeof responseError.code === 'string' ? responseError.code : '',
+      typeof responseError.message === 'string' ? responseError.message : ''
+    );
+  }
   return text ? JSON.parse(text) : null;
+}
+
+function getIssuanceFailure(error) {
+  if (error instanceof SupabaseRpcError) {
+    if (
+      error.status === 404 ||
+      ['PGRST202', 'PGRST203', '42883'].includes(error.code)
+    ) {
+      return {
+        status: 503,
+        error: 'A função de autorização não foi encontrada pelo Supabase ou sua assinatura está desatualizada. Verifique a migração de provisionamento e a atualização do cache da API.',
+        stage: 'rpc-not-found-or-signature-mismatch',
+      };
+    }
+    if (
+      error.status === 401 ||
+      error.status === 403 ||
+      error.code === '42501'
+    ) {
+      return {
+        status: 503,
+        error: 'O servidor não tem permissão para registrar autorizações. Verifique a configuração server-side e a permissão da função para service_role.',
+        stage: 'rpc-permission-denied',
+      };
+    }
+    if (error.status === 400) {
+      return {
+        status: 422,
+        error: 'O banco rejeitou os dados de autorização. Verifique a compatibilidade da migração e os valores enviados.',
+        stage: 'rpc-request-rejected',
+      };
+    }
+    return {
+      status: 503,
+      error: 'O banco não conseguiu registrar a autorização. Tente novamente e, se persistir, consulte os logs do servidor.',
+      stage: 'rpc-database-failure',
+    };
+  }
+
+  if (error instanceof Error && error.message === 'Configuração server-side do Supabase ausente.') {
+    return {
+      status: 503,
+      error: 'A conexão server-side com o Supabase não está configurada.',
+      stage: 'supabase-server-configuration',
+    };
+  }
+
+  return {
+    status: 503,
+    error: 'Não foi possível conectar ao serviço de autorização. Tente novamente e, se persistir, consulte os logs do servidor.',
+    stage: 'rpc-transport-or-unexpected-failure',
+  };
 }
 
 function getIpHash(req) {
@@ -121,12 +194,18 @@ export default async function handler(req, res) {
       purpose,
     });
   } catch (error) {
-    console.error(
-      'Falha ao emitir autorização familiar:',
-      error instanceof Error ? error.message : 'erro desconhecido'
-    );
-    return res.status(503).json({
-      error: 'Não foi possível emitir a autorização. Confirme se a migração de provisionamento foi aplicada.',
+    const failure = getIssuanceFailure(error);
+    console.error('Falha ao emitir autorização familiar:', {
+      stage: failure.stage,
+      rpc: 'homefin_issue_family_enrollment_authorization',
+      httpStatus: error instanceof SupabaseRpcError ? error.status : undefined,
+      databaseCode: error instanceof SupabaseRpcError ? error.code || undefined : undefined,
+      databaseMessage: error instanceof SupabaseRpcError
+        ? error.message.slice(0, 300)
+        : error instanceof Error
+          ? error.message.slice(0, 300)
+          : 'erro desconhecido',
     });
+    return res.status(failure.status).json({ error: failure.error });
   }
 }

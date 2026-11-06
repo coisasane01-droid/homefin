@@ -1,0 +1,467 @@
+import crypto from 'node:crypto';
+import { promisify } from 'node:util';
+import {
+  createFamilySessionToken,
+  validateFamilySession,
+} from './_family-session.js';
+
+const scrypt = promisify(crypto.scrypt);
+// O identificador da família é validado em cada requisição.
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+async function db(path, options = {}) {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) throw new Error('Configuração do servidor incompleta.');
+
+  const response = await fetch(`${url.replace(/\/+$/, '')}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Supabase HTTP ${response.status}`);
+  return text ? JSON.parse(text) : null;
+}
+
+async function makeHash(pin, salt) {
+  return (await scrypt(pin, salt, 64)).toString('hex');
+}
+
+function getIpHash(req) {
+  const secret = process.env.HOMEFIN_SESSION_SECRET;
+  if (!secret || secret.length < 32) throw new Error('HOMEFIN_SESSION_SECRET deve ter pelo menos 32 caracteres.');
+  const forwardedIp = req.headers?.['x-vercel-forwarded-for'] ||
+    req.headers?.['x-real-ip'] ||
+    String(req.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim();
+  const address = String(forwardedIp || req.socket?.remoteAddress || 'unknown');
+  return crypto.createHmac('sha256', secret).update(address).digest('hex');
+}
+
+async function checkLoginRateLimit(familyId, ipHash) {
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const familyQuery = new URLSearchParams({
+    family_id: `eq.${familyId}`,
+    attempted_at: `gte.${since}`,
+    select: 'id',
+    limit: '5',
+  });
+  const ipQuery = new URLSearchParams({
+    ip_hash: `eq.${ipHash}`,
+    attempted_at: `gte.${since}`,
+    select: 'id',
+    limit: '20',
+  });
+  const [familyAttempts, ipAttempts] = await Promise.all([
+    db(`homefin_auth_attempts?${familyQuery}`),
+    db(`homefin_auth_attempts?${ipQuery}`),
+  ]);
+  return familyAttempts.length >= 5 || ipAttempts.length >= 20;
+}
+
+async function recordLoginFailure(familyId, ipHash) {
+  return db('rpc/homefin_register_auth_failure', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_family_id: familyId,
+      p_ip_hash: ipHash,
+    }),
+  });
+}
+
+function isValidPin(pin) {
+  return typeof pin === 'string' && /^\d{4}$/.test(pin);
+}
+
+function normalizeRecoveryKeyword(keyword) {
+  return typeof keyword === 'string' ? keyword.trim().normalize('NFKC').toLocaleLowerCase('pt-BR') : '';
+}
+
+async function savePinAndBumpVersion(familyId, sessionVersion, pin) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = await makeHash(pin, salt);
+  const query = new URLSearchParams({
+    family_id: `eq.${familyId}`,
+    session_version: `eq.${sessionVersion}`,
+  });
+  const rows = await db(`homefin_family_credentials?${query}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      pin_salt: salt,
+      pin_hash: hash,
+      session_version: sessionVersion + 1,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  return Array.isArray(rows) && rows.length === 1;
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido.' });
+  }
+
+  try {
+    const {
+      action,
+      familyId,
+      pin,
+      keyword,
+      currentPin,
+      newPin,
+      enrollmentSecret,
+      family,
+    } = req.body || {};
+    const targetFamilyId = String(familyId || '').trim();
+
+    if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(targetFamilyId)) {
+      return res.status(400).json({ error: 'Identificador inválido.' });
+    }
+
+    if (action === 'status') {
+      const credentials = await db(
+        `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=family_id,recovery_hash`
+      );
+
+      return res.status(200).json({
+        success: true,
+        enrolled: credentials.length > 0,
+        hasRecovery: Boolean(credentials[0]?.recovery_hash),
+      });
+    }
+
+    if (action === 'verify' || action === 'logout' || action === 'change-pin' || action === 'set-recovery') {
+      let session;
+      try {
+        session = await validateFamilySession(req, targetFamilyId);
+      } catch (error) {
+        console.error('Falha ao validar sessão familiar:', error instanceof Error ? error.message : 'erro desconhecido');
+        return res.status(503).json({ error: 'Não foi possível validar a sessão familiar.' });
+      }
+
+      if (!session.valid) {
+        return res.status(401).json({ error: session.error || 'Sessão inválida ou expirada.' });
+      }
+
+      if (action === 'verify') {
+        return res.status(200).json({ valid: true });
+      }
+
+      if (action === 'logout') {
+        const query = new URLSearchParams({
+          family_id: `eq.${targetFamilyId}`,
+          session_version: `eq.${session.sessionVersion}`,
+        });
+        const revoked = await db(`homefin_family_credentials?${query}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            session_version: session.sessionVersion + 1,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+        if (!Array.isArray(revoked) || revoked.length !== 1) {
+          return res.status(409).json({ error: 'A sessão já foi encerrada.' });
+        }
+        return res.status(200).json({ success: true });
+      }
+
+      if (action === 'change-pin') {
+        if (!isValidPin(currentPin) || !isValidPin(newPin)) {
+          return res.status(400).json({ error: 'Informe o PIN atual e um novo PIN de 4 dígitos.' });
+        }
+        const rows = await db(
+          `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=pin_salt,pin_hash`
+        );
+        if (!rows.length || !safeEqual(await makeHash(currentPin, rows[0].pin_salt), rows[0].pin_hash)) {
+          return res.status(401).json({ error: 'O PIN atual está incorreto.' });
+        }
+        if (!await savePinAndBumpVersion(targetFamilyId, session.sessionVersion, newPin)) {
+          return res.status(409).json({ error: 'O PIN foi alterado em outra sessão. Entre novamente.' });
+        }
+        const version = session.sessionVersion + 1;
+        return res.status(200).json({
+          success: true,
+          token: createFamilySessionToken(targetFamilyId, version),
+          expiresIn: 43200,
+        });
+      }
+
+      if (action === 'set-recovery') {
+        const recoveryKeyword = normalizeRecoveryKeyword(keyword);
+        if (!isValidPin(currentPin) || recoveryKeyword.length < 8 || recoveryKeyword.length > 256) {
+          return res.status(400).json({ error: 'Confirme o PIN atual e informe uma palavra-chave com 8 a 256 caracteres.' });
+        }
+        const rows = await db(
+          `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=pin_salt,pin_hash`
+        );
+        if (!rows.length || !safeEqual(await makeHash(currentPin, rows[0].pin_salt), rows[0].pin_hash)) {
+          return res.status(401).json({ error: 'O PIN atual está incorreto.' });
+        }
+        const recoverySalt = crypto.randomBytes(16).toString('hex');
+        const recoveryHash = await makeHash(recoveryKeyword, recoverySalt);
+        const query = new URLSearchParams({
+          family_id: `eq.${targetFamilyId}`,
+          session_version: `eq.${session.sessionVersion}`,
+        });
+        const updated = await db(`homefin_family_credentials?${query}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            recovery_salt: recoverySalt,
+            recovery_hash: recoveryHash,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+        if (!Array.isArray(updated) || updated.length !== 1) {
+          return res.status(409).json({ error: 'Não foi possível atualizar a recuperação.' });
+        }
+        return res.status(200).json({ success: true });
+      }
+    }
+
+    if (action === 'create') {
+      if (!isValidPin(pin)) {
+        return res.status(400).json({ error: 'O PIN deve conter exatamente 4 dígitos.' });
+      }
+      const recoveryKeyword = normalizeRecoveryKeyword(keyword);
+      if (recoveryKeyword.length < 8 || recoveryKeyword.length > 256) {
+        return res.status(400).json({ error: 'A palavra-chave deve conter de 8 a 256 caracteres.' });
+      }
+      if (!family || typeof family !== 'object' ||
+          String(family.id || '') !== targetFamilyId) {
+        return res.status(400).json({ error: 'Dados da família inválidos.' });
+      }
+
+      const familyName = String(family.name || '').trim();
+      if (!familyName || familyName.length > 80) {
+        return res.status(400).json({ error: 'Informe um nome de família válido.' });
+      }
+
+      const suppliedSettings =
+        family.settings && typeof family.settings === 'object'
+          ? family.settings
+          : {};
+
+      for (const imageField of ['backgroundImage', 'logoImage']) {
+        const imageValue = suppliedSettings[imageField];
+        if (
+          imageValue != null &&
+          imageValue !== '' &&
+          (typeof imageValue !== 'string' || imageValue.length > 1500000)
+        ) {
+          return res.status(413).json({
+            error: 'Uma das imagens é muito grande. Escolha uma imagem menor.'
+          });
+        }
+      }
+
+      const familyRecord = {
+        id: targetFamilyId,
+        name: familyName,
+        plan: 'free',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        settings: {
+          theme: 'light',
+          houseName: familyName,
+          primaryColor: String(suppliedSettings.primaryColor || 'indigo').slice(0, 40),
+          backgroundImage: suppliedSettings.backgroundImage || '',
+          logoImage: suppliedSettings.logoImage || '',
+          backgroundZoom: 100,
+          backgroundOpacity: 100,
+          backgroundFit: 'cover',
+          cardOpacity: 40,
+          cardFullScreen: false,
+          logoShape: suppliedSettings.logoShape === 'circle' ? 'circle' : 'square',
+          logoZoom: 100,
+          logoSize: 100,
+          customCategories: [],
+          categories: ['Fixa', 'Variável', 'Cartão', 'Imposto'],
+          notificationsEnabled: true,
+          integrations: {
+            openBanking: false,
+            saneago: false,
+            equatorial: false
+          }
+        }
+      };
+
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = await makeHash(String(pin), salt);
+      const recoverySalt = crypto.randomBytes(16).toString('hex');
+      const recoveryHash = await makeHash(recoveryKeyword, recoverySalt);
+
+      await db('rpc/homefin_create_family_with_credentials', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_family: familyRecord,
+          p_pin_salt: salt,
+          p_pin_hash: hash,
+          p_recovery_salt: recoverySalt,
+          p_recovery_hash: recoveryHash,
+        })
+      });
+
+      return res.status(201).json({
+        success: true,
+        family: familyRecord,
+        token: createFamilySessionToken(targetFamilyId),
+        expiresIn: 43200
+      });
+    }
+
+    if (action === 'enroll') {
+      const expected = process.env.HOMEFIN_FAMILY_ENROLL_SECRET;
+
+      if (!expected || expected.length < 32 || !safeEqual(enrollmentSecret || '', expected)) {
+        return res.status(401).json({ error: 'Não autorizado.' });
+      }
+
+      if (!isValidPin(pin)) {
+        return res.status(400).json({ error: 'O PIN deve conter exatamente 4 dígitos.' });
+      }
+
+      const globalRows = await db('homefin_saas?id=eq.global&select=data');
+      const families = globalRows?.[0]?.data?.families;
+      if (!Array.isArray(families) || !families.some((item) => item?.id === targetFamilyId)) {
+        return res.status(404).json({ error: 'Família não encontrada para migração de credencial.' });
+      }
+
+      const existing = await db(
+        `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=family_id`
+      );
+
+      if (existing.length) {
+        return res.status(409).json({
+          error: 'Esta família já possui credencial. Cadastro bloqueado.',
+        });
+      }
+
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = await makeHash(String(pin), salt);
+
+      await db('homefin_family_credentials', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          family_id: targetFamilyId,
+          pin_salt: salt,
+          pin_hash: hash,
+          recovery_salt: null,
+          recovery_hash: null,
+          session_version: 1,
+        }),
+      });
+
+      return res.status(201).json({ success: true });
+    }
+
+    if (action === 'recover') {
+      if (!isValidPin(newPin)) {
+        return res.status(400).json({ error: 'O novo PIN deve conter exatamente 4 dígitos.' });
+      }
+      const recoveryKeyword = normalizeRecoveryKeyword(keyword);
+      if (recoveryKeyword.length < 1 || recoveryKeyword.length > 256) {
+        return res.status(400).json({ error: 'Informe a palavra-chave de recuperação.' });
+      }
+
+      const ipHash = getIpHash(req);
+      if (await checkLoginRateLimit(targetFamilyId, ipHash)) {
+        return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+      }
+      const rows = await db(
+        `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=recovery_salt,recovery_hash,session_version`
+      );
+      if (!rows.length || !rows[0].recovery_salt || !rows[0].recovery_hash) {
+        return res.status(409).json({
+          error: 'Esta família não possui recuperação cadastrada no servidor. Procure o suporte para migrar o acesso.',
+        });
+      }
+
+      const recoveryHash = await makeHash(recoveryKeyword, rows[0].recovery_salt);
+      if (!safeEqual(recoveryHash, rows[0].recovery_hash)) {
+        if (!await recordLoginFailure(targetFamilyId, ipHash)) {
+          return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+        }
+        return res.status(401).json({ error: 'Palavra-chave incorreta.' });
+      }
+
+      const sessionVersion = Number(rows[0].session_version || 1);
+      if (!await savePinAndBumpVersion(targetFamilyId, sessionVersion, newPin)) {
+        return res.status(409).json({ error: 'Não foi possível atualizar o PIN. Tente novamente.' });
+      }
+      const newSessionVersion = sessionVersion + 1;
+      return res.status(200).json({
+        success: true,
+        token: createFamilySessionToken(targetFamilyId, newSessionVersion),
+        expiresIn: 43200,
+      });
+    }
+
+    if (action !== 'login') {
+      return res.status(400).json({ error: 'Ação inválida.' });
+    }
+
+    if (!isValidPin(pin)) {
+      return res.status(400).json({ error: 'O PIN deve conter exatamente 4 dígitos.' });
+    }
+
+    const ipHash = getIpHash(req);
+    if (await checkLoginRateLimit(targetFamilyId, ipHash)) {
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+    }
+    const rows = await db(
+      `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=pin_salt,pin_hash,session_version`
+    );
+
+    if (!rows.length) {
+      return res.status(409).json({
+        error: 'Cadastro inicial ainda não realizado.',
+      });
+    }
+
+    const hash = await makeHash(String(pin), rows[0].pin_salt);
+
+    if (!safeEqual(hash, rows[0].pin_hash)) {
+      const allowed = await recordLoginFailure(targetFamilyId, ipHash);
+
+      if (allowed !== true) {
+        return res.status(429).json({
+          error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.',
+        });
+      }
+
+      return res.status(401).json({ error: 'Código incorreto.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      token: createFamilySessionToken(
+        targetFamilyId,
+        Number(rows[0].session_version || 1)
+      ),
+      expiresIn: 43200,
+    });
+  } catch (error) {
+    console.error(
+      'Erro na autenticação familiar:',
+      error instanceof Error ? error.message : 'erro desconhecido'
+    );
+    return res.status(500).json({ error: 'Erro interno de autenticação.' });
+  }
+}

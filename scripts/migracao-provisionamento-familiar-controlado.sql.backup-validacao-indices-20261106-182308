@@ -1,0 +1,854 @@
+-- HomeFin: provisionamento administrativo controlado de credenciais legadas.
+-- Preparada para revisao e execucao manual; NAO foi executada no Supabase.
+-- Requer homefin_saas e a estrutura de credenciais instalada, incluindo session_version.
+-- Nenhum dado financeiro ou credencial existente e removido/alterado por esta migracao.
+-- Todo o DDL e as RPCs sao transacionais. Em erro, execute ROLLBACK na sessao e corrija para frente;
+-- nao remova tabelas nem credenciais. Autorizacoes antigas sem declaracao registrada nao serao aceitas.
+
+BEGIN;
+
+DO $preflight$
+BEGIN
+    IF pg_catalog.to_regclass('public.homefin_saas') IS NULL THEN
+        RAISE EXCEPTION 'Pre-requisito ausente: public.homefin_saas.';
+    END IF;
+    IF pg_catalog.to_regclass('public.homefin_family_credentials') IS NULL THEN
+        RAISE EXCEPTION 'Pre-requisito ausente: public.homefin_family_credentials.';
+    END IF;
+
+    IF EXISTS (
+        SELECT required.table_name, required.column_name
+          FROM (VALUES
+              ('homefin_saas', 'id', 'text'),
+              ('homefin_saas', 'data', 'jsonb'),
+              ('homefin_family_credentials', 'family_id', 'text'),
+              ('homefin_family_credentials', 'pin_salt', 'text'),
+              ('homefin_family_credentials', 'pin_hash', 'text'),
+              ('homefin_family_credentials', 'recovery_salt', 'text'),
+              ('homefin_family_credentials', 'recovery_hash', 'text'),
+              ('homefin_family_credentials', 'session_version', 'integer'),
+              ('homefin_family_credentials', 'created_at', 'timestamp with time zone'),
+              ('homefin_family_credentials', 'updated_at', 'timestamp with time zone')
+          ) AS required(table_name, column_name, data_type)
+          LEFT JOIN information_schema.columns AS existing
+            ON existing.table_schema = 'public'
+           AND existing.table_name = required.table_name
+           AND existing.column_name = required.column_name
+         WHERE existing.column_name IS NULL
+            OR existing.data_type <> required.data_type
+            OR (
+                required.table_name = 'homefin_family_credentials'
+                AND required.column_name = 'session_version'
+                AND existing.is_nullable <> 'NO'
+            )
+    ) THEN
+        RAISE EXCEPTION 'Pre-requisito ausente: esquema de autenticacao familiar incompleto; aplique e valide as migracoes base primeiro.';
+    END IF;
+END;
+$preflight$;
+
+CREATE TABLE IF NOT EXISTS public.homefin_family_enrollment_authorizations (
+    id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
+    family_id text NOT NULL,
+    authorization_hash text NOT NULL UNIQUE,
+    verification_method text NOT NULL,
+    verified_by text NOT NULL,
+    ownership_verified boolean NOT NULL,
+    purpose text NOT NULL DEFAULT 'provision',
+    created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz,
+    revoked_at timestamptz,
+    CONSTRAINT homefin_family_enrollment_authorizations_family_format
+        CHECK (family_id ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
+    CONSTRAINT homefin_family_enrollment_authorizations_hash_format
+        CHECK (authorization_hash ~ '^[a-f0-9]{64}$'),
+    CONSTRAINT homefin_family_enrollment_authorizations_verified_by_length
+        CHECK (verified_by ~ '^admin-session:[a-f0-9]{64}$'),
+    CONSTRAINT homefin_family_enrollment_authorizations_ownership_verified
+        CHECK (ownership_verified),
+    CONSTRAINT homefin_family_enrollment_authorizations_purpose
+        CHECK (purpose IN ('provision', 'pin_recovery')),
+    CONSTRAINT homefin_family_enrollment_authorizations_method
+        CHECK (verification_method IN (
+            'known_phone',
+            'previously_verified_email',
+            'in_person',
+            'other_official_channel'
+        ))
+);
+
+ALTER TABLE public.homefin_family_enrollment_authorizations
+    ADD COLUMN IF NOT EXISTS ownership_verified boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'provision';
+
+CREATE UNIQUE INDEX IF NOT EXISTS homefin_family_enrollment_one_active_idx
+    ON public.homefin_family_enrollment_authorizations (family_id)
+    WHERE consumed_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS homefin_family_enrollment_expiry_idx
+    ON public.homefin_family_enrollment_authorizations (expires_at);
+
+CREATE TABLE IF NOT EXISTS public.homefin_family_enrollment_attempts (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    family_id text NOT NULL,
+    ip_hash text NOT NULL,
+    attempted_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+    CONSTRAINT homefin_family_enrollment_attempts_family_format
+        CHECK (family_id ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
+    CONSTRAINT homefin_family_enrollment_attempts_ip_hash_format
+        CHECK (ip_hash ~ '^[a-f0-9]{64}$')
+);
+
+CREATE INDEX IF NOT EXISTS homefin_family_enrollment_attempts_family_time_idx
+    ON public.homefin_family_enrollment_attempts (family_id, attempted_at DESC);
+
+CREATE INDEX IF NOT EXISTS homefin_family_enrollment_attempts_ip_time_idx
+    ON public.homefin_family_enrollment_attempts (ip_hash, attempted_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.homefin_family_enrollment_audit (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    family_id text NOT NULL,
+    event_type text NOT NULL,
+    actor_label text,
+    verification_method text,
+    ip_hash text,
+    ownership_verified boolean NOT NULL DEFAULT false,
+    purpose text NOT NULL DEFAULT 'provision',
+    occurred_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+    CONSTRAINT homefin_family_enrollment_audit_family_format
+        CHECK (family_id ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
+    CONSTRAINT homefin_family_enrollment_audit_event_type
+        CHECK (event_type IN (
+            'authorization_issued',
+            'authorization_denied',
+            'authorization_consumed',
+            'authorization_invalid',
+            'authorization_expired',
+            'authorization_reused',
+            'credential_already_exists',
+            'attempt_rate_limited'
+        )),
+    CONSTRAINT homefin_family_enrollment_audit_ip_hash_format
+        CHECK (ip_hash IS NULL OR ip_hash ~ '^[a-f0-9]{64}$'),
+    CONSTRAINT homefin_family_enrollment_audit_purpose
+        CHECK (purpose IN ('provision', 'pin_recovery'))
+);
+
+ALTER TABLE public.homefin_family_enrollment_audit
+    ADD COLUMN IF NOT EXISTS ownership_verified boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'provision';
+
+COMMENT ON COLUMN public.homefin_family_enrollment_authorizations.verified_by
+    IS 'Pseudonymous reference derived from the validated admin session token; not a personal identity.';
+COMMENT ON COLUMN public.homefin_family_enrollment_audit.actor_label
+    IS 'Historical operator label; new events store a pseudonymous validated admin-session reference.';
+
+DO $schema_check$
+BEGIN
+    IF EXISTS (
+        SELECT required.table_name, required.column_name
+          FROM (VALUES
+              ('homefin_family_enrollment_authorizations', 'id', 'uuid'),
+              ('homefin_family_enrollment_authorizations', 'family_id', 'text'),
+              ('homefin_family_enrollment_authorizations', 'authorization_hash', 'text'),
+              ('homefin_family_enrollment_authorizations', 'verification_method', 'text'),
+              ('homefin_family_enrollment_authorizations', 'verified_by', 'text'),
+              ('homefin_family_enrollment_authorizations', 'ownership_verified', 'boolean'),
+              ('homefin_family_enrollment_authorizations', 'purpose', 'text'),
+              ('homefin_family_enrollment_authorizations', 'created_at', 'timestamp with time zone'),
+              ('homefin_family_enrollment_authorizations', 'expires_at', 'timestamp with time zone'),
+              ('homefin_family_enrollment_authorizations', 'consumed_at', 'timestamp with time zone'),
+              ('homefin_family_enrollment_authorizations', 'revoked_at', 'timestamp with time zone'),
+              ('homefin_family_enrollment_attempts', 'id', 'bigint'),
+              ('homefin_family_enrollment_attempts', 'family_id', 'text'),
+              ('homefin_family_enrollment_attempts', 'ip_hash', 'text'),
+              ('homefin_family_enrollment_attempts', 'attempted_at', 'timestamp with time zone'),
+              ('homefin_family_enrollment_audit', 'id', 'bigint'),
+              ('homefin_family_enrollment_audit', 'family_id', 'text'),
+              ('homefin_family_enrollment_audit', 'event_type', 'text'),
+              ('homefin_family_enrollment_audit', 'actor_label', 'text'),
+              ('homefin_family_enrollment_audit', 'verification_method', 'text'),
+              ('homefin_family_enrollment_audit', 'ip_hash', 'text'),
+              ('homefin_family_enrollment_audit', 'ownership_verified', 'boolean'),
+              ('homefin_family_enrollment_audit', 'purpose', 'text'),
+              ('homefin_family_enrollment_audit', 'occurred_at', 'timestamp with time zone')
+          ) AS required(table_name, column_name, data_type)
+          LEFT JOIN information_schema.columns AS existing
+            ON existing.table_schema = 'public'
+           AND existing.table_name = required.table_name
+           AND existing.column_name = required.column_name
+         WHERE existing.column_name IS NULL
+            OR existing.data_type <> required.data_type
+            OR (
+                required.table_name IN (
+                    'homefin_family_enrollment_authorizations',
+                    'homefin_family_enrollment_attempts',
+                    'homefin_family_enrollment_audit'
+                )
+                AND required.column_name IN ('id', 'family_id')
+                AND existing.is_nullable <> 'NO'
+            )
+    ) THEN
+        RAISE EXCEPTION 'Esquema de provisionamento preexistente incompatível. Inspecione as tabelas antes de aplicar correções para frente.';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conrelid = 'public.homefin_family_enrollment_authorizations'::regclass
+           AND contype = 'p'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conrelid = 'public.homefin_family_enrollment_attempts'::regclass
+           AND contype = 'p'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conrelid = 'public.homefin_family_enrollment_audit'::regclass
+           AND contype = 'p'
+    ) THEN
+        RAISE EXCEPTION 'Chave primária ausente em tabela preexistente de provisionamento.';
+    END IF;
+    IF pg_catalog.to_regclass('public.homefin_family_enrollment_attempts_id_seq') IS NULL
+       OR pg_catalog.to_regclass('public.homefin_family_enrollment_audit_id_seq') IS NULL THEN
+        RAISE EXCEPTION 'Sequência de identidade ausente ou incompatível nas tabelas de provisionamento.';
+    END IF;
+END;
+$schema_check$;
+
+DO $constraints$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conrelid = 'public.homefin_family_enrollment_authorizations'::regclass
+           AND conname = 'homefin_family_enrollment_authorizations_purpose'
+    ) THEN
+        ALTER TABLE public.homefin_family_enrollment_authorizations
+            ADD CONSTRAINT homefin_family_enrollment_authorizations_purpose
+            CHECK (purpose IN ('provision', 'pin_recovery')) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conrelid = 'public.homefin_family_enrollment_audit'::regclass
+           AND conname = 'homefin_family_enrollment_audit_purpose'
+    ) THEN
+        ALTER TABLE public.homefin_family_enrollment_audit
+            ADD CONSTRAINT homefin_family_enrollment_audit_purpose
+            CHECK (purpose IN ('provision', 'pin_recovery')) NOT VALID;
+    END IF;
+END;
+$constraints$;
+
+CREATE INDEX IF NOT EXISTS homefin_family_enrollment_audit_family_time_idx
+    ON public.homefin_family_enrollment_audit (family_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS homefin_family_enrollment_audit_ip_time_idx
+    ON public.homefin_family_enrollment_audit (ip_hash, occurred_at DESC)
+    WHERE ip_hash IS NOT NULL;
+
+DO $index_check$
+DECLARE
+    v_definition text;
+    v_predicate text;
+    v_unique boolean;
+    v_expected record;
+BEGIN
+    SELECT pg_catalog.pg_get_indexdef(i.indexrelid), i.indisunique,
+           pg_catalog.pg_get_expr(i.indpred, i.indrelid)
+      INTO v_definition, v_unique, v_predicate
+      FROM pg_catalog.pg_index AS i
+     WHERE i.indexrelid = pg_catalog.to_regclass('public.homefin_family_enrollment_one_active_idx');
+    IF v_definition IS NULL OR NOT v_unique
+       OR pg_catalog.strpos(v_definition, '(family_id)') = 0
+       OR v_predicate IS NULL
+       OR pg_catalog.strpos(pg_catalog.lower(v_predicate), 'consumed_at') = 0
+       OR pg_catalog.strpos(pg_catalog.lower(v_predicate), 'revoked_at') = 0 THEN
+        RAISE EXCEPTION 'Índice de autorização ativa ausente ou incompatível.';
+    END IF;
+
+    FOR v_expected IN
+        SELECT * FROM (VALUES
+            ('homefin_family_enrollment_expiry_idx', '(expires_at)'),
+            ('homefin_family_enrollment_attempts_family_time_idx', '(family_id, attempted_at DESC)'),
+            ('homefin_family_enrollment_attempts_ip_time_idx', '(ip_hash, attempted_at DESC)'),
+            ('homefin_family_enrollment_audit_family_time_idx', '(family_id, occurred_at DESC)'),
+            ('homefin_family_enrollment_audit_ip_time_idx', '(ip_hash, occurred_at DESC)')
+        ) AS expected(index_name, key_definition)
+    LOOP
+        SELECT pg_catalog.pg_get_indexdef(i.indexrelid)
+          INTO v_definition
+          FROM pg_catalog.pg_index AS i
+         WHERE i.indexrelid = pg_catalog.to_regclass('public.' || v_expected.index_name);
+        IF v_definition IS NULL
+           OR pg_catalog.strpos(pg_catalog.lower(v_definition), v_expected.key_definition) = 0 THEN
+            RAISE EXCEPTION 'Índice ausente ou incompatível: %.', v_expected.index_name;
+        END IF;
+    END LOOP;
+
+    SELECT pg_catalog.pg_get_indexdef(i.indexrelid), i.indisunique
+      INTO v_definition, v_unique
+      FROM pg_catalog.pg_index AS i
+      JOIN pg_catalog.pg_class AS t ON t.oid = i.indrelid
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = t.relnamespace
+     WHERE n.nspname = 'public'
+       AND t.relname = 'homefin_family_enrollment_authorizations'
+       AND pg_catalog.strpos(pg_catalog.pg_get_indexdef(i.indexrelid), '(authorization_hash)') > 0
+     LIMIT 1;
+    IF v_definition IS NULL OR NOT v_unique
+       OR pg_catalog.strpos(v_definition, '(authorization_hash)') = 0 THEN
+        RAISE EXCEPTION 'Índice único do hash de autorização ausente ou incompatível.';
+    END IF;
+END;
+$index_check$;
+
+ALTER TABLE public.homefin_family_enrollment_authorizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.homefin_family_enrollment_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.homefin_family_enrollment_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.homefin_family_enrollment_authorizations FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.homefin_family_enrollment_attempts FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.homefin_family_enrollment_audit FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.homefin_family_enrollment_attempts_id_seq FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.homefin_family_enrollment_audit_id_seq FROM PUBLIC, anon, authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.homefin_family_enrollment_authorizations TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.homefin_family_enrollment_attempts TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.homefin_family_enrollment_audit TO service_role;
+GRANT USAGE, SELECT
+    ON SEQUENCE public.homefin_family_enrollment_attempts_id_seq TO service_role;
+GRANT USAGE, SELECT
+    ON SEQUENCE public.homefin_family_enrollment_audit_id_seq TO service_role;
+
+CREATE OR REPLACE FUNCTION public.homefin_revoke_removed_family_enrollments()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_family_id text;
+    v_authorization record;
+BEGIN
+    IF OLD.id <> 'global' OR NEW.id <> 'global' THEN
+        RETURN NEW;
+    END IF;
+
+    FOR v_family_id IN
+        SELECT DISTINCT old_family.value->>'id'
+          FROM pg_catalog.jsonb_array_elements(
+              CASE
+                  WHEN pg_catalog.jsonb_typeof(OLD.data->'families') = 'array'
+                      THEN OLD.data->'families'
+                  ELSE '[]'::jsonb
+              END
+          ) AS old_family(value)
+         WHERE old_family.value->>'id' IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM pg_catalog.jsonb_array_elements(
+                     CASE
+                         WHEN pg_catalog.jsonb_typeof(NEW.data->'families') = 'array'
+                             THEN NEW.data->'families'
+                         ELSE '[]'::jsonb
+                     END
+                 ) AS new_family(value)
+                WHERE new_family.value->>'id' = old_family.value->>'id'
+           )
+    LOOP
+        FOR v_authorization IN
+            UPDATE public.homefin_family_enrollment_authorizations AS a
+               SET revoked_at = pg_catalog.now()
+             WHERE a.family_id = v_family_id
+               AND a.consumed_at IS NULL
+               AND a.revoked_at IS NULL
+         RETURNING a.verification_method, a.ownership_verified, a.purpose
+        LOOP
+            INSERT INTO public.homefin_family_enrollment_audit (
+                family_id, event_type, actor_label, verification_method,
+                ownership_verified, purpose
+            ) VALUES (
+                v_family_id, 'authorization_invalid', 'system-family-removal',
+                v_authorization.verification_method,
+                v_authorization.ownership_verified,
+                v_authorization.purpose
+            );
+        END LOOP;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.homefin_revoke_removed_family_enrollments()
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.homefin_revoke_removed_family_enrollments()
+    TO service_role;
+
+DO $trigger$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_catalog.pg_trigger
+         WHERE tgrelid = 'public.homefin_saas'::regclass
+           AND tgname = 'homefin_revoke_family_enrollments_on_removal'
+           AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER homefin_revoke_family_enrollments_on_removal
+        AFTER UPDATE OF data ON public.homefin_saas
+        FOR EACH ROW
+        WHEN (OLD.id = 'global' AND NEW.id = 'global')
+        EXECUTE FUNCTION public.homefin_revoke_removed_family_enrollments();
+    END IF;
+END;
+$trigger$;
+
+CREATE OR REPLACE FUNCTION public.homefin_issue_family_enrollment_authorization(
+    p_family_id text,
+    p_authorization_hash text,
+    p_expires_at timestamptz,
+    p_verified_by text,
+    p_ownership_verified boolean,
+    p_verification_method text,
+    p_purpose text,
+    p_ip_hash text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_family_exists boolean;
+    v_credential_exists boolean;
+BEGIN
+    IF p_family_id IS NULL
+       OR p_family_id !~ '^[a-z0-9][a-z0-9-]{0,99}$'
+       OR p_authorization_hash IS NULL
+       OR p_authorization_hash !~ '^[a-f0-9]{64}$'
+       OR p_ip_hash IS NULL
+       OR p_ip_hash !~ '^[a-f0-9]{64}$'
+       OR p_expires_at IS NULL
+       OR p_expires_at <= pg_catalog.now()
+       OR p_expires_at > pg_catalog.now() + interval '15 minutes'
+       OR p_verified_by IS NULL
+       OR p_verified_by !~ '^admin-session:[a-f0-9]{64}$'
+       OR p_ownership_verified IS DISTINCT FROM true
+       OR p_verification_method IS NULL
+       OR p_verification_method NOT IN (
+           'known_phone',
+           'previously_verified_email',
+           'in_person',
+           'other_official_channel'
+       )
+       OR p_purpose IS NULL
+       OR p_purpose NOT IN ('provision', 'pin_recovery') THEN
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'invalid_request');
+    END IF;
+
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('family-enrollment:' || p_family_id, 0)
+    );
+
+    SELECT EXISTS (
+        SELECT 1
+          FROM public.homefin_saas AS s
+          CROSS JOIN LATERAL pg_catalog.jsonb_array_elements(
+              CASE
+                  WHEN pg_catalog.jsonb_typeof(s.data->'families') = 'array'
+                      THEN s.data->'families'
+                  ELSE '[]'::jsonb
+              END
+          ) AS family(value)
+         WHERE s.id = 'global'
+           AND family.value->>'id' = p_family_id
+    )
+      INTO v_family_exists;
+
+    IF NOT v_family_exists THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'authorization_denied', p_verified_by, p_verification_method,
+            p_ip_hash, p_ownership_verified, p_purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'family_not_found');
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1
+          FROM public.homefin_family_credentials AS c
+         WHERE c.family_id = p_family_id
+    ) INTO v_credential_exists;
+
+    IF p_purpose = 'provision' AND v_credential_exists THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'credential_already_exists', p_verified_by, p_verification_method,
+            p_ip_hash, p_ownership_verified, p_purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_exists');
+    END IF;
+    IF p_purpose = 'pin_recovery' AND NOT v_credential_exists THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'authorization_denied', p_verified_by, p_verification_method,
+            p_ip_hash, p_ownership_verified, p_purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_missing');
+    END IF;
+
+    UPDATE public.homefin_family_enrollment_authorizations
+       SET revoked_at = pg_catalog.now()
+     WHERE family_id = p_family_id
+       AND consumed_at IS NULL
+       AND revoked_at IS NULL;
+
+    INSERT INTO public.homefin_family_enrollment_authorizations (
+        family_id,
+        authorization_hash,
+        verification_method,
+        verified_by,
+        ownership_verified,
+        purpose,
+        expires_at
+    ) VALUES (
+        p_family_id,
+        p_authorization_hash,
+        p_verification_method,
+        p_verified_by,
+        p_ownership_verified,
+        p_purpose,
+        p_expires_at
+    );
+
+    INSERT INTO public.homefin_family_enrollment_audit (
+        family_id, event_type, actor_label, verification_method, ip_hash,
+        ownership_verified, purpose
+    ) VALUES (
+        p_family_id, 'authorization_issued', p_verified_by,
+        p_verification_method, p_ip_hash, p_ownership_verified, p_purpose
+    );
+
+    RETURN pg_catalog.jsonb_build_object(
+        'success', true,
+        'expiresAt', p_expires_at,
+        'purpose', p_purpose
+    );
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.homefin_register_family_enrollment_attempt(
+    p_family_id text,
+    p_ip_hash text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_family_count integer;
+    v_ip_count integer;
+BEGIN
+    IF p_family_id IS NULL
+       OR p_family_id !~ '^[a-z0-9][a-z0-9-]{0,99}$'
+       OR p_ip_hash IS NULL
+       OR p_ip_hash !~ '^[a-f0-9]{64}$' THEN
+        RETURN pg_catalog.jsonb_build_object('allowed', false, 'reason', 'invalid_request');
+    END IF;
+
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('family-enrollment:' || p_family_id, 0)
+    );
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('family-enrollment-ip:' || p_ip_hash, 0)
+    );
+
+    DELETE FROM public.homefin_family_enrollment_attempts
+     WHERE attempted_at < pg_catalog.now() - interval '30 days';
+
+    SELECT pg_catalog.count(*)::integer
+      INTO v_family_count
+      FROM public.homefin_family_enrollment_attempts
+     WHERE family_id = p_family_id
+       AND attempted_at >= pg_catalog.now() - interval '1 hour';
+
+    SELECT pg_catalog.count(*)::integer
+      INTO v_ip_count
+      FROM public.homefin_family_enrollment_attempts
+     WHERE ip_hash = p_ip_hash
+       AND attempted_at >= pg_catalog.now() - interval '1 hour';
+
+    IF v_family_count >= 5 OR v_ip_count >= 20 THEN
+        IF NOT EXISTS (
+            SELECT 1
+              FROM public.homefin_family_enrollment_audit AS a
+             WHERE a.family_id = p_family_id
+               AND a.ip_hash = p_ip_hash
+               AND a.event_type = 'attempt_rate_limited'
+               AND a.occurred_at >= pg_catalog.now() - interval '1 hour'
+        ) THEN
+            INSERT INTO public.homefin_family_enrollment_audit (
+                family_id, event_type, ip_hash
+            ) VALUES (
+                p_family_id, 'attempt_rate_limited', p_ip_hash
+            );
+        END IF;
+        RETURN pg_catalog.jsonb_build_object('allowed', false, 'reason', 'rate_limited');
+    END IF;
+
+    INSERT INTO public.homefin_family_enrollment_attempts (family_id, ip_hash)
+    VALUES (p_family_id, p_ip_hash);
+
+    RETURN pg_catalog.jsonb_build_object('allowed', true);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.homefin_consume_family_enrollment_authorization(
+    p_family_id text,
+    p_authorization_hash text,
+    p_pin_salt text,
+    p_pin_hash text,
+    p_ip_hash text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_authorization public.homefin_family_enrollment_authorizations%ROWTYPE;
+    v_session_version integer;
+    v_has_recovery boolean := false;
+    v_credential_exists boolean;
+BEGIN
+    IF p_family_id IS NULL
+       OR p_family_id !~ '^[a-z0-9][a-z0-9-]{0,99}$'
+       OR p_authorization_hash IS NULL
+       OR p_authorization_hash !~ '^[a-f0-9]{64}$'
+       OR p_pin_salt IS NULL
+       OR p_pin_salt !~ '^[a-f0-9]{32}$'
+       OR p_pin_hash IS NULL
+       OR p_pin_hash !~ '^[a-f0-9]{128}$'
+       OR p_ip_hash IS NULL
+       OR p_ip_hash !~ '^[a-f0-9]{64}$' THEN
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'invalid_request');
+    END IF;
+
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('family-enrollment:' || p_family_id, 0)
+    );
+
+    SELECT *
+      INTO v_authorization
+      FROM public.homefin_family_enrollment_authorizations AS a
+     WHERE a.family_id = p_family_id
+       AND a.authorization_hash = p_authorization_hash
+     FOR UPDATE;
+
+    IF NOT FOUND THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, ip_hash
+        ) VALUES (
+            p_family_id, 'authorization_invalid', p_ip_hash
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'invalid_authorization');
+    END IF;
+
+    IF v_authorization.consumed_at IS NOT NULL THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, ip_hash
+        ) VALUES (
+            p_family_id, 'authorization_reused', p_ip_hash
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'authorization_reused');
+    END IF;
+
+    IF v_authorization.revoked_at IS NOT NULL THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, ip_hash
+        ) VALUES (
+            p_family_id, 'authorization_invalid', p_ip_hash
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'invalid_authorization');
+    END IF;
+
+    IF v_authorization.expires_at <= pg_catalog.now() THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'authorization_expired', v_authorization.verified_by,
+            v_authorization.verification_method, p_ip_hash,
+            v_authorization.ownership_verified, v_authorization.purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'authorization_expired');
+    END IF;
+
+    IF NOT v_authorization.ownership_verified THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'authorization_invalid', v_authorization.verified_by,
+            v_authorization.verification_method, p_ip_hash,
+            false, v_authorization.purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'invalid_authorization');
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1
+          FROM public.homefin_family_credentials AS c
+         WHERE c.family_id = p_family_id
+    ) INTO v_credential_exists;
+
+    IF v_authorization.purpose = 'provision' AND v_credential_exists THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'credential_already_exists', v_authorization.verified_by,
+            v_authorization.verification_method, p_ip_hash,
+            v_authorization.ownership_verified, v_authorization.purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_exists');
+    END IF;
+    IF v_authorization.purpose = 'pin_recovery' AND NOT v_credential_exists THEN
+        INSERT INTO public.homefin_family_enrollment_audit (
+            family_id, event_type, actor_label, verification_method, ip_hash,
+            ownership_verified, purpose
+        ) VALUES (
+            p_family_id, 'authorization_denied', v_authorization.verified_by,
+            v_authorization.verification_method, p_ip_hash,
+            v_authorization.ownership_verified, v_authorization.purpose
+        );
+        RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_missing');
+    END IF;
+    IF v_authorization.purpose = 'pin_recovery' THEN
+        SELECT c.session_version
+          INTO v_session_version
+          FROM public.homefin_family_credentials AS c
+         WHERE c.family_id = p_family_id
+         FOR UPDATE;
+
+        IF NOT FOUND THEN
+            RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_missing');
+        END IF;
+    END IF;
+
+    BEGIN
+        UPDATE public.homefin_family_enrollment_authorizations
+           SET consumed_at = pg_catalog.now()
+         WHERE id = v_authorization.id
+           AND consumed_at IS NULL
+           AND revoked_at IS NULL
+           AND expires_at > pg_catalog.now();
+
+        IF NOT FOUND THEN
+            RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'authorization_reused');
+        END IF;
+
+        IF v_authorization.purpose = 'provision' THEN
+            INSERT INTO public.homefin_family_credentials (
+                family_id,
+                pin_salt,
+                pin_hash,
+                recovery_salt,
+                recovery_hash,
+                session_version,
+                created_at,
+                updated_at
+            ) VALUES (
+                p_family_id,
+                p_pin_salt,
+                p_pin_hash,
+                NULL,
+                NULL,
+                1,
+                pg_catalog.now(),
+                pg_catalog.now()
+            );
+            v_session_version := 1;
+            v_has_recovery := false;
+        ELSE
+            UPDATE public.homefin_family_credentials AS c
+               SET pin_salt = p_pin_salt,
+                   pin_hash = p_pin_hash,
+                   session_version = c.session_version + 1,
+                   updated_at = pg_catalog.now()
+             WHERE c.family_id = p_family_id
+             RETURNING c.session_version, c.recovery_hash IS NOT NULL
+                  INTO v_session_version, v_has_recovery;
+        END IF;
+    EXCEPTION
+        WHEN unique_violation THEN
+            INSERT INTO public.homefin_family_enrollment_audit (
+                family_id, event_type, actor_label, verification_method, ip_hash,
+                ownership_verified, purpose
+            ) VALUES (
+                p_family_id, 'credential_already_exists', v_authorization.verified_by,
+                v_authorization.verification_method, p_ip_hash,
+                v_authorization.ownership_verified, v_authorization.purpose
+            );
+            RETURN pg_catalog.jsonb_build_object('success', false, 'reason', 'credential_exists');
+    END;
+
+    INSERT INTO public.homefin_family_enrollment_audit (
+        family_id, event_type, actor_label, verification_method, ip_hash,
+        ownership_verified, purpose
+    ) VALUES (
+        p_family_id,
+        'authorization_consumed',
+        v_authorization.verified_by,
+        v_authorization.verification_method,
+        p_ip_hash,
+        v_authorization.ownership_verified,
+        v_authorization.purpose
+    );
+
+    RETURN pg_catalog.jsonb_build_object(
+        'success', true,
+        'sessionVersion', v_session_version,
+        'hasRecovery', v_has_recovery,
+        'purpose', v_authorization.purpose
+    );
+END;
+$function$;
+
+DO $revoke_legacy_issue$
+BEGIN
+    IF pg_catalog.to_regprocedure(
+        'public.homefin_issue_family_enrollment_authorization(text,text,timestamp with time zone,text,text,text)'
+    ) IS NOT NULL THEN
+        EXECUTE 'REVOKE ALL ON FUNCTION public.homefin_issue_family_enrollment_authorization(text, text, timestamptz, text, text, text) FROM PUBLIC, anon, authenticated, service_role';
+    END IF;
+END;
+$revoke_legacy_issue$;
+
+REVOKE ALL ON FUNCTION public.homefin_issue_family_enrollment_authorization(
+    text, text, timestamptz, text, boolean, text, text, text
+) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.homefin_register_family_enrollment_attempt(text, text)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.homefin_consume_family_enrollment_authorization(
+    text, text, text, text, text
+) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.homefin_issue_family_enrollment_authorization(
+    text, text, timestamptz, text, boolean, text, text, text
+) TO service_role;
+GRANT EXECUTE ON FUNCTION public.homefin_register_family_enrollment_attempt(text, text)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.homefin_consume_family_enrollment_authorization(
+    text, text, text, text, text
+) TO service_role;
+
+COMMIT;

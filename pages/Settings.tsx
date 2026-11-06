@@ -1,6 +1,6 @@
 import { showNotification } from '../services/utils/notifications';
 import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotifications';
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { UserSettings } from '../types';
 import { familyDeletionService } from '../services/familyDeletionService';
@@ -57,6 +57,8 @@ const Settings: React.FC = () => {
   const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' });
   const [pinError, setPinError] = useState('');
   const [pinSuccess, setPinSuccess] = useState('');
+  const [isChangingPin, setIsChangingPin] = useState(false);
+  const pinChangeInProgress = useRef(false);
 
   // Keyword State
   const [isKeywordModalOpen, setIsKeywordModalOpen] = useState(false);
@@ -357,6 +359,7 @@ const Settings: React.FC = () => {
   // --- PIN LOGIC ---
   const handleChangePin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pinChangeInProgress.current) return;
     if (!/^\d{4}$/.test(pinForm.current) || !/^\d{4}$/.test(pinForm.new)) {
         setPinError('O novo PIN deve ter 4 números.');
         return;
@@ -367,6 +370,13 @@ const Settings: React.FC = () => {
     }
 
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
+    if (!familyId || familyId === 'v1') {
+      setPinError('Entre em uma família com sessão válida antes de alterar o PIN.');
+      return;
+    }
+
+    pinChangeInProgress.current = true;
+    setIsChangingPin(true);
     try {
       const result = await familyAuthRequest(familyId, {
         action: 'change-pin',
@@ -383,6 +393,9 @@ const Settings: React.FC = () => {
       }, 1500);
     } catch (error) {
       setPinError(error instanceof Error ? error.message : 'Não foi possível alterar o PIN no servidor.');
+    } finally {
+      pinChangeInProgress.current = false;
+      setIsChangingPin(false);
     }
   };
 
@@ -1141,6 +1154,7 @@ const Settings: React.FC = () => {
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">PIN Atual</label>
                                 <input 
                                     type="password" inputMode="numeric" maxLength={4}
+                                    autoComplete="current-password"
                                     value={pinForm.current}
                                     onChange={e => setPinForm({...pinForm, current: e.target.value.replace(/\D/g,'')})}
                                     className="w-full text-center text-3xl tracking-[0.5em] font-bold p-3 border rounded-xl dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-all"
@@ -1154,6 +1168,7 @@ const Settings: React.FC = () => {
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Novo PIN</label>
                                     <input 
                                         type="password" inputMode="numeric" maxLength={4}
+                                        autoComplete="new-password"
                                         value={pinForm.new}
                                         onChange={e => setPinForm({...pinForm, new: e.target.value.replace(/\D/g,'')})}
                                         className="w-full text-center text-xl tracking-[0.2em] font-bold p-3 border rounded-xl dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600"
@@ -1164,6 +1179,7 @@ const Settings: React.FC = () => {
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Confirmar</label>
                                     <input 
                                         type="password" inputMode="numeric" maxLength={4}
+                                        autoComplete="new-password"
                                         value={pinForm.confirm}
                                         onChange={e => setPinForm({...pinForm, confirm: e.target.value.replace(/\D/g,'')})}
                                         className="w-full text-center text-xl tracking-[0.2em] font-bold p-3 border rounded-xl dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600"
@@ -1174,9 +1190,10 @@ const Settings: React.FC = () => {
 
                             <button 
                                 type="submit"
-                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-primary-500/20 active:scale-[0.98] mt-2"
+                                disabled={isChangingPin}
+                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-primary-500/20 active:scale-[0.98] mt-2 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                                Confirmar Alteração
+                                {isChangingPin ? 'Atualizando PIN…' : 'Confirmar Alteração'}
                             </button>
                         </>
                     )}

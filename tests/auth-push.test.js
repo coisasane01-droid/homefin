@@ -1,6 +1,7 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import webpush from 'web-push';
 import {
@@ -13,6 +14,7 @@ import familyAttachmentsHandler from '../server/api-handlers/family-attachments.
 import familyDeleteHandler from '../server/api-handlers/family-delete.js';
 import familyStorageCleanupHandler from '../server/api-handlers/family-storage-cleanup.js';
 import familyAuthHandler from '../api/family-auth.js';
+import familyEnrollmentHandler from '../api/_family-enrollment.js';
 import supportHandler from '../api/support.js';
 import pushSubscribeHandler from '../server/api-handlers/push-subscribe.js';
 import pushHandler from '../server/api-handlers/push-send.js';
@@ -924,6 +926,181 @@ test('family enrollment authorization requires an admin session and explicit ind
   assert.equal(rpcRequest.p_ownership_verified, true);
   assert.equal(rpcRequest.p_purpose, 'provision');
   assert.equal(Object.hasOwn(rpcRequest, 'p_operator_name'), false);
+  assert.deepEqual(Object.keys(rpcRequest).sort(), [
+    'p_authorization_hash',
+    'p_expires_at',
+    'p_family_id',
+    'p_ip_hash',
+    'p_ownership_verified',
+    'p_purpose',
+    'p_verification_method',
+    'p_verified_by',
+  ]);
+});
+
+test('family enrollment issuance rejects missing ownership confirmation, invalid family and invalid verification method', async () => {
+  let rpcCalls = 0;
+  global.fetch = async () => {
+    rpcCalls += 1;
+    return apiResponse(200, { success: true });
+  };
+  const adminLogin = responseCapture();
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+  }, adminLogin);
+  const headers = authRequest(adminLogin.body.token);
+  const baseBody = {
+    action: 'issue-enrollment',
+    familyId: 'legacy-family',
+    ownershipVerified: true,
+    verificationMethod: 'previously_verified_email',
+    purpose: 'pin_recovery',
+  };
+
+  const notConfirmed = responseCapture();
+  await familyEnrollmentHandler({
+    method: 'POST',
+    headers,
+    body: { ...baseBody, ownershipVerified: false },
+  }, notConfirmed);
+  assert.equal(notConfirmed.statusCode, 400);
+
+  const invalidFamily = responseCapture();
+  await familyEnrollmentHandler({
+    method: 'POST',
+    headers,
+    body: { ...baseBody, familyId: 'Legacy Family' },
+  }, invalidFamily);
+  assert.equal(invalidFamily.statusCode, 400);
+
+  const invalidMethod = responseCapture();
+  await familyEnrollmentHandler({
+    method: 'POST',
+    headers,
+    body: { ...baseBody, verificationMethod: 'email' },
+  }, invalidMethod);
+  assert.equal(invalidMethod.statusCode, 400);
+  assert.equal(rpcCalls, 0);
+});
+
+test('family enrollment RPC payload names and ordered SQL argument types match the eight-argument function', async () => {
+  const migration = await readFile(
+    new URL('../scripts/migracao-provisionamento-familiar-controlado.sql', import.meta.url),
+    'utf8'
+  );
+  const definition = migration.match(
+    /CREATE OR REPLACE FUNCTION public\.homefin_issue_family_enrollment_authorization\(([\s\S]*?)\)\s*RETURNS jsonb/
+  );
+  assert.ok(definition, 'Expected the authorization RPC definition in the migration.');
+
+  const sqlArguments = definition[1]
+    .split(',')
+    .map((argument) => argument.trim().replace(/\s+/g, ' '));
+  assert.deepEqual(sqlArguments, [
+    'p_family_id text',
+    'p_authorization_hash text',
+    'p_expires_at timestamptz',
+    'p_verified_by text',
+    'p_ownership_verified boolean',
+    'p_verification_method text',
+    'p_purpose text',
+    'p_ip_hash text',
+  ]);
+});
+
+test('family enrollment issuance maps missing credentials for PIN recovery without calling an alternate path', async () => {
+  let rpcPayload;
+  global.fetch = async (url, options = {}) => {
+    assert.match(String(url), /rpc\/homefin_issue_family_enrollment_authorization$/);
+    rpcPayload = JSON.parse(options.body);
+    return apiResponse(200, { success: false, reason: 'credential_missing' });
+  };
+  const adminLogin = responseCapture();
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+  }, adminLogin);
+
+  const response = responseCapture();
+  await familyEnrollmentHandler({
+    method: 'POST',
+    headers: authRequest(adminLogin.body.token),
+    socket: {},
+    body: {
+      action: 'issue-enrollment',
+      familyId: 'legacy-family',
+      ownershipVerified: true,
+      verificationMethod: 'previously_verified_email',
+      purpose: 'pin_recovery',
+    },
+  }, response);
+  assert.equal(response.statusCode, 409);
+  assert.match(response.body.error, /não possui credencial/);
+  assert.equal(rpcPayload.p_family_id, 'legacy-family');
+  assert.equal(rpcPayload.p_purpose, 'pin_recovery');
+});
+
+test('family enrollment issuance reports RPC schema and permission failures distinctly without leaking database details', async () => {
+  const adminLogin = responseCapture();
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', password: process.env.HOMEFIN_ADMIN_SECRET },
+  }, adminLogin);
+  const headers = authRequest(adminLogin.body.token);
+  const body = {
+    action: 'issue-enrollment',
+    familyId: 'legacy-family',
+    ownershipVerified: true,
+    verificationMethod: 'previously_verified_email',
+    purpose: 'pin_recovery',
+  };
+  const loggedErrors = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => loggedErrors.push(args);
+
+  try {
+    for (const scenario of [
+      {
+        status: 404,
+        code: 'PGRST202',
+        message: 'Could not find the requested function in the schema cache.',
+        expected: /função de autorização não foi encontrada/,
+      },
+      {
+        status: 403,
+        code: '42501',
+        message: 'permission denied for function homefin_issue_family_enrollment_authorization',
+        expected: /não tem permissão/,
+      },
+    ]) {
+      global.fetch = async () => apiResponse(scenario.status, {
+        code: scenario.code,
+        message: scenario.message,
+      });
+      const response = responseCapture();
+      await familyEnrollmentHandler({
+        method: 'POST',
+        headers,
+        socket: {},
+        body,
+      }, response);
+      assert.equal(response.statusCode, 503);
+      assert.match(response.body.error, scenario.expected);
+      assert.equal(response.body.error.includes(scenario.message), false);
+    }
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(loggedErrors.length, 2);
+  assert.equal(loggedErrors[0][1].stage, 'rpc-not-found-or-signature-mismatch');
+  assert.equal(loggedErrors[0][1].databaseCode, 'PGRST202');
+  assert.equal(loggedErrors[1][1].stage, 'rpc-permission-denied');
+  assert.equal(loggedErrors[1][1].databaseCode, '42501');
 });
 
 test('family enrollment consumes a family-scoped one-time code and permits login without returning the PIN', async () => {
@@ -1280,6 +1457,105 @@ test('family PIN recovery verifies the server-side keyword, updates the PIN and 
   assert.equal(
     verifyFamilySession({ headers: authRequest(res.body.token) }, 'family-one').sessionVersion,
     7
+  );
+});
+
+test('family PIN change requires a valid session and PIN, rotates the session, and allows login with the new PIN', async () => {
+  const familyId = 'family-one';
+  const initialVersion = 5;
+  const pinSalt = 'a'.repeat(32);
+  const originalPinHash = (await scrypt('1234', pinSalt, 64)).toString('hex');
+  let credential = {
+    pin_salt: pinSalt,
+    pin_hash: originalPinHash,
+    session_version: initialVersion,
+  };
+  const updates = [];
+
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (target.includes('homefin_auth_attempts')) return apiResponse(200, []);
+    if (target.includes('select=session_version')) {
+      return apiResponse(200, [{ session_version: credential.session_version }]);
+    }
+    if (target.includes('select=pin_salt,pin_hash')) {
+      return apiResponse(200, [credential]);
+    }
+    if (options.method === 'PATCH') {
+      updates.push({ url: target, body: JSON.parse(options.body) });
+      if (!target.includes(`session_version=eq.${credential.session_version}`)) {
+        return apiResponse(200, []);
+      }
+      credential = { ...credential, ...JSON.parse(options.body) };
+      return apiResponse(200, [credential]);
+    }
+    throw new Error(`Unexpected API request: ${target}`);
+  };
+
+  const unauthenticated = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'change-pin',
+      familyId,
+      currentPin: '1234',
+      newPin: '5678',
+    },
+  }, unauthenticated);
+  assert.equal(unauthenticated.statusCode, 401);
+  assert.equal(updates.length, 0);
+
+  const wrongPin = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: authRequest(createFamilySessionToken(familyId, initialVersion)),
+    body: {
+      action: 'change-pin',
+      familyId,
+      currentPin: '0000',
+      newPin: '5678',
+    },
+  }, wrongPin);
+  assert.equal(wrongPin.statusCode, 401);
+  assert.equal(updates.length, 0);
+
+  const changed = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: authRequest(createFamilySessionToken(familyId, initialVersion)),
+    body: {
+      action: 'change-pin',
+      familyId,
+      currentPin: '1234',
+      newPin: '5678',
+    },
+  }, changed);
+
+  assert.equal(changed.statusCode, 200);
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].url, new RegExp(`session_version=eq\\.${initialVersion}`));
+  assert.equal(credential.session_version, initialVersion + 1);
+  assert.notEqual(credential.pin_hash, originalPinHash);
+  assert.equal(
+    credential.pin_hash,
+    (await scrypt('5678', credential.pin_salt, 64)).toString('hex')
+  );
+  assert.equal(
+    verifyFamilySession({ headers: authRequest(changed.body.token) }, familyId).sessionVersion,
+    initialVersion + 1
+  );
+
+  const login = responseCapture();
+  await familyAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: { action: 'login', familyId, pin: '5678' },
+  }, login);
+  assert.equal(login.statusCode, 200);
+  assert.equal(
+    verifyFamilySession({ headers: authRequest(login.body.token) }, familyId).sessionVersion,
+    initialVersion + 1
   );
 });
 
