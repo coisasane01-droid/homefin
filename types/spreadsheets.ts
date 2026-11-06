@@ -18,6 +18,9 @@ export interface HomeFinSpreadsheet {
   referenceYear: number;
   columns: SpreadsheetColumn[];
   rows: SpreadsheetRow[];
+  commissionEnabled?: boolean;
+  commissionColumnId?: string | null;
+  commissionPercentage?: number;
   notes: string;
   createdAt: string;
   updatedAt: string;

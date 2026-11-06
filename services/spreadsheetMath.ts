@@ -43,6 +43,26 @@ export const calculateSpreadsheetTotal = (
   return total;
 };
 
+export const calculateSpreadsheetCommissionBase = (
+  spreadsheet: Pick<HomeFinSpreadsheet, 'rows'>,
+  columnId: string | null | undefined
+): number => {
+  if (!columnId) return 0;
+  return spreadsheet.rows.reduce((total, row) => {
+    const value = row.cells[columnId]?.trim() || '';
+    if (!value) return total;
+    const amount = parseSpreadsheetCurrency(value);
+    return amount === null ? total : total + amount;
+  }, 0);
+};
+
+export const calculateSpreadsheetCommission = (
+  spreadsheet: Pick<HomeFinSpreadsheet, 'rows' | 'commissionColumnId' | 'commissionPercentage'>
+): number => (
+  calculateSpreadsheetCommissionBase(spreadsheet, spreadsheet.commissionColumnId) *
+  (Number(spreadsheet.commissionPercentage) || 0) / 100
+);
+
 export const hasInvalidSpreadsheetCurrency = (
   spreadsheet: HomeFinSpreadsheet
 ): boolean => spreadsheet.rows.some((row) =>

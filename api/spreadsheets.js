@@ -11,6 +11,8 @@ function validSpreadsheet(spreadsheet) {
   }
 
   const { columns, rows } = spreadsheet;
+  const commissionColumnId = spreadsheet.commissionColumnId ?? null;
+  const commissionPercentage = spreadsheet.commissionPercentage ?? 0;
   if (
     !UUID_PATTERN.test(String(spreadsheet.id || '')) ||
     typeof spreadsheet.name !== 'string' ||
@@ -26,7 +28,12 @@ function validSpreadsheet(spreadsheet) {
     spreadsheet.notes.length > 10000 ||
     !Array.isArray(columns) ||
     columns.length < 1 ||
-    !Array.isArray(rows)
+    !Array.isArray(rows) ||
+    (spreadsheet.commissionEnabled !== undefined && typeof spreadsheet.commissionEnabled !== 'boolean') ||
+    (commissionColumnId !== null && typeof commissionColumnId !== 'string') ||
+    !Number.isFinite(commissionPercentage) ||
+    commissionPercentage < 0 ||
+    commissionPercentage > 10000
   ) {
     return false;
   }
@@ -49,6 +56,9 @@ function validSpreadsheet(spreadsheet) {
     columnIds.add(column.id);
     if (column.type === 'currency') currencyColumnIds.add(column.id);
   }
+
+  if (commissionColumnId !== null && !columnIds.has(commissionColumnId)) return false;
+  if (spreadsheet.commissionEnabled && !commissionColumnId) return false;
 
   const rowIds = new Set();
   for (const row of rows) {
@@ -93,6 +103,9 @@ function toSpreadsheet(row) {
     referenceYear: row.reference_year,
     columns: row.columns,
     rows: row.rows,
+    commissionEnabled: row.commission_enabled ?? false,
+    commissionColumnId: row.commission_column_id,
+    commissionPercentage: Number(row.commission_percentage ?? 0),
     notes: row.notes || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -125,7 +138,16 @@ async function supabaseRequest(path, options = {}) {
 
   if (!response.ok) {
     console.error('Falha ao acessar planilhas no Supabase:', response.status);
-    throw new Error('Não foi possível acessar as planilhas na nuvem.');
+    let responseError = null;
+    try {
+      responseError = text ? JSON.parse(text) : null;
+    } catch {
+      responseError = null;
+    }
+    const error = new Error('Não foi possível acessar as planilhas na nuvem.');
+    error.code = responseError?.code;
+    error.details = `${responseError?.message || ''} ${responseError?.details || ''}`;
+    throw error;
   }
 
   if (!text) return null;
@@ -134,6 +156,12 @@ async function supabaseRequest(path, options = {}) {
   } catch {
     throw new Error('Resposta inválida do serviço de planilhas.');
   }
+}
+
+function isMissingCommissionColumns(error) {
+  return /commission_(enabled|column_id|percentage)/i.test(
+    `${error?.message || ''} ${error?.details || ''}`
+  );
 }
 
 export default async function handler(req, res) {
@@ -178,9 +206,16 @@ export default async function handler(req, res) {
     query.set('family_id', `eq.${familyId}`);
 
     if (action === 'list') {
-      query.set('select', 'id,name,reference_month,reference_year,columns,rows,notes,created_at,updated_at');
+      query.set('select', 'id,name,reference_month,reference_year,columns,rows,commission_enabled,commission_column_id,commission_percentage,notes,created_at,updated_at');
       query.set('order', 'updated_at.desc');
-      const rows = await supabaseRequest(`homefin_spreadsheets?${query}`);
+      let rows;
+      try {
+        rows = await supabaseRequest(`homefin_spreadsheets?${query}`);
+      } catch (error) {
+        if (!isMissingCommissionColumns(error)) throw error;
+        query.set('select', 'id,name,reference_month,reference_year,columns,rows,notes,created_at,updated_at');
+        rows = await supabaseRequest(`homefin_spreadsheets?${query}`);
+      }
       return res.status(200).json({ records: rows.map(toSpreadsheet) });
     }
 
@@ -201,22 +236,43 @@ export default async function handler(req, res) {
       reference_year: spreadsheet.referenceYear,
       columns: spreadsheet.columns,
       rows: spreadsheet.rows,
+      commission_enabled: spreadsheet.commissionEnabled ?? false,
+      commission_column_id: spreadsheet.commissionColumnId || null,
+      commission_percentage: spreadsheet.commissionPercentage ?? 0,
       notes: spreadsheet.notes,
       updated_at: new Date().toISOString(),
     };
     query.set('id', `eq.${spreadsheet.id}`);
-    const updated = await supabaseRequest(`homefin_spreadsheets?${query}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify(values),
-    });
-    const result = updated?.length
-      ? updated
-      : await supabaseRequest('homefin_spreadsheets', {
-          method: 'POST',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify(values),
-        });
+    const saveValues = async (record) => {
+      const updated = await supabaseRequest(`homefin_spreadsheets?${query}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(record),
+      });
+      return updated?.length
+        ? updated
+        : await supabaseRequest('homefin_spreadsheets', {
+            method: 'POST',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify(record),
+          });
+    };
+
+    let result;
+    try {
+      result = await saveValues(values);
+    } catch (error) {
+      if (!isMissingCommissionColumns(error)) throw error;
+      if (
+        spreadsheet.commissionEnabled ||
+        spreadsheet.commissionColumnId ||
+        Number(spreadsheet.commissionPercentage ?? 0) !== 0
+      ) {
+        throw new Error('Para sincronizar a comissão, execute a migração scripts/migracao-planilhas-comissao.sql no Supabase.');
+      }
+      const { commission_enabled: _enabled, commission_column_id: _column, commission_percentage: _percentage, ...legacyValues } = values;
+      result = await saveValues(legacyValues);
+    }
 
     if (!Array.isArray(result) || !result[0]) {
       return res.status(502).json({ error: 'O Supabase não confirmou o salvamento da planilha.' });

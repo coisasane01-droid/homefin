@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Zap } from 'lucide-react';
-import { QUICK_MENU_ACTIONS, QuickMenuItemId } from './quickMenuConfig';
+import { QUICK_MENU_ACTIONS, QuickMenuItem } from './quickMenuConfig';
 
 interface QuickMenuProps {
   enabled: boolean;
-  items: string[];
+  items: QuickMenuItem[];
   hidden: boolean;
   onOpenMenu: () => void;
   onNewAccount: () => void;
+  onNavigate: (path: string) => void;
 }
 
 const QuickMenu: React.FC<QuickMenuProps> = ({
@@ -16,6 +17,7 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
   hidden,
   onOpenMenu,
   onNewAccount,
+  onNavigate,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [hasBlockingOverlay, setHasBlockingOverlay] = useState(false);
@@ -65,40 +67,48 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
   if (!enabled || hidden || hasBlockingOverlay || items.length === 0) return null;
 
   const visibleActions = items
-    .map((id) => QUICK_MENU_ACTIONS.find((item) => item.id === id))
-    .filter((item): item is (typeof QUICK_MENU_ACTIONS)[number] => Boolean(item));
+    .map((item) => {
+      const option = QUICK_MENU_ACTIONS.find((action) => action.id === item.id);
+      return option ? { ...option, display: item.display } : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-  const activate = (id: QuickMenuItemId) => {
+  const activate = (itemId: string) => {
     setIsOpen(false);
-    if (id === 'open-menu') {
-      onOpenMenu();
-    } else if (id === 'new-account') {
-      onNewAccount();
-    }
+    const item = QUICK_MENU_ACTIONS.find((option) => option.id === itemId);
+    if (!item) return;
+    if (item.action === 'open-menu') onOpenMenu();
+    else if (item.action === 'new-account') onNewAccount();
+    else if (item.path) onNavigate(item.path);
   };
 
   return (
     <div
       ref={menuRef}
-      className="fixed z-40 print:hidden"
-      style={{
-        right: 'max(env(safe-area-inset-right, 0px), 1rem)',
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.25rem)',
-      }}
+      className="fixed left-1/2 z-40 -translate-x-1/2 print:hidden"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.25rem)' }}
     >
       {isOpen && (
-        <div className="absolute bottom-full right-0 mb-3 w-56 origin-bottom-right animate-[quickMenuIn_160ms_ease-out] rounded-2xl border border-white/50 bg-white/75 p-2 shadow-xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-gray-800/80">
-          {visibleActions.map(({ id, label, icon: Icon }) => (
+        <div
+          className="absolute bottom-full left-1/2 mb-3 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 origin-bottom animate-[quickMenuIn_160ms_ease-out] overflow-y-auto rounded-2xl border border-white/50 bg-white/70 p-2 shadow-2xl shadow-slate-900/20 backdrop-blur-2xl dark:border-white/20 dark:bg-gray-900/65"
+          style={{ maxHeight: 'min(60vh, 32rem)' }}
+        >
+          {visibleActions.map(({ id, label, icon: Icon, display }) => (
             <button
               key={id}
               type="button"
               onClick={() => activate(id)}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-white/70 dark:text-gray-100 dark:hover:bg-gray-700/70"
+              aria-label={display === 'icon' ? label : undefined}
+              className={`flex min-h-12 w-full items-center rounded-xl text-sm font-semibold text-gray-800 transition-colors hover:bg-white/50 dark:text-gray-100 dark:hover:bg-white/10 ${
+                display === 'icon' ? 'justify-center px-3' : 'gap-3 px-3'
+              }`}
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
-                <Icon size={18} />
-              </span>
-              {label}
+              {display !== 'label' && (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-500/10 text-primary-700 dark:text-primary-300">
+                  <Icon size={19} />
+                </span>
+              )}
+              {display !== 'icon' && <span className="truncate">{label}</span>}
             </button>
           ))}
         </div>
@@ -108,14 +118,25 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
         aria-label={isOpen ? 'Fechar acesso rápido' : 'Abrir acesso rápido'}
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="flex h-14 w-14 items-center justify-center rounded-full border border-white/60 bg-white/65 text-primary-700 shadow-lg shadow-slate-900/15 backdrop-blur-xl transition duration-200 hover:scale-105 hover:bg-white/85 active:scale-95 dark:border-white/15 dark:bg-gray-800/65 dark:text-primary-300 dark:hover:bg-gray-800/90"
+        className="relative flex h-[66px] w-[66px] items-center justify-center overflow-hidden rounded-full border border-white/70 text-primary-800 shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),inset_0_-2px_8px_rgba(255,255,255,0.12),0_12px_30px_rgba(15,23,42,0.22)] backdrop-blur-[22px] transition duration-200 hover:scale-105 active:scale-95 dark:border-white/30 dark:text-primary-200"
+        style={{
+          background: 'rgba(255, 255, 255, 0.22)',
+          backdropFilter: 'blur(22px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(22px) saturate(180%)',
+        }}
       >
-        {isOpen ? <X size={23} /> : <Zap size={23} />}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-[1px] rounded-full bg-gradient-to-br from-white/75 via-white/10 to-transparent opacity-70"
+        />
+        <span className="relative">
+          {isOpen ? <X size={25} /> : <Zap size={25} />}
+        </span>
       </button>
       <style>{`
         @keyframes quickMenuIn {
-          from { opacity: 0; transform: translateY(6px) scale(0.96); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; transform: translate(-50%, 6px) scale(0.96); }
+          to { opacity: 1; transform: translate(-50%, 0) scale(1); }
         }
       `}</style>
     </div>

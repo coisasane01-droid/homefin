@@ -6,7 +6,7 @@ import { UserSettings } from '../types';
 import { familyDeletionService } from '../services/familyDeletionService';
 import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
 import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2, ArrowDown, ArrowUp, Zap } from 'lucide-react';
-import { DEFAULT_QUICK_MENU, normalizeQuickMenu, QUICK_MENU_ACTIONS, QuickMenuItemId } from '../components/quickMenuConfig';
+import { DEFAULT_QUICK_MENU, normalizeQuickMenu, QUICK_MENU_ACTIONS, QuickMenuDisplayMode } from '../components/quickMenuConfig';
 
 const colors = {
   slate: '#64748b',
@@ -127,12 +127,12 @@ const Settings: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [settings.quickMenu]);
 
-  const toggleQuickMenuItem = (itemId: QuickMenuItemId) => {
+  const toggleQuickMenuItem = (itemId: string) => {
     setSettings((current) => {
       const currentMenu = normalizeQuickMenu(current.quickMenu);
-      const items = currentMenu.items.includes(itemId)
-        ? currentMenu.items.filter((id) => id !== itemId)
-        : [...currentMenu.items, itemId];
+      const items = currentMenu.items.some((item) => item.id === itemId)
+        ? currentMenu.items.filter((item) => item.id !== itemId)
+        : [...currentMenu.items, { id: itemId, display: 'both' as const }];
 
       return { ...current, quickMenu: { ...currentMenu, items } };
     });
@@ -141,7 +141,7 @@ const Settings: React.FC = () => {
   const moveQuickMenuItem = (itemId: string, direction: -1 | 1) => {
     setSettings((current) => {
       const currentMenu = normalizeQuickMenu(current.quickMenu);
-      const index = currentMenu.items.indexOf(itemId);
+      const index = currentMenu.items.findIndex((item) => item.id === itemId);
       const targetIndex = index + direction;
       if (index < 0 || targetIndex < 0 || targetIndex >= currentMenu.items.length) {
         return current;
@@ -150,6 +150,21 @@ const Settings: React.FC = () => {
       const items = [...currentMenu.items];
       [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
       return { ...current, quickMenu: { ...currentMenu, items } };
+    });
+  };
+
+  const updateQuickMenuDisplay = (itemId: string, display: QuickMenuDisplayMode) => {
+    setSettings((current) => {
+      const currentMenu = normalizeQuickMenu(current.quickMenu);
+      return {
+        ...current,
+        quickMenu: {
+          ...currentMenu,
+          items: currentMenu.items.map((item) =>
+            item.id === itemId ? { ...item, display } : item
+          ),
+        },
+      };
     });
   };
 
@@ -623,7 +638,7 @@ const Settings: React.FC = () => {
             <Zap className="w-5 h-5 text-primary-500" /> MENU FLUTUANTE / ACESSO RÁPIDO
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Escolha quais atalhos ficam disponíveis no botão de acesso rápido. As alterações são salvas automaticamente para esta família.
+            Escolha páginas do menu principal ou ações disponíveis, personalize o conteúdo de cada atalho e reorganize a ordem. As alterações são salvas automaticamente para esta família.
           </p>
 
           <label className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
@@ -640,11 +655,12 @@ const Settings: React.FC = () => {
           </label>
 
           <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Atalhos disponíveis</h4>
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Páginas e ações disponíveis</h4>
             {QUICK_MENU_ACTIONS.map(({ id, label, icon: Icon }) => {
-              const selectedIndex = quickMenu.items.indexOf(id);
+              const selectedIndex = quickMenu.items.findIndex((item) => item.id === id);
+              const selectedItem = selectedIndex >= 0 ? quickMenu.items[selectedIndex] : null;
               return (
-                <div key={id} className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                <div key={id} className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
                   <input
                     type="checkbox"
                     checked={selectedIndex >= 0}
@@ -655,9 +671,20 @@ const Settings: React.FC = () => {
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
                     <Icon size={18} />
                   </span>
-                  <span className="flex-1 font-medium text-gray-800 dark:text-gray-200">{label}</span>
+                  <span className="min-w-32 flex-1 font-medium text-gray-800 dark:text-gray-200">{label}</span>
                   {selectedIndex >= 0 && (
-                    <span className="flex gap-1">
+                    <>
+                      <select
+                        value={selectedItem?.display || 'both'}
+                        onChange={(event) => updateQuickMenuDisplay(id, event.target.value as QuickMenuDisplayMode)}
+                        aria-label={`Exibição de ${label}`}
+                        className="min-w-36 rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                      >
+                        <option value="both">Ícone e texto</option>
+                        <option value="label">Somente texto</option>
+                        <option value="icon">Somente ícone</option>
+                      </select>
+                      <span className="flex gap-1">
                       <button
                         type="button"
                         onClick={() => moveQuickMenuItem(id, -1)}
@@ -676,7 +703,8 @@ const Settings: React.FC = () => {
                       >
                         <ArrowDown size={16} />
                       </button>
-                    </span>
+                      </span>
+                    </>
                   )}
                 </div>
               );

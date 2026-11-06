@@ -1,25 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
-  FileText, 
-  ShoppingCart, 
-  Target, 
-  Gem, 
-  BarChart3, 
-  Settings, 
   Menu, 
   X,
   LogOut,
   Home,
-  Calendar,
-  CreditCard,
-  Trophy,
-  Wallet,
-  Landmark,
-  Share2,
-  Headphones,
-  Table2,
   Cloud,
   CloudOff,
 } from 'lucide-react';
@@ -29,6 +14,7 @@ import { clearFamilySession, familyAuthRequest } from '../services/familyAuth';
 import { showNotification } from '../services/utils/notifications';
 import QuickMenu from './QuickMenu';
 import { DEFAULT_QUICK_MENU, normalizeQuickMenu } from './quickMenuConfig';
+import { SIDEBAR_MENU_ITEMS } from './navigationConfig';
 
 const colors = {
   slate: '#64748b',
@@ -67,7 +53,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
-  const [quickMenu, setQuickMenu] = useState(DEFAULT_QUICK_MENU);
+  const [quickMenu, setQuickMenu] = useState<ReturnType<typeof normalizeQuickMenu>>(DEFAULT_QUICK_MENU);
   const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | 'conflict' | null>(() => {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
     if (!familyId) return null;
@@ -138,27 +124,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/wallets', { state: { openNewAccount: true } });
   };
 
-  const menuItems = [
-    { icon: FileText, label: 'Contas do Mês', path: '/bills' },
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-    { icon: Landmark, label: 'Contas & Cofrinhos', path: '/wallets' },
-    { icon: Calendar, label: 'Agenda Família', path: '/calendar' },
-    { icon: ShoppingCart, label: 'Lista de Compras', path: '/shopping' },
-    { icon: Wallet, label: 'Dívidas', path: '/debts' },
-    { icon: Target, label: 'Metas e Sonhos', path: '/goals' },
-    { icon: Gem, label: 'Bens e Patrimônio', path: '/assets' },
-    { icon: BarChart3, label: 'Relatórios', path: '/reports' },
-    { icon: Table2, label: 'Planilhas', path: '/spreadsheets' },
-    { icon: Trophy, label: 'Ranking Familiar', path: '/ranking' },
-    { icon: Share2, label: 'Compartilhar / Indicar', path: '/share' },
-    { icon: Headphones, label: 'Suporte', path: '/support' },
-    { icon: Settings, label: 'Configurações', path: '/settings' },
-  ];
-
-  // Todas as famílias podem acessar o gerenciamento de plano.
-  // Famílias gratuitas também precisam visualizar a opção de upgrade.
-  menuItems.push({ icon: CreditCard, label: 'Meu Plano', path: '/plans' });
-
   const handleLogout = async () => {
     const familyId = localStorage.getItem('homefin_current_family_id');
 
@@ -214,7 +179,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           
           <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1 mt-14 md:mt-0">
-            {menuItems.map((item) => {
+            {SIDEBAR_MENU_ITEMS.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <Link
@@ -245,7 +210,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content - Padded top to account for fixed header */}
-      <main className="flex-1 p-4 md:p-8 pt-[88px] md:pt-8 overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
+      <main className="flex-1 p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
         <div className="max-w-6xl mx-auto print:max-w-none print:w-full">
           {syncStatus && (
             <div
@@ -281,6 +246,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         hidden={isSidebarOpen}
         onOpenMenu={openMainMenu}
         onNewAccount={openNewAccount}
+        onNavigate={(path) => navigate(path)}
       />
     </div>
   );

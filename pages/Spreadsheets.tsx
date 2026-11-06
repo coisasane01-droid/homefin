@@ -1,15 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  BookOpen,
   Check,
   Cloud,
   CloudOff,
   Copy,
   Download,
   FilePlus2,
+  GripVertical,
   LoaderCircle,
   Plus,
   Search,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -19,6 +22,8 @@ import { spreadsheetsService } from '../services/spreadsheets';
 import {
   calculateSpreadsheetRowTotal,
   calculateSpreadsheetTotal,
+  calculateSpreadsheetCommission,
+  calculateSpreadsheetCommissionBase,
   hasInvalidSpreadsheetCurrency,
   parseSpreadsheetCurrency,
 } from '../services/spreadsheetMath';
@@ -53,6 +58,20 @@ const formatDate = (value: string) => new Date(value).toLocaleDateString('pt-BR'
 const formatSpreadsheetTotal = (value: number | null) =>
   value === null ? 'Corrija os valores' : formatCurrency(value);
 
+const moveItem = <T,>(
+  items: T[],
+  sourceIndex: number,
+  targetIndex: number,
+  before: boolean
+): T[] => {
+  const reordered = [...items];
+  const [item] = reordered.splice(sourceIndex, 1);
+  let insertionIndex = targetIndex + (before ? 0 : 1);
+  if (sourceIndex < insertionIndex) insertionIndex -= 1;
+  reordered.splice(insertionIndex, 0, item);
+  return reordered;
+};
+
 const createSpreadsheet = (): HomeFinSpreadsheet => {
   const now = new Date().toISOString();
   const columns = createInitialColumns();
@@ -63,11 +82,74 @@ const createSpreadsheet = (): HomeFinSpreadsheet => {
     referenceYear: new Date().getFullYear(),
     columns,
     rows: [emptyRow(columns)],
+    commissionEnabled: false,
+    commissionColumnId: null,
+    commissionPercentage: 0,
     notes: '',
     createdAt: now,
     updatedAt: now,
   };
 };
+
+const createExampleSpreadsheet = (): HomeFinSpreadsheet => {
+  const now = new Date().toISOString();
+  const columns: SpreadsheetColumn[] = [
+    { id: crypto.randomUUID(), name: 'Nome', type: 'text' },
+    { id: crypto.randomUUID(), name: 'Serviço', type: 'text' },
+    { id: crypto.randomUUID(), name: 'Alinhamento', type: 'currency' },
+    { id: crypto.randomUUID(), name: 'Mão de obra', type: 'currency' },
+    { id: crypto.randomUUID(), name: 'Observações', type: 'text' },
+  ];
+  const rows: SpreadsheetRow[] = [
+    {
+      id: crypto.randomUUID(),
+      cells: {
+        [columns[0].id]: 'Ana Souza',
+        [columns[1].id]: 'Revisão',
+        [columns[2].id]: '180,00',
+        [columns[3].id]: '120,00',
+        [columns[4].id]: 'Exemplo editável',
+      },
+    },
+    {
+      id: crypto.randomUUID(),
+      cells: {
+        [columns[0].id]: 'Bruno Lima',
+        [columns[1].id]: 'Balanceamento',
+        [columns[2].id]: '250,00',
+        [columns[3].id]: '150,00',
+        [columns[4].id]: '',
+      },
+    },
+  ];
+  return {
+    id: crypto.randomUUID(),
+    name: 'Planilha de exemplo',
+    referenceMonth: new Date().getMonth() + 1,
+    referenceYear: new Date().getFullYear(),
+    columns,
+    rows,
+    commissionEnabled: true,
+    commissionColumnId: columns[2].id,
+    commissionPercentage: 10,
+    notes: 'Esta planilha é um exemplo: personalize ou exclua quando quiser.',
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+type SpreadsheetDragKind = 'column' | 'row';
+
+interface SpreadsheetDragSession {
+  pointerId: number;
+  kind: SpreadsheetDragKind;
+  sourceId: string;
+  startX: number;
+  startY: number;
+  active: boolean;
+  targetId: string;
+  before: boolean;
+}
 
 const Spreadsheets: React.FC = () => {
   const familyId = localStorage.getItem('homefin_current_family_id') || '';
@@ -83,6 +165,17 @@ const Spreadsheets: React.FC = () => {
   const [columnModal, setColumnModal] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnType, setColumnType] = useState<SpreadsheetColumnType>('text');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [showExampleNotice, setShowExampleNotice] = useState(false);
+  const [dragging, setDragging] = useState<{
+    kind: SpreadsheetDragKind;
+    sourceId: string;
+    targetId: string;
+    before: boolean;
+  } | null>(null);
+  const dragSession = useRef<SpreadsheetDragSession | null>(null);
+  const dragTimer = useRef<number | null>(null);
+  const exampleCreationStarted = useRef(false);
 
   const loadRecords = async () => {
     if (!familyId || familyId === 'v1') {
@@ -93,10 +186,22 @@ const Spreadsheets: React.FC = () => {
 
     try {
       const result = await spreadsheetsService.load(familyId);
-      setRecords(result.records);
-      setCloudAvailable(result.synced);
-      setSyncError(result.error || '');
-      setSavedInCloud(result.synced);
+      let loadedRecords = result.records;
+      let exampleSaveResult: { synced: boolean; error?: string } | null = null;
+      if (result.synced && loadedRecords.length === 0 && !exampleCreationStarted.current) {
+        exampleCreationStarted.current = true;
+        const example = createExampleSpreadsheet();
+        exampleSaveResult = await spreadsheetsService.save(familyId, example);
+        const persistedExample = { ...example, updatedAt: new Date().toISOString() };
+        loadedRecords = [persistedExample];
+        setSelected(persistedExample);
+        setDirty(false);
+        setShowExampleNotice(true);
+      }
+      setRecords(loadedRecords);
+      setCloudAvailable(exampleSaveResult ? exampleSaveResult.synced : result.synced);
+      setSavedInCloud(exampleSaveResult ? exampleSaveResult.synced : result.synced);
+      setSyncError(exampleSaveResult?.error || result.error || '');
     } catch (error) {
       setCloudAvailable(false);
       setSavedInCloud(false);
@@ -110,7 +215,10 @@ const Spreadsheets: React.FC = () => {
     void loadRecords();
     const handleOnline = () => void loadRecords();
     window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
+    };
   }, []);
 
   const filteredRecords = useMemo(() => {
@@ -227,6 +335,9 @@ const Spreadsheets: React.FC = () => {
       id: crypto.randomUUID(),
       name: `${selected.name} (cópia)`.slice(0, 120),
       columns: duplicatedColumns,
+      commissionColumnId: selected.commissionColumnId
+        ? duplicatedColumns[selected.columns.findIndex((column) => column.id === selected.commissionColumnId)]?.id || null
+        : null,
       rows: selected.rows.map((row) => ({
         id: crypto.randomUUID(),
         cells: Object.fromEntries(
@@ -267,6 +378,105 @@ const Spreadsheets: React.FC = () => {
     const hasContent = Object.values(row.cells).some((value) => value.trim());
     if (hasContent && !window.confirm('Excluir esta linha e seus dados?')) return;
     updateSelected({ rows: selected.rows.filter((item) => item.id !== row.id) });
+  };
+
+  const finishDrag = (session: SpreadsheetDragSession) => {
+    if (!selected || session.sourceId === session.targetId) return;
+    if (session.kind === 'column') {
+      const sourceIndex = selected.columns.findIndex((item) => item.id === session.sourceId);
+      const targetIndex = selected.columns.findIndex((item) => item.id === session.targetId);
+      if (sourceIndex >= 0 && targetIndex >= 0) {
+        updateSelected({
+          columns: moveItem(selected.columns, sourceIndex, targetIndex, session.before),
+        });
+      }
+    } else {
+      const sourceIndex = selected.rows.findIndex((item) => item.id === session.sourceId);
+      const targetIndex = selected.rows.findIndex((item) => item.id === session.targetId);
+      if (sourceIndex >= 0 && targetIndex >= 0) {
+        updateSelected({
+          rows: moveItem(selected.rows, sourceIndex, targetIndex, session.before),
+        });
+      }
+    }
+  };
+
+  const handleDragPointerDown = (
+    kind: SpreadsheetDragKind,
+    sourceId: string,
+    event: React.PointerEvent<HTMLButtonElement>
+  ) => {
+    if (saving || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const session: SpreadsheetDragSession = {
+      pointerId: event.pointerId,
+      kind,
+      sourceId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      targetId: sourceId,
+      before: false,
+    };
+    dragSession.current = session;
+    dragTimer.current = window.setTimeout(() => {
+      if (dragSession.current !== session) return;
+      session.active = true;
+      setDragging({
+        kind: session.kind,
+        sourceId: session.sourceId,
+        targetId: session.sourceId,
+        before: false,
+      });
+    }, event.pointerType === 'touch' ? 450 : 250);
+  };
+
+  const handleDragPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const session = dragSession.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    if (!session.active) {
+      if (Math.hypot(event.clientX - session.startX, event.clientY - session.startY) > 10) {
+        if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
+        dragTimer.current = null;
+        dragSession.current = null;
+      }
+      return;
+    }
+
+    event.preventDefault();
+    const selector = session.kind === 'column' ? '[data-column-id]' : '[data-row-id]';
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>(selector);
+    const targetId = target?.dataset[session.kind === 'column' ? 'columnId' : 'rowId'];
+    if (!target || !targetId) return;
+    const rect = target.getBoundingClientRect();
+    session.targetId = targetId;
+    session.before = session.kind === 'column'
+      ? event.clientX < rect.left + rect.width / 2
+      : event.clientY < rect.top + rect.height / 2;
+    setDragging({
+      kind: session.kind,
+      sourceId: session.sourceId,
+      targetId: session.targetId,
+      before: session.before,
+    });
+  };
+
+  const handleDragPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const session = dragSession.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
+    dragTimer.current = null;
+    dragSession.current = null;
+    setDragging(null);
+    if (session.active) finishDrag(session);
+  };
+
+  const handleDragPointerCancel = () => {
+    if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
+    dragTimer.current = null;
+    dragSession.current = null;
+    setDragging(null);
   };
 
   const handleAddColumn = () => {
@@ -311,6 +521,16 @@ const Spreadsheets: React.FC = () => {
     }
     updateSelected({
       columns: selected.columns.filter((item) => item.id !== column.id),
+      ...(selected.commissionColumnId === column.id
+        ? {
+            commissionColumnId: selected.columns.find(
+              (item) => item.id !== column.id && item.type === 'currency'
+            )?.id || null,
+            commissionEnabled: selected.columns.some(
+              (item) => item.id !== column.id && item.type === 'currency'
+            ) && selected.commissionEnabled,
+          }
+        : {}),
       rows: selected.rows.map((row) => {
         const cells = { ...row.cells };
         delete cells[column.id];
@@ -405,6 +625,16 @@ const Spreadsheets: React.FC = () => {
     doc.setTextColor(55, 48, 163);
     doc.text(`Total geral: ${formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}`, 14, summaryY);
 
+    if (selected.commissionEnabled) {
+      doc.setFontSize(10);
+      doc.setTextColor(5, 150, 105);
+      doc.text(
+        `Comissão (${selected.commissionPercentage ?? 0}%): ${formatCurrency(calculateSpreadsheetCommission(selected))}`,
+        14,
+        summaryY + 7
+      );
+    }
+
     if (selected.notes.trim()) {
       const notes = doc.splitTextToSize(
         `Observações: ${selected.notes}`,
@@ -413,7 +643,7 @@ const Spreadsheets: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(55, 65, 81);
-      let notesY = summaryY + 8;
+      let notesY = summaryY + (selected.commissionEnabled ? 14 : 8);
       for (const line of notes) {
         if (notesY > pageHeight - 14) {
           doc.addPage();
@@ -454,7 +684,7 @@ const Spreadsheets: React.FC = () => {
   return (
     <div className="space-y-6 pb-12">
       {columnModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Nova coluna</h2>
@@ -490,6 +720,48 @@ const Spreadsheets: React.FC = () => {
           </div>
         </div>
       )}
+      {helpOpen && (
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/40 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-7">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="mb-1 text-sm font-semibold text-primary-600 dark:text-primary-400">Guia rápido</p>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Como usar as Planilhas</h2>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Um passo a passo simples para organizar e acompanhar seus valores.</p>
+              </div>
+              <button onClick={() => setHelpOpen(false)} aria-label="Fechar tutorial" className="rounded-xl p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <X size={20} />
+              </button>
+            </div>
+            <ol className="space-y-3">
+              {[
+                ['1. Crie uma planilha', 'Clique em “Nova Planilha” e informe um nome para identificar o controle.'],
+                ['2. Escolha o período', 'Selecione o mês e o ano de referência nos campos da planilha.'],
+                ['3. Organize as colunas', 'Use “Nova coluna” para incluir campos. Escolha Texto para nomes e descrições ou Valor em R$ para valores que entram no total. Clique no nome de uma coluna para renomeá-la.'],
+                ['4. Preencha os lançamentos', 'Digite nomes, serviços e valores nas linhas. Os campos em R$ aceitam valores como 125,50.'],
+                ['5. Confira o total geral', 'O total soma automaticamente todas as células numéricas das colunas do tipo Valor em R$.'],
+                ['6. Configure a comissão', 'Ative o cálculo, escolha uma coluna de valores e digite o percentual. A comissão é calculada separadamente e não é somada ao total geral.'],
+                ['7. Reorganize', 'Segure o ícone de alça no cabeçalho para mover uma coluna ou na linha para movê-la. Em celular, mantenha pressionado por um instante antes de arrastar.'],
+                ['8. Salve e consulte', 'Clique em “Salvar” depois das alterações. As planilhas salvas ficam no Histórico para consultar e editar depois.'],
+                ['9. Exporte em PDF', 'Clique em “Exportar PDF” para baixar uma cópia organizada da planilha e dos totais.'],
+              ].map(([title, description], index) => (
+                <li key={title} className="flex gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900/60">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                    {index === 6 ? <GripVertical size={18} /> : index === 8 ? <Download size={18} /> : <Sparkles size={18} />}
+                  </span>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+                    <p className="mt-0.5 text-sm leading-6 text-gray-600 dark:text-gray-300">{description}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <button onClick={() => setHelpOpen(false)} className="mt-5 w-full rounded-xl bg-primary-600 px-4 py-3 font-semibold text-white hover:bg-primary-700">
+              Entendi
+            </button>
+          </section>
+        </div>
+      )}
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -499,11 +771,25 @@ const Spreadsheets: React.FC = () => {
             Registre serviços, acompanhe valores e mantenha tudo organizado.
           </p>
         </div>
-        <button onClick={handleNew} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-primary-700">
-          <FilePlus2 size={19} /> Nova Planilha
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-white px-4 py-3 font-semibold text-primary-700 shadow-sm hover:bg-primary-50 dark:border-primary-800 dark:bg-gray-800 dark:text-primary-300 dark:hover:bg-primary-900/20">
+            <BookOpen size={19} /> COMO USAR
+          </button>
+          <button onClick={handleNew} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-primary-700">
+            <FilePlus2 size={19} /> Nova Planilha
+          </button>
+        </div>
       </header>
 
+      {showExampleNotice && (
+        <div role="status" className="flex items-start gap-3 rounded-xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-900 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-200">
+          <Sparkles size={19} className="mt-0.5 shrink-0" />
+          <span>Você já tem uma planilha de exemplo para conhecer o funcionamento. Ela pode ser editada, personalizada ou excluída quando quiser.</span>
+          <button onClick={() => setShowExampleNotice(false)} aria-label="Fechar aviso" className="ml-auto rounded-lg p-1 hover:bg-primary-100 dark:hover:bg-primary-900/40">
+            <X size={17} />
+          </button>
+        </div>
+      )}
       {syncError && (
         <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertCircle size={19} className="mt-0.5 shrink-0" />
@@ -656,6 +942,11 @@ const Spreadsheets: React.FC = () => {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Total geral</p>
               <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">{formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}</p>
+              {selected.commissionEnabled && (
+                <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  COMISSÃO ({selected.commissionPercentage ?? 0}%): {formatCurrency(calculateSpreadsheetCommission(selected))}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2 text-sm">
               {saving ? (
@@ -670,10 +961,67 @@ const Spreadsheets: React.FC = () => {
             </div>
           </div>
 
+          <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={!!selected.commissionEnabled}
+                disabled={!selected.columns.some((column) => column.type === 'currency')}
+                onChange={(event) => {
+                  const firstCurrencyColumn = selected.columns.find((column) => column.type === 'currency');
+                  updateSelected({
+                    commissionEnabled: event.target.checked,
+                    commissionColumnId: selected.commissionColumnId || firstCurrencyColumn?.id || null,
+                  });
+                }}
+                className="mt-1 h-5 w-5 accent-primary-600"
+              />
+              <span>
+                <span className="block font-semibold text-gray-800 dark:text-gray-100">Calcular comissão percentual</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">O resultado aparece abaixo do total geral e não altera esse total.</span>
+              </span>
+            </label>
+            {selected.commissionEnabled && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Coluna de valores usada como base
+                  <select
+                    value={selected.commissionColumnId || ''}
+                    onChange={(event) => updateSelected({ commissionColumnId: event.target.value || null })}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                  >
+                    {selected.columns
+                      .filter((column) => column.type === 'currency')
+                      .map((column) => <option key={column.id} value={column.id}>{column.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Percentual da comissão
+                  <div className="mt-1 flex items-center rounded-lg border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900">
+                    <input
+                      type="number"
+                      min="0"
+                      max="10000"
+                      step="0.1"
+                      value={selected.commissionPercentage ?? 0}
+                      onChange={(event) => updateSelected({ commissionPercentage: Number(event.target.value) || 0 })}
+                      className="w-full rounded-lg bg-transparent px-3 py-2 text-right outline-none dark:text-white"
+                    />
+                    <span className="px-3 text-gray-500">%</span>
+                  </div>
+                </label>
+                <p className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
+                  Base da comissão: {formatCurrency(calculateSpreadsheetCommissionBase(selected, selected.commissionColumnId))}.
+                  Células vazias e textos são ignorados.
+                </p>
+              </div>
+            )}
+          </section>
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-bold text-gray-900 dark:text-white">Lançamentos</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Role horizontalmente para ver todas as colunas.</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Role horizontalmente para ver as colunas. Segure o ícone de alça e arraste para reorganizar.</p>
             </div>
             <div className="flex gap-2">
               <button onClick={() => setColumnModal(true)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700">
@@ -691,11 +1039,36 @@ const Spreadsheets: React.FC = () => {
                 <tr>
                   <th className="w-12 border-b border-r border-gray-200 px-3 py-3 text-center font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">#</th>
                   {selected.columns.map((column) => (
-                    <th key={column.id} className="min-w-[170px] border-b border-r border-gray-200 px-3 py-2 text-left dark:border-gray-700">
+                    <th
+                      key={column.id}
+                      data-column-id={column.id}
+                      className={`min-w-[170px] border-b border-r border-gray-200 px-3 py-2 text-left transition dark:border-gray-700 ${
+                        dragging?.kind === 'column' && dragging.sourceId === column.id ? 'opacity-50' : ''
+                      } ${
+                        dragging?.kind === 'column' && dragging.targetId === column.id
+                          ? dragging.before ? 'border-l-4 border-l-primary-500' : 'border-r-4 border-r-primary-500'
+                          : ''
+                      }`}
+                    >
                       <div className="flex items-center justify-between gap-2">
-                        <button onClick={() => handleRenameColumn(column)} className="truncate font-semibold text-gray-700 hover:text-primary-600 dark:text-gray-200">
-                          {column.name}
-                        </button>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={`Segure para mover a coluna ${column.name}`}
+                            title="Segure e arraste para reorganizar"
+                            onPointerDown={(event) => handleDragPointerDown('column', column.id, event)}
+                            onPointerMove={handleDragPointerMove}
+                            onPointerUp={handleDragPointerUp}
+                            onPointerCancel={handleDragPointerCancel}
+                            className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-primary-600 dark:hover:bg-gray-700"
+                            style={{ touchAction: 'none', cursor: 'grab' }}
+                          >
+                            <GripVertical size={17} />
+                          </button>
+                          <button onClick={() => handleRenameColumn(column)} className="truncate font-semibold text-gray-700 hover:text-primary-600 dark:text-gray-200">
+                            {column.name}
+                          </button>
+                        </div>
                         <button onClick={() => handleDeleteColumn(column)} aria-label={`Excluir coluna ${column.name}`} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
                           <Trash2 size={14} />
                         </button>
@@ -709,8 +1082,35 @@ const Spreadsheets: React.FC = () => {
               </thead>
               <tbody>
                 {selected.rows.map((row, rowIndex) => (
-                  <tr key={row.id} className="odd:bg-white even:bg-gray-50 dark:odd:bg-gray-800 dark:even:bg-gray-800/60">
-                    <td className="border-r border-b border-gray-200 px-3 py-2 text-center text-gray-400 dark:border-gray-700">{rowIndex + 1}</td>
+                  <tr
+                    key={row.id}
+                    data-row-id={row.id}
+                    className={`odd:bg-white even:bg-gray-50 dark:odd:bg-gray-800 dark:even:bg-gray-800/60 ${
+                      dragging?.kind === 'row' && dragging.sourceId === row.id ? 'opacity-50' : ''
+                    } ${
+                      dragging?.kind === 'row' && dragging.targetId === row.id
+                        ? dragging.before ? 'border-t-4 border-t-primary-500' : 'border-b-4 border-b-primary-500'
+                        : ''
+                    }`}
+                  >
+                    <td className="border-r border-b border-gray-200 px-2 py-2 text-center text-gray-400 dark:border-gray-700">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Segure para mover a linha ${rowIndex + 1}`}
+                          title="Segure e arraste para reorganizar"
+                          onPointerDown={(event) => handleDragPointerDown('row', row.id, event)}
+                          onPointerMove={handleDragPointerMove}
+                          onPointerUp={handleDragPointerUp}
+                          onPointerCancel={handleDragPointerCancel}
+                          className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-primary-600 dark:hover:bg-gray-700"
+                          style={{ touchAction: 'none', cursor: 'grab' }}
+                        >
+                          <GripVertical size={17} />
+                        </button>
+                        {rowIndex + 1}
+                      </div>
+                    </td>
                     {selected.columns.map((column) => (
                       <td key={column.id} className="border-r border-b border-gray-200 p-1.5 dark:border-gray-700">
                         {column.type === 'currency' ? (

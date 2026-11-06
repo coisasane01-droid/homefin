@@ -76,7 +76,10 @@ export interface UserSettings {
   primaryColor: string;
   quickMenu?: {
     enabled: boolean;
-    items: string[];
+    items: Array<string | {
+      id: string;
+      display?: 'both' | 'label' | 'icon';
+    }>;
   };
   backgroundImage?: string;
   backgroundPosition?: string;
