@@ -5,7 +5,8 @@ import { db } from '../services/db';
 import { UserSettings } from '../types';
 import { familyDeletionService } from '../services/familyDeletionService';
 import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
-import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2 } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2, ArrowDown, ArrowUp, Zap } from 'lucide-react';
+import { DEFAULT_QUICK_MENU, normalizeQuickMenu, QUICK_MENU_ACTIONS, QuickMenuItemId } from '../components/quickMenuConfig';
 
 const colors = {
   slate: '#64748b',
@@ -46,8 +47,10 @@ const Settings: React.FC = () => {
       logoZoom: 100,
       logoSize: 100,
       customCategories: [],
-      categories: ['Fixa', 'Variável', 'Cartão', 'Imposto']
+      categories: ['Fixa', 'Variável', 'Cartão', 'Imposto'],
+      quickMenu: DEFAULT_QUICK_MENU
   });
+  const settingsLoaded = useRef(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [newMember, setNewMember] = useState('');
@@ -92,6 +95,7 @@ const Settings: React.FC = () => {
       const s = await db.getSettings();
       setSettings({
           ...s,
+          quickMenu: normalizeQuickMenu(s.quickMenu),
           backgroundZoom: s.backgroundZoom ?? 100,
           backgroundOpacity: s.backgroundOpacity ?? 100,
           backgroundFit: s.backgroundFit ?? 'cover',
@@ -104,8 +108,59 @@ const Settings: React.FC = () => {
           categories: s.categories ?? ['Fixa', 'Variável', 'Cartão', 'Imposto'],
           members: s.members ?? ['Eu']
       });
+      settingsLoaded.current = true;
       setNotificationsEnabled(!!s.notificationsEnabled);
   };
+
+  useEffect(() => {
+    if (!settingsLoaded.current || !settings.quickMenu) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await db.updateSettings(settings);
+      } catch (error) {
+        console.error('HomeFin: falha ao salvar o menu de acesso rápido:', error);
+        showNotification('Não foi possível salvar as preferências do menu flutuante.', 'error');
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [settings.quickMenu]);
+
+  const toggleQuickMenuItem = (itemId: QuickMenuItemId) => {
+    setSettings((current) => {
+      const currentMenu = normalizeQuickMenu(current.quickMenu);
+      const items = currentMenu.items.includes(itemId)
+        ? currentMenu.items.filter((id) => id !== itemId)
+        : [...currentMenu.items, itemId];
+
+      return { ...current, quickMenu: { ...currentMenu, items } };
+    });
+  };
+
+  const moveQuickMenuItem = (itemId: string, direction: -1 | 1) => {
+    setSettings((current) => {
+      const currentMenu = normalizeQuickMenu(current.quickMenu);
+      const index = currentMenu.items.indexOf(itemId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= currentMenu.items.length) {
+        return current;
+      }
+
+      const items = [...currentMenu.items];
+      [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
+      return { ...current, quickMenu: { ...currentMenu, items } };
+    });
+  };
+
+  const updateQuickMenuEnabled = (enabled: boolean) => {
+    setSettings((current) => ({
+      ...current,
+      quickMenu: { ...normalizeQuickMenu(current.quickMenu), enabled },
+    }));
+  };
+
+  const quickMenu = normalizeQuickMenu(settings.quickMenu);
 
     const handleToggleNotifications = async () => {
     if (!('Notification' in window)) {
@@ -561,6 +616,72 @@ const Settings: React.FC = () => {
                     )}
                 </div>
             </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm space-y-5">
+          <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
+            <Zap className="w-5 h-5 text-primary-500" /> MENU FLUTUANTE / ACESSO RÁPIDO
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Escolha quais atalhos ficam disponíveis no botão de acesso rápido. As alterações são salvas automaticamente para esta família.
+          </p>
+
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <span>
+              <span className="block font-medium text-gray-800 dark:text-gray-200">Ativar menu flutuante</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">O botão aparece nas telas do sistema quando não há menus ou janelas abertas.</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={quickMenu.enabled}
+              onChange={(event) => updateQuickMenuEnabled(event.target.checked)}
+              className="h-5 w-5 shrink-0 accent-primary-600"
+            />
+          </label>
+
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Atalhos disponíveis</h4>
+            {QUICK_MENU_ACTIONS.map(({ id, label, icon: Icon }) => {
+              const selectedIndex = quickMenu.items.indexOf(id);
+              return (
+                <div key={id} className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={selectedIndex >= 0}
+                    onChange={() => toggleQuickMenuItem(id)}
+                    aria-label={`${selectedIndex >= 0 ? 'Remover' : 'Adicionar'} ${label}`}
+                    className="h-5 w-5 accent-primary-600"
+                  />
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                    <Icon size={18} />
+                  </span>
+                  <span className="flex-1 font-medium text-gray-800 dark:text-gray-200">{label}</span>
+                  {selectedIndex >= 0 && (
+                    <span className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveQuickMenuItem(id, -1)}
+                        disabled={selectedIndex === 0}
+                        aria-label={`Mover ${label} para cima`}
+                        className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-700"
+                      >
+                        <ArrowUp size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveQuickMenuItem(id, 1)}
+                        disabled={selectedIndex === quickMenu.items.length - 1}
+                        aria-label={`Mover ${label} para baixo`}
+                        className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-700"
+                      >
+                        <ArrowDown size={16} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Categories Section */}

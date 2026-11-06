@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -27,6 +27,8 @@ import { db } from '../services/db';
 import { saasDb } from '../services/saasDb';
 import { clearFamilySession, familyAuthRequest } from '../services/familyAuth';
 import { showNotification } from '../services/utils/notifications';
+import QuickMenu from './QuickMenu';
+import { DEFAULT_QUICK_MENU, normalizeQuickMenu } from './quickMenuConfig';
 
 const colors = {
   slate: '#64748b',
@@ -59,11 +61,13 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const [houseName, setHouseName] = useState('Carregando...');
   const [logoImage, setLogoImage] = useState('');
   const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
+  const [quickMenu, setQuickMenu] = useState(DEFAULT_QUICK_MENU);
   const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | 'conflict' | null>(() => {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
     if (!familyId) return null;
@@ -107,6 +111,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     setLogoImage(s.logoImage || '');
     setLogoShape(s.logoShape === 'circle' ? 'circle' : 'square');
     setIsDark(s.theme === 'dark');
+    setQuickMenu(normalizeQuickMenu(s.quickMenu));
     
     if (s.theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -124,6 +129,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const openMainMenu = () => {
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setIsSidebarOpen(true);
+    }
+  };
+  const openNewAccount = () => {
+    navigate('/wallets', { state: { openNewAccount: true } });
+  };
 
   const menuItems = [
     { icon: FileText, label: 'Contas do Mês', path: '/bills' },
@@ -262,6 +275,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
+      <QuickMenu
+        enabled={quickMenu.enabled}
+        items={quickMenu.items}
+        hidden={isSidebarOpen}
+        onOpenMenu={openMainMenu}
+        onNewAccount={openNewAccount}
+      />
     </div>
   );
 };

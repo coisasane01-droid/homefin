@@ -74,6 +74,10 @@ export interface UserSettings {
   theme: 'light' | 'dark';
   houseName: string;
   primaryColor: string;
+  quickMenu?: {
+    enabled: boolean;
+    items: string[];
+  };
   backgroundImage?: string;
   backgroundPosition?: string;
   backgroundZoom?: number; // percentage, default 100

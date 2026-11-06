@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { db } from '../services/db';
 import { BankAccount, Goal } from '../types';
 import { generateId, formatCurrency } from '../utils';
 import { Wallet, PiggyBank, Plus, Edit2, Trash2, X, CreditCard, Landmark, Coins, Info } from 'lucide-react';
 
 const Wallets: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -13,9 +16,22 @@ const Wallets: React.FC = () => {
   const [editingGoal, setEditingGoal] = useState<Partial<Goal>>({});
   const [showInfoModal, setShowInfoModal] = useState(false);
 
+  const openNewAccount = () => {
+    setEditingAccount({ type: 'corrente' });
+    setIsAccountModalOpen(true);
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const navigationState = location.state as { openNewAccount?: boolean } | null;
+    if (!navigationState?.openNewAccount) return;
+
+    openNewAccount();
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const loadData = async () => {
     const [accs, gls] = await Promise.all([
@@ -136,7 +152,7 @@ const Wallets: React.FC = () => {
             Contas Bancárias
           </h2>
           <button 
-            onClick={() => { setEditingAccount({ type: 'corrente' }); setIsAccountModalOpen(true); }}
+            onClick={openNewAccount}
             className="flex items-center gap-1 text-sm bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
           >
             <Plus size={16} /> Nova Conta
