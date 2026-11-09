@@ -4,6 +4,8 @@ export interface SpreadsheetColumn {
   id: string;
   name: string;
   type: SpreadsheetColumnType;
+  formula?: string | null;
+  formulaExpression?: string | null;
 }
 
 export interface SpreadsheetRow {

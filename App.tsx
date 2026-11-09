@@ -28,6 +28,7 @@ import AdminLogin from './pages/AdminLogin';
 import AdminPanelGuard from './components/AdminPanelGuard';
 import FamilySessionGuard from './components/FamilySessionGuard';
 import Spreadsheets from './pages/Spreadsheets';
+import Inventory from './pages/Inventory';
 import { saasDb } from './services/saasDb';
 
 const App: React.FC = () => {
@@ -145,6 +146,15 @@ const App: React.FC = () => {
           element={
             <Layout>
               <Reports />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/inventory"
+          element={
+            <Layout>
+              <Inventory />
             </Layout>
           }
         />

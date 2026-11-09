@@ -65,10 +65,6 @@ const getLocalData = (): AppData => {
   return cachedData;
 };
 
-// Guarda uma cópia remota separada quando há divergência.
-const getRemoteConflictSnapshotKey = (familyId: string) =>
-  `homefin_remote_conflict_snapshot_${familyId}`;
-
 // Compara objetos independentemente da ordem de suas propriedades.
 const stableSerialize = (value: any): string => {
   if (Array.isArray(value)) {
@@ -99,12 +95,39 @@ const enqueueRemoteSave = (
       const latestSerializedSnapshot = currentSerializedSnapshot || serializedSnapshot;
       const latestSnapshot = normalizeData(JSON.parse(latestSerializedSnapshot));
 
-      // Um conflito registrado exige revisão explícita.
-      // Não permite que uma nova tentativa sobrescreva a nuvem automaticamente.
+      // Reavalia conflitos antigos antes de manter o bloqueio.
+      // Só libera quando os dados locais e remotos são comprovadamente iguais.
       if (localStorage.getItem(getSyncConflictKey(familyId))) {
-        throw new FamilyDataConflictError(
-          'A sincronização está bloqueada porque existem versões diferentes entre este dispositivo e a nuvem. Os dados foram preservados para revisão.'
+        const remote = await homefinProxy.getFamilyData(familyId);
+
+        if (currentFamilyId !== familyId) return;
+
+        if (!remote?.data || !remote.updatedAt) {
+          throw new FamilyDataConflictError(
+            'Não foi possível confirmar a versão remota. Os dados locais foram preservados.'
+          );
+        }
+
+        const currentRaw = localStorage.getItem(storageKey);
+
+        if (
+          currentRaw !== latestSerializedSnapshot ||
+          stableSerialize(latestSnapshot) !==
+            stableSerialize(normalizeData(remote.data))
+        ) {
+          throw new FamilyDataConflictError(
+            'Os dados locais e remotos continuam diferentes ou foram alterados durante a comparação. Os dois lados foram preservados.'
+          );
+        }
+
+        localStorage.setItem(
+          getRemoteUpdatedAtKey(familyId),
+          remote.updatedAt
         );
+        localStorage.removeItem(pendingKey);
+        localStorage.removeItem(getSyncConflictKey(familyId));
+        publishSyncStatus(familyId, 'synced');
+        return;
       }
 
       let expectedUpdatedAt = localStorage.getItem(getRemoteUpdatedAtKey(familyId));
@@ -157,18 +180,6 @@ const enqueueRemoteSave = (
           if (
             stableSerialize(latestSnapshot) !== stableSerialize(remoteSnapshot)
           ) {
-            try {
-              localStorage.setItem(
-                getRemoteConflictSnapshotKey(familyId),
-                JSON.stringify({
-                  updatedAt: remote.updatedAt,
-                  data: remote.data
-                })
-              );
-            } catch (storageError) {
-              console.warn('HomeFin: não foi possível guardar a cópia remota localmente.', storageError);
-            }
-
             localStorage.setItem(getSyncConflictKey(familyId), '1');
             publishSyncStatus(familyId, 'conflict');
 
@@ -214,25 +225,11 @@ const enqueueRemoteSave = (
       try {
         const remote = await homefinProxy.getFamilyData(familyId);
 
-        if (remote.updatedAt || remote.data !== null) {
-          try {
-            localStorage.setItem(
-              getRemoteConflictSnapshotKey(familyId),
-              JSON.stringify({
-                updatedAt: remote.updatedAt,
-                data: remote.data
-              })
-            );
-          } catch (storageError) {
-            console.warn('HomeFin: espaço insuficiente para guardar a cópia remota.', storageError);
-          }
-
-          if (remote.updatedAt) {
-            localStorage.setItem(
-              getRemoteUpdatedAtKey(familyId),
-              remote.updatedAt
-            );
-          }
+        if (remote.updatedAt) {
+          localStorage.setItem(
+            getRemoteUpdatedAtKey(familyId),
+            remote.updatedAt
+          );
         }
       } catch (refreshError) {
         console.warn('HomeFin: não foi possível atualizar a referência remota.', refreshError);

@@ -27,6 +27,9 @@ import {
   parseSpreadsheetCommissionPercentage,
   parseSpreadsheetCurrency,
   SPREADSHEET_TOTAL_COMMISSION_BASE,
+  calculateSpreadsheetColumnFormula,
+  calculateSpreadsheetFormulaColumnValues,
+  validateSpreadsheetFormula,
 } from '../services/spreadsheetMath';
 import type {
   HomeFinSpreadsheet,
@@ -594,6 +597,27 @@ const Spreadsheets: React.FC = () => {
     setColumnModal(false);
   };
 
+
+  const handleSetColumnFormula = (column: SpreadsheetColumn) => {
+    if (!selected || column.type !== 'currency') return;
+    const current = column.formulaExpression || column.formula || '';
+    const expression = window.prompt(
+      `Fórmula da coluna "${column.name}". Use nomes de outras colunas sem espaços e operadores + - * /. Exemplo: Venda-Original. Deixe vazio para remover a fórmula.`,
+      current
+    );
+    if (expression === null) return;
+    const trimmed = expression.trim();
+    if (trimmed && !validateSpreadsheetFormula(trimmed, selected.columns.filter(item => item.id !== column.id))) {
+      setSyncError('Fórmula inválida. Confira os nomes das colunas e os operadores.');
+      return;
+    }
+    updateSelected({
+      columns: selected.columns.map(item =>
+        item.id === column.id ? { ...item, formulaExpression: trimmed || null, formula: trimmed || null } : item
+      ),
+    });
+  };
+
   const handleRenameColumn = (column: SpreadsheetColumn) => {
     if (!selected) return;
     const name = window.prompt('Novo nome da coluna:', column.name)?.trim();
@@ -649,11 +673,15 @@ const Spreadsheets: React.FC = () => {
     const emittedAt = new Date().toLocaleDateString('pt-BR');
     const columnTitles = [...selected.columns.map((column) => column.name), 'Total'];
     const body = selected.rows.map((row) => [
-      ...selected.columns.map((column) =>
-        column.type === 'currency'
+      ...selected.columns.map((column) => {
+        if (column.formulaExpression || column.formula) {
+          const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
+          return value === null || !Number.isFinite(value) ? '—' : formatCurrency(value);
+        }
+        return column.type === 'currency'
           ? formatCurrency(parseSpreadsheetCurrency(row.cells[column.id] || '') || 0)
-          : row.cells[column.id] || ''
-      ),
+          : row.cells[column.id] || '';
+      }),
       formatSpreadsheetTotal(calculateSpreadsheetRowTotal(row, selected.columns)),
     ]);
 
@@ -1175,6 +1203,17 @@ const Spreadsheets: React.FC = () => {
                             {column.name}
                           </button>
                         </div>
+                        {column.type === 'currency' && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetColumnFormula(column)}
+                            title={column.formulaExpression || column.formula ? 'Editar fórmula' : 'Definir fórmula'}
+                            aria-label={`Definir fórmula para ${column.name}`}
+                            className="rounded p-1 text-primary-600 hover:bg-primary-50 dark:hover:bg-gray-700"
+                          >
+                            ƒx
+                          </button>
+                        )}
                         <button onClick={() => handleDeleteColumn(column)} aria-label={`Excluir coluna ${column.name}`} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
                           <Trash2 size={14} />
                         </button>
@@ -1224,7 +1263,14 @@ const Spreadsheets: React.FC = () => {
                     </td>
                     {selected.columns.map((column) => (
                       <td key={column.id} className="border-r border-b border-gray-200 p-1.5 dark:border-gray-700">
-                        {column.type === 'currency' ? (
+                        {(column.formulaExpression || column.formula) ? (
+                          <div className="rounded-md border border-primary-200 bg-primary-50 px-2 py-2 text-right font-semibold text-primary-800 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-200">
+                            {(() => {
+                              const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
+                              return value === null || !Number.isFinite(value) ? '—' : formatCurrency(value);
+                            })()}
+                          </div>
+                        ) : column.type === 'currency' ? (
                           <div className="flex items-center rounded-md border border-gray-200 bg-white focus-within:border-primary-400 dark:border-gray-600 dark:bg-gray-900">
                             <span className="pl-2 text-xs text-gray-400">R$</span>
                             <input
@@ -1273,6 +1319,23 @@ const Spreadsheets: React.FC = () => {
                 )}
               </tbody>
               <tfoot>
+                <tr className="bg-gray-50 font-semibold dark:bg-gray-900/70">
+                  <td className="border-t border-gray-200 px-3 py-3 text-right text-gray-700 dark:border-gray-700 dark:text-gray-200">Total por coluna</td>
+                  {selected.columns.map((column) => {
+                    if (column.type !== 'currency') {
+                      return <td key={column.id} className="border-t border-gray-200 px-3 py-3 text-right text-gray-400 dark:border-gray-700">—</td>;
+                    }
+                    const formulaValues = (column.formulaExpression || column.formula)
+                      ? calculateSpreadsheetFormulaColumnValues(selected, column.id)
+                      : null;
+                    const total = formulaValues
+                      ? formulaValues.reduce((sum, value) => sum + (value ?? 0), 0)
+                      : selected.rows.reduce((sum, row) => sum + (parseSpreadsheetCurrency(row.cells[column.id] || '') || 0), 0);
+                    return <td key={column.id} className="border-t border-gray-200 px-3 py-3 text-right text-gray-800 dark:border-gray-700 dark:text-gray-100">{formatCurrency(total)}</td>;
+                  })}
+                  <td className="border-t border-gray-200 px-3 py-3 text-right">—</td>
+                  <td className="border-t border-gray-200 dark:border-gray-700" />
+                </tr>
                 <tr className="bg-gray-100 font-bold dark:bg-gray-900">
                   <td colSpan={selected.columns.length + 1} className="border-t border-gray-200 px-3 py-3 text-right text-gray-700 dark:border-gray-700 dark:text-gray-200">Total geral</td>
                   <td className="border-t border-gray-200 bg-emerald-100 px-3 py-3 text-right text-emerald-900 dark:border-gray-700 dark:bg-emerald-900/40 dark:text-emerald-100">{formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}</td>
