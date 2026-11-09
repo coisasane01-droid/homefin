@@ -65,6 +65,26 @@ const getLocalData = (): AppData => {
   return cachedData;
 };
 
+// Guarda uma cópia remota separada quando há divergência.
+const getRemoteConflictSnapshotKey = (familyId: string) =>
+  `homefin_remote_conflict_snapshot_${familyId}`;
+
+// Compara objetos independentemente da ordem de suas propriedades.
+const stableSerialize = (value: any): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSerialize).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableSerialize(value[key])}`
+    ).join(',')}}`;
+  }
+
+  return JSON.stringify(value) ?? 'undefined';
+};
+
+
 const enqueueRemoteSave = (
   familyId: string,
   storageKey: string,
@@ -77,8 +97,101 @@ const enqueueRemoteSave = (
     .then(async () => {
       const currentSerializedSnapshot = localStorage.getItem(storageKey);
       const latestSerializedSnapshot = currentSerializedSnapshot || serializedSnapshot;
-      const latestSnapshot = JSON.parse(latestSerializedSnapshot) as AppData;
-      const expectedUpdatedAt = localStorage.getItem(getRemoteUpdatedAtKey(familyId));
+      const latestSnapshot = normalizeData(JSON.parse(latestSerializedSnapshot));
+
+      // Um conflito registrado exige revisão explícita.
+      // Não permite que uma nova tentativa sobrescreva a nuvem automaticamente.
+      if (localStorage.getItem(getSyncConflictKey(familyId))) {
+        throw new FamilyDataConflictError(
+          'A sincronização está bloqueada porque existem versões diferentes entre este dispositivo e a nuvem. Os dados foram preservados para revisão.'
+        );
+      }
+
+      let expectedUpdatedAt = localStorage.getItem(getRemoteUpdatedAtKey(familyId));
+
+      // Sem versão remota conhecida, consulta primeiro a nuvem.
+      if (!expectedUpdatedAt) {
+        const remote = await homefinProxy.getFamilyData(familyId);
+
+        if (currentFamilyId !== familyId) return;
+
+        const remoteExists = !!remote.updatedAt || remote.data !== null;
+
+        if (remoteExists) {
+          if (remote.updatedAt) {
+            localStorage.setItem(
+              getRemoteUpdatedAtKey(familyId),
+              remote.updatedAt
+            );
+            expectedUpdatedAt = remote.updatedAt;
+          }
+
+          if (!remote.data || !remote.updatedAt) {
+            localStorage.setItem(getSyncConflictKey(familyId), '1');
+            publishSyncStatus(familyId, 'conflict');
+            throw new FamilyDataConflictError(
+              'Existe um registro remoto cuja versão ou conteúdo não pôde ser comparado. Os dados locais foram preservados.'
+            );
+          }
+
+          const remoteSnapshot = normalizeData(remote.data);
+          let hasLocalOnlyImages = false;
+
+          // Preserva imagens locais que ainda não existem no registro remoto.
+          if (
+            latestSnapshot.settings.logoImage &&
+            !remoteSnapshot.settings.logoImage
+          ) {
+            remoteSnapshot.settings.logoImage = latestSnapshot.settings.logoImage;
+            hasLocalOnlyImages = true;
+          }
+
+          if (
+            latestSnapshot.settings.backgroundImage &&
+            !remoteSnapshot.settings.backgroundImage
+          ) {
+            remoteSnapshot.settings.backgroundImage = latestSnapshot.settings.backgroundImage;
+            hasLocalOnlyImages = true;
+          }
+
+          if (
+            stableSerialize(latestSnapshot) !== stableSerialize(remoteSnapshot)
+          ) {
+            try {
+              localStorage.setItem(
+                getRemoteConflictSnapshotKey(familyId),
+                JSON.stringify({
+                  updatedAt: remote.updatedAt,
+                  data: remote.data
+                })
+              );
+            } catch (storageError) {
+              console.warn('HomeFin: não foi possível guardar a cópia remota localmente.', storageError);
+            }
+
+            localStorage.setItem(getSyncConflictKey(familyId), '1');
+            publishSyncStatus(familyId, 'conflict');
+
+            throw new FamilyDataConflictError(
+              'Existem dados diferentes neste dispositivo e na nuvem. Os dois lados foram preservados para revisão.'
+            );
+          }
+
+          // Se só faltavam imagens locais na nuvem, continua a gravação
+          // usando a versão remota conhecida e a proteção de concorrência.
+          if (!hasLocalOnlyImages) {
+            if (localStorage.getItem(storageKey) === latestSerializedSnapshot) {
+              localStorage.removeItem(pendingKey);
+              localStorage.removeItem(getSyncConflictKey(familyId));
+              publishSyncStatus(familyId, 'synced');
+            } else {
+              publishSyncStatus(familyId, 'pending');
+            }
+            return;
+          }
+        }
+      }
+
       const updatedAt = await homefinProxy.saveFamilyData(
         familyId,
         latestSnapshot,
@@ -95,13 +208,42 @@ const enqueueRemoteSave = (
       }
     });
 
-  syncPromise = currentSync.catch((error) => {
+  syncPromise = currentSync.catch(async (error) => {
     if (error instanceof FamilyDataConflictError) {
+      // Atualiza uma cópia separada da nuvem sem tocar nos dados locais.
+      try {
+        const remote = await homefinProxy.getFamilyData(familyId);
+
+        if (remote.updatedAt || remote.data !== null) {
+          try {
+            localStorage.setItem(
+              getRemoteConflictSnapshotKey(familyId),
+              JSON.stringify({
+                updatedAt: remote.updatedAt,
+                data: remote.data
+              })
+            );
+          } catch (storageError) {
+            console.warn('HomeFin: espaço insuficiente para guardar a cópia remota.', storageError);
+          }
+
+          if (remote.updatedAt) {
+            localStorage.setItem(
+              getRemoteUpdatedAtKey(familyId),
+              remote.updatedAt
+            );
+          }
+        }
+      } catch (refreshError) {
+        console.warn('HomeFin: não foi possível atualizar a referência remota.', refreshError);
+      }
+
       localStorage.setItem(getSyncConflictKey(familyId), '1');
       publishSyncStatus(familyId, 'conflict');
     } else {
       publishSyncStatus(familyId, 'pending');
     }
+
     console.error('HomeFin: erro ao sincronizar com Supabase:', error);
   });
 
@@ -166,6 +308,8 @@ const loadFromSupabase = async (familyIdToLoad: string) => {
   if (currentFamilyId !== familyIdToLoad) return;
 
   // Protege dados locais que ainda aguardam confirmação do servidor.
+  // Não substitui dados locais enquanto houver conflito não resolvido.
+  if (localStorage.getItem(getSyncConflictKey(familyIdToLoad))) return;
   if (localStorage.getItem(getPendingSyncKey(familyIdToLoad))) return;
 
   if (data?.data) {
