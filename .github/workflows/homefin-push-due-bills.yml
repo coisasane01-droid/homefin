@@ -1,0 +1,29 @@
+name: HomeFin - Notificações de contas
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-due-bills:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar rotina segura de notificações
+        env:
+          HOMEFIN_CRON_SECRET: ${{ secrets.HOMEFIN_CRON_SECRET }}
+        run: |
+          if [ -z "$HOMEFIN_CRON_SECRET" ]; then
+            echo "Segredo HOMEFIN_CRON_SECRET não configurado no GitHub."
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${HOMEFIN_CRON_SECRET}" \
+            --header "Content-Type: application/json" \
+            --data '{}' \
+            https://homefinapp.vercel.app/api/push-due-bills

@@ -597,68 +597,73 @@ export const db = {
 
   checkDueBills: async () => {
     const data = getLocalData();
+    const familyKey = currentFamilyId || 'v1';
+    const localDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    
-    // Get stored notification state
-    const lastCheck = localStorage.getItem('homefin_last_notification_check');
+    const todayStr = localDate(today);
+    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const tomorrowStr = localDate(tomorrow);
+
+    const lastCheckKey = `homefin_last_notification_check_${familyKey}`;
+    const notifiedKey = `homefin_notified_bills_${familyKey}`;
+    const lastCheck = localStorage.getItem(lastCheckKey);
     let notifiedBills: string[] = [];
-    
+
     if (lastCheck === todayStr) {
-        const stored = localStorage.getItem('homefin_notified_bills');
-        if (stored) {
-            try {
-                notifiedBills = JSON.parse(stored);
-            } catch (e) {
-                notifiedBills = [];
-            }
-        }
+      try {
+        const stored = localStorage.getItem(notifiedKey);
+        notifiedBills = stored ? JSON.parse(stored) : [];
+        if (!Array.isArray(notifiedBills)) notifiedBills = [];
+      } catch {
+        notifiedBills = [];
+      }
     } else {
-        // New day, reset notifications
-        localStorage.setItem('homefin_last_notification_check', todayStr);
-        localStorage.removeItem('homefin_notified_bills');
+      localStorage.setItem(lastCheckKey, todayStr);
+      localStorage.removeItem(notifiedKey);
     }
 
-    const pendingBills = data.bills.filter(b => b.status === 'pending');
+    const pendingBills = data.bills.filter(bill => bill.status === 'pending');
     let hasNewNotifications = false;
     const prefs = data.settings.notificationPreferences;
 
     pendingBills.forEach(bill => {
-        // Check if due date matches today or tomorrow and hasn't been notified yet
-        if ((bill.dueDate === todayStr || bill.dueDate === tomorrowStr) && !notifiedBills.includes(bill.id)) {
-            const amount = (bill.amount + (bill.subCategoryAmount || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-            const isTomorrow = bill.dueDate === tomorrowStr;
-            const title = isTomorrow ? 'Conta Vence Amanhã!' : 'Conta Vencendo Hoje!';
-            const message = `A conta "${bill.description}" vence ${isTomorrow ? 'amanhã' : 'hoje'}. Valor: ${amount}`;
-            
-            // Send Push Notification
-            if (prefs?.push !== false) {
-                sendNotification(title, message);
-            }
+      if (
+        (bill.dueDate === todayStr || bill.dueDate === tomorrowStr) &&
+        !notifiedBills.includes(bill.id)
+      ) {
+        const amount = (bill.amount + (bill.subCategoryAmount || 0)).toLocaleString(
+          'pt-BR',
+          { style: 'currency', currency: 'BRL' }
+        );
+        const isTomorrow = bill.dueDate === tomorrowStr;
+        const title = isTomorrow ? 'Conta Vence Amanhã!' : 'Conta Vencendo Hoje!';
+        const message = `A conta "${bill.description}" vence ${isTomorrow ? 'amanhã' : 'hoje'}. Valor: ${amount}`;
 
-            // Simulate WhatsApp
-            if (prefs?.whatsapp && prefs?.whatsappNumber) {
-                console.log(`[WhatsApp Simulado para ${prefs.whatsappNumber}]: ${title} - ${message}`);
-                // In a real app, this would call a backend API to send the WhatsApp message
-            }
-
-            // Simulate Email
-            if (prefs?.email && prefs?.emailAddress) {
-                console.log(`[Email Simulado para ${prefs.emailAddress}]: ${title} - ${message}`);
-                // In a real app, this would call a backend API to send the Email
-            }
-
-            notifiedBills.push(bill.id);
-            hasNewNotifications = true;
+        if (prefs?.push !== false && data.settings.notificationsEnabled) {
+          sendNotification(title, message);
         }
+
+        if (prefs?.whatsapp && prefs?.whatsappNumber) {
+          console.log(`[WhatsApp não integrado para ${prefs.whatsappNumber}]: ${title} - ${message}`);
+        }
+
+        if (prefs?.email && prefs?.emailAddress) {
+          console.log(`[Email não integrado para ${prefs.emailAddress}]: ${title} - ${message}`);
+        }
+
+        notifiedBills.push(bill.id);
+        hasNewNotifications = true;
+      }
     });
 
     if (hasNewNotifications) {
-        localStorage.setItem('homefin_notified_bills', JSON.stringify(notifiedBills));
+      localStorage.setItem(notifiedKey, JSON.stringify(notifiedBills));
     }
   },
 

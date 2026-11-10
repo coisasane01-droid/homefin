@@ -212,10 +212,20 @@ const Settings: React.FC = () => {
         setSettings(updatedSettings);
         await db.updateSettings(updatedSettings);
 
-        new Notification('Notificações Ativadas', {
-          body: 'Você receberá alertas do HomeFin mesmo quando o aplicativo estiver em segundo plano.',
-          icon: '/pwa-192x192.png',
-        });
+        // A inscrição Push já foi confirmada no servidor.
+        // A notificação de teste usa o Service Worker para compatibilidade com PWA/celulares.
+        try {
+          const registration = await navigator.serviceWorker.getRegistration('/');
+          if (registration) {
+            await registration.showNotification('Notificações Ativadas', {
+              body: 'Você receberá alertas do HomeFin mesmo quando o aplicativo estiver em segundo plano.',
+              icon: '/pwa-192x192.png',
+              badge: '/pwa-192x192.png',
+            });
+          }
+        } catch (testNotificationError) {
+          console.warn('Inscrição Push ativa; notificação de teste não exibida:', testNotificationError);
+        }
 
         showNotification(
           'Notificações em segundo plano ativadas.',
