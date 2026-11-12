@@ -18,6 +18,7 @@ async function db(path, options = {}) {
       'Content-Profile': 'public',
       ...(options.headers || {}),
     },
+    cache: 'no-store',
   });
   const body = await response.text();
   if (!response.ok) {
@@ -36,6 +37,7 @@ function productFromDb(row) {
     supplier: row.supplier || '', quantity: Number(row.quantity),
     minimumQuantity: Number(row.minimum_quantity),
     costPrice: Number(row.cost_price), salePrice: Number(row.sale_price),
+    wholesalePrice: Number(row.wholesale_price ?? 0),
     updatedAt: row.updated_at,
   };
 }
@@ -56,11 +58,39 @@ function validProduct(p) {
     Number.isInteger(p.quantity) && p.quantity >= 0 && p.quantity <= 100000000 &&
     Number.isInteger(p.minimumQuantity) && p.minimumQuantity >= 0 && p.minimumQuantity <= 100000000 &&
     Number.isFinite(p.costPrice) && p.costPrice >= 0 && p.costPrice <= 1000000000 &&
-    Number.isFinite(p.salePrice) && p.salePrice >= 0 && p.salePrice <= 1000000000;
+    Number.isFinite(p.salePrice) && p.salePrice >= 0 && p.salePrice <= 1000000000 &&
+    Number.isFinite(Number(p.wholesalePrice ?? 0)) &&
+    Number(p.wholesalePrice ?? 0) >= 0 &&
+    Number(p.wholesalePrice ?? 0) <= 1000000000;
+}
+
+async function resolveInventoryAccess(familyId) {
+  const rows = await db(
+    `homefin_inventory_shares?shared_family_id=eq.${encodeURIComponent(familyId)}&select=owner_family_id&limit=1`
+  );
+  const ownerFamilyId = rows?.[0]?.owner_family_id || familyId;
+  const isOwner = ownerFamilyId === familyId;
+  return { ownerFamilyId, isOwner };
+}
+
+async function requireOwner(familyId) {
+  const access = await resolveInventoryAccess(familyId);
+  if (!access.isOwner) {
+    const error = new Error('Somente a família proprietária pode gerenciar os convites.');
+    error.statusCode = 403;
+    throw error;
+  }
+  return access;
+}
+
+async function listSharedFamilies(ownerFamilyId) {
+  return db(
+    `homefin_inventory_shares?owner_family_id=eq.${encodeURIComponent(ownerFamilyId)}&select=shared_family_id,created_at&order=created_at.asc`
+  );
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Método não permitido.' });
@@ -73,74 +103,247 @@ export default async function handler(req, res) {
 
   try {
     const session = await validateFamilySession(req, familyId);
-    if (!session.valid) return res.status(401).json({ error: session.error || 'Sessão inválida.' });
+    if (!session.valid) {
+      return res.status(401).json({ error: session.error || 'Sessão inválida.' });
+    }
+
+    if (action === 'share-list') {
+      const access = await resolveInventoryAccess(familyId);
+      const sharedFamilies = access.isOwner
+        ? await listSharedFamilies(familyId)
+        : [];
+      return res.status(200).json({
+        ownerFamilyId: access.ownerFamilyId,
+        isOwner: access.isOwner,
+        sharedFamilies: sharedFamilies.map(row => ({
+          familyId: row.shared_family_id,
+          createdAt: row.created_at,
+        })),
+      });
+    }
+
+    if (action === 'share-add') {
+      await requireOwner(familyId);
+      const target = String(req.body.targetFamilyId || '').trim().toLowerCase();
+
+      if (!FAMILY_ID_PATTERN.test(target) || target === familyId) {
+        return res.status(400).json({ error: 'Informe um ID válido de outra família.' });
+      }
+
+      // Só famílias cadastradas e com credencial ativa podem receber convite.
+      const credentials = await db(
+        `homefin_family_credentials?family_id=eq.${encodeURIComponent(target)}&select=family_id&limit=1`
+      );
+      if (!credentials.length) {
+        return res.status(404).json({ error: 'Família não encontrada ou ainda sem cadastro de acesso.' });
+      }
+
+      // Uma família convidada não pode compartilhar nem receber outro convite.
+      const targetAsGuest = await db(
+        `homefin_inventory_shares?shared_family_id=eq.${encodeURIComponent(target)}&select=shared_family_id&limit=1`
+      );
+      const targetAsOwner = await db(
+        `homefin_inventory_shares?owner_family_id=eq.${encodeURIComponent(target)}&select=shared_family_id&limit=1`
+      );
+      if (targetAsGuest.length || targetAsOwner.length) {
+        return res.status(409).json({
+          error: 'Essa família já participa de um compartilhamento. Não é permitido compartilhar em cadeia.',
+        });
+      }
+
+      const inserted = await db('homefin_inventory_shares?select=shared_family_id,owner_family_id,created_at', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          shared_family_id: target,
+          owner_family_id: familyId,
+        }),
+      });
+      if (!inserted?.length) {
+        return res.status(502).json({ error: 'O Supabase não confirmou o convite.' });
+      }
+      return res.status(200).json({ success: true, familyId: target });
+    }
+
+    if (action === 'share-remove') {
+      await requireOwner(familyId);
+      const target = String(req.body.targetFamilyId || '').trim().toLowerCase();
+      if (!FAMILY_ID_PATTERN.test(target)) {
+        return res.status(400).json({ error: 'Identificador da família convidada inválido.' });
+      }
+      await db(
+        `homefin_inventory_shares?owner_family_id=eq.${encodeURIComponent(familyId)}&shared_family_id=eq.${encodeURIComponent(target)}`,
+        { method: 'DELETE', headers: { Prefer: 'return=minimal' } }
+      );
+      return res.status(200).json({ success: true });
+    }
+
+    const access = await resolveInventoryAccess(familyId);
+    const inventoryFamilyId = access.ownerFamilyId;
+
+    if (
+      ['save', 'delete', 'move', 'move-batch'].includes(action) &&
+      (
+        typeof req.body.expectedOwnerFamilyId !== 'string' ||
+        req.body.expectedOwnerFamilyId !== inventoryFamilyId
+      )
+    ) {
+      return res.status(409).json({
+        error: 'O compartilhamento do Estoque mudou. Atualize a tela antes de alterar os dados.',
+      });
+    }
 
     if (action === 'list') {
-      const [products, movements] = await Promise.all([
-        db(`homefin_inventory_products?family_id=eq.${encodeURIComponent(familyId)}&select=*&order=name.asc`),
-        db(`homefin_inventory_movements?family_id=eq.${encodeURIComponent(familyId)}&select=*&order=created_at.desc&limit=500`),
+      const [inventory, sharedFamilies] = await Promise.all([
+        db('rpc/homefin_inventory_list_authorized', {
+          method: 'POST',
+          body: JSON.stringify({
+            p_actor_family_id: familyId,
+            p_owner_family_id: inventoryFamilyId,
+          }),
+        }),
+        access.isOwner ? listSharedFamilies(inventoryFamilyId) : Promise.resolve([]),
       ]);
+
       return res.status(200).json({
-        products: products.map(productFromDb),
-        movements: movements.map(movementFromDb),
+        products: (inventory?.products || []).map(productFromDb),
+        movements: (inventory?.movements || []).map(movementFromDb),
+        ownerFamilyId: inventoryFamilyId,
+        isOwner: access.isOwner,
+        sharedFamilies: sharedFamilies.map(row => ({
+          familyId: row.shared_family_id,
+          createdAt: row.created_at,
+        })),
       });
     }
 
     if (action === 'save') {
       const p = req.body.product;
       if (!validProduct(p)) return res.status(400).json({ error: 'Dados do produto inválidos.' });
-      const existing = await db(
-        `homefin_inventory_products?family_id=eq.${encodeURIComponent(familyId)}&id=eq.${encodeURIComponent(p.id)}&select=id,quantity&limit=1`
-      );
 
-      const values = {
-        name: p.name.trim(), sku: p.sku.trim(),
-        category: p.category.trim(), supplier: p.supplier.trim(),
-        minimum_quantity: p.minimumQuantity,
-        cost_price: p.costPrice, sale_price: p.salePrice,
-        updated_at: new Date().toISOString(),
-      };
-
-      let rows;
-      if (existing.length) {
-        // Atualiza somente produto pertencente à família autenticada.
-        // O saldo só pode mudar por uma movimentação registrada.
-        rows = await db(
-          `homefin_inventory_products?family_id=eq.${encodeURIComponent(familyId)}&id=eq.${encodeURIComponent(p.id)}&select=*`,
-          {
-            method: 'PATCH',
-            headers: { Prefer: 'return=representation' },
-            body: JSON.stringify(values),
-          }
-        );
-      } else {
-        // Produto novo: não usa upsert por ID, evitando reassociar
-        // um registro que eventualmente pertença a outra família.
-        rows = await db('homefin_inventory_products?select=*', {
-          method: 'POST',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify({
-            ...values,
+      const product = await db('rpc/homefin_inventory_save_authorized', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_actor_family_id: familyId,
+          p_owner_family_id: inventoryFamilyId,
+          p_product: {
             id: p.id,
-            family_id: familyId,
+            name: p.name.trim(),
+            sku: p.sku.trim(),
+            category: p.category.trim(),
+            supplier: p.supplier.trim(),
             quantity: p.quantity,
-          }),
-        });
-      }
+            minimum_quantity: p.minimumQuantity,
+            cost_price: p.costPrice,
+            sale_price: p.salePrice,
+            wholesale_price: Number(p.wholesalePrice ?? 0),
+          },
+        }),
+      });
 
-      if (!rows || !rows.length) {
-        return res.status(404).json({ error: 'Produto não encontrado nesta família.' });
+      if (!product) {
+        return res.status(502).json({ error: 'O Supabase não confirmou o salvamento do produto.' });
       }
-      return res.status(200).json({ product: productFromDb(rows[0]) });
+      return res.status(200).json({ product: productFromDb(product) });
     }
 
     if (action === 'delete') {
-      if (!UUID_PATTERN.test(String(req.body.id || ''))) return res.status(400).json({ error: 'Produto inválido.' });
-      await db(`homefin_inventory_products?family_id=eq.${encodeURIComponent(familyId)}&id=eq.${req.body.id}`, {
-        method: 'DELETE', headers: { Prefer: 'return=minimal' },
+      if (!UUID_PATTERN.test(String(req.body.id || ''))) {
+        return res.status(400).json({ error: 'Produto inválido.' });
+      }
+
+      const deleted = await db('rpc/homefin_inventory_delete_authorized', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_actor_family_id: familyId,
+          p_owner_family_id: inventoryFamilyId,
+          p_product_id: req.body.id,
+        }),
       });
+
+      if (!deleted) {
+        return res.status(404).json({ error: 'Produto não encontrado neste Estoque.' });
+      }
       return res.status(200).json({ success: true });
     }
+
+      if (action === 'move-batch') {
+        const { items, note = '' } = req.body;
+
+        if (
+          !Array.isArray(items) ||
+          items.length < 1 ||
+          items.length > 100 ||
+          typeof note !== 'string' ||
+          note.length > 500
+        ) {
+          return res.status(400).json({ error: 'Dados da baixa em lote inválidos.' });
+        }
+
+        const seen = new Set();
+        const validItems = [];
+
+        for (const item of items) {
+          const productId = String(item?.productId || '');
+          const quantity = item?.quantity;
+
+          if (
+            !UUID_PATTERN.test(productId) ||
+            seen.has(productId) ||
+            !Number.isInteger(quantity) ||
+            quantity < 1 ||
+            quantity > 100000000
+          ) {
+            return res.status(400).json({
+              error: 'Há produto repetido ou quantidade inválida na lista.',
+            });
+          }
+
+          seen.add(productId);
+          validItems.push({ product_id: productId, quantity });
+        }
+
+        const result = await db('rpc/homefin_inventory_move_batch_authorized', {
+          method: 'POST',
+          body: JSON.stringify({
+            p_actor_family_id: familyId,
+            p_owner_family_id: inventoryFamilyId,
+            p_items: validItems,
+            p_note: note,
+          }),
+        });
+
+        if (
+          !result ||
+          !Array.isArray(result.products) ||
+          !Array.isArray(result.movements) ||
+          result.products.length !== validItems.length ||
+          result.movements.length !== validItems.length
+        ) {
+          return res.status(502).json({
+            error: 'O Supabase não confirmou todos os itens da baixa.',
+          });
+        }
+
+        const returnedProducts = result.products.map(productFromDb);
+        const returnedMovements = result.movements.map(movementFromDb);
+
+        if (
+          returnedProducts.some(product => !seen.has(product.id)) ||
+          returnedMovements.some(movement => !seen.has(movement.productId)) ||
+          new Set(returnedProducts.map(product => product.id)).size !== validItems.length ||
+          new Set(returnedMovements.map(movement => movement.productId)).size !== validItems.length
+        ) {
+          return res.status(502).json({
+            error: 'A confirmação do Supabase retornou itens diferentes da lista enviada.',
+          });
+        }
+
+        return res.status(200).json({
+          products: returnedProducts,
+          movements: returnedMovements,
+        });
+      }
 
     if (action === 'move') {
       const { productId, type, quantity, note = '' } = req.body;
@@ -150,11 +353,15 @@ export default async function handler(req, res) {
           typeof note !== 'string' || note.length > 500) {
         return res.status(400).json({ error: 'Dados da movimentação inválidos.' });
       }
-      const result = await db('rpc/homefin_inventory_move', {
+      const result = await db('rpc/homefin_inventory_move_authorized', {
         method: 'POST',
         body: JSON.stringify({
-          p_family_id: familyId, p_product_id: productId,
-          p_type: type, p_quantity: quantity, p_note: note,
+          p_actor_family_id: familyId,
+          p_owner_family_id: inventoryFamilyId,
+          p_product_id: productId,
+          p_type: type,
+          p_quantity: quantity,
+          p_note: note,
         }),
       });
       if (!result || !result.product || !result.movement) {
@@ -168,7 +375,12 @@ export default async function handler(req, res) {
 
     return res.status(400).json({ error: 'Operação de Estoque inválida.' });
   } catch (error) {
+    const status = Number.isInteger(error?.statusCode)
+      ? error.statusCode
+      : ['42501', 'P0001', '23505'].includes(error?.code) ? 409 : 502;
     console.error('Erro no Estoque:', error?.message || 'erro desconhecido');
-    return res.status(502).json({ error: error?.message || 'Falha ao acessar o Estoque.' });
+    return res.status(status).json({
+      error: error?.message || 'Falha ao acessar o Estoque.',
+    });
   }
 }

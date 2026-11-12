@@ -15,6 +15,7 @@ import { showNotification } from '../services/utils/notifications';
 import QuickMenu from './QuickMenu';
 import { DEFAULT_QUICK_MENU, normalizeQuickMenu } from './quickMenuConfig';
 import { SIDEBAR_MENU_ITEMS } from './navigationConfig';
+import PageAdvertisement from './PageAdvertisement';
 
 const colors = {
   slate: '#64748b',
@@ -229,6 +230,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 : 'Sincronização com a nuvem confirmada.'}
             </div>
           )}
+          <PageAdvertisement pageKey={location.pathname.replace(/^\/+|\/+$/g, '')} />
           {children}
         </div>
       </main>

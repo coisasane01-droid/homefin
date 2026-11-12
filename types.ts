@@ -74,6 +74,7 @@ export interface UserSettings {
   theme: 'light' | 'dark';
   houseName: string;
   primaryColor: string;
+  homePage?: string;
   quickMenu?: {
     enabled: boolean;
     items: Array<string | {

@@ -5,6 +5,38 @@ import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
 
 const PIN_LENGTH = 4;
 
+const getPostLoginPath = (familyId: string): string => {
+  const allowedRoutes = new Set([
+    '/dashboard',
+    '/bills',
+    '/shopping',
+    '/calendar',
+    '/wallets',
+    '/goals',
+    '/assets',
+    '/reports',
+    '/inventory',
+    '/spreadsheets',
+    '/ranking',
+    '/debts',
+  ]);
+
+  try {
+    const raw = localStorage.getItem(`homefin_data_${familyId}`);
+    if (!raw) return '/dashboard';
+
+    const data = JSON.parse(raw);
+    const selectedPath = data?.settings?.homePage;
+
+    return typeof selectedPath === 'string' && allowedRoutes.has(selectedPath)
+      ? selectedPath
+      : '/dashboard';
+  } catch (error) {
+    console.error('HomeFin: não foi possível identificar a página inicial:', error);
+    return '/dashboard';
+  }
+};
+
 const getInitialFamilySettings = (): UserSettings | null => {
   try {
     const hash = window.location.hash || '';
@@ -121,7 +153,7 @@ const Auth: React.FC = () => {
     try {
       const result = await familyAuthRequest(familyId, { action: 'login', pin: inputPin });
       storeFamilySession(familyId, result);
-      window.location.hash = '/dashboard';
+      window.location.hash = getPostLoginPath(familyId);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Não foi possível validar o acesso.');
       setPin('');
@@ -151,7 +183,7 @@ const Auth: React.FC = () => {
         newPin: recoveryPin,
       });
       storeFamilySession(familyId, result);
-      window.location.hash = '/dashboard';
+      window.location.hash = getPostLoginPath(familyId);
     } catch (recoveryError) {
       setError(recoveryError instanceof Error ? recoveryError.message : 'Não foi possível recuperar o acesso.');
       setRecoveryPin('');
@@ -196,7 +228,7 @@ const Auth: React.FC = () => {
       setHasRecovery(result.hasRecovery === true);
       try {
         storeFamilySession(familyId, result);
-        window.location.hash = '/dashboard';
+        window.location.hash = getPostLoginPath(familyId);
       } catch {
         setMode('login');
         setPin('');

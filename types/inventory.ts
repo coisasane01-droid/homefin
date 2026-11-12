@@ -10,6 +10,7 @@ export interface InventoryProduct {
   minimumQuantity: number;
   costPrice: number;
   salePrice: number;
+  wholesalePrice: number;
   updatedAt: string;
 }
 

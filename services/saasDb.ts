@@ -85,7 +85,41 @@ export interface AppBannerConfig {
   partnerMediaType?: 'image' | 'mp4' | 'youtube';
   partnerVideoUrl?: string;
   partnerVideoFit?: 'cover' | 'contain';
+  pages?: Record<string, PageAdvertisementConfig>;
 }
+
+export type AdvertisementMediaType = 'image' | 'mp4' | 'youtube';
+
+export interface PageAdvertisementConfig {
+  enabled: boolean;
+  mediaType: AdvertisementMediaType;
+  imageUrl?: string;
+  videoUrl?: string;
+  linkUrl?: string;
+  altText?: string;
+  imagePositionX?: number;
+  imagePositionY?: number;
+  videoFit?: 'cover' | 'contain';
+}
+
+export const APP_ADVERTISEMENT_PAGES = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'bills', label: 'Contas do Mês' },
+  { key: 'shopping', label: 'Compras' },
+  { key: 'calendar', label: 'Calendário' },
+  { key: 'wallets', label: 'Contas Bancárias' },
+  { key: 'goals', label: 'Metas' },
+  { key: 'assets', label: 'Patrimônio' },
+  { key: 'reports', label: 'Relatórios' },
+  { key: 'inventory', label: 'Estoque' },
+  { key: 'spreadsheets', label: 'Planilhas' },
+  { key: 'ranking', label: 'Ranking' },
+  { key: 'debts', label: 'Dívidas' },
+  { key: 'settings', label: 'Configurações' },
+  { key: 'my-plan', label: 'Meu Plano' },
+  { key: 'share', label: 'Compartilhar' },
+  { key: 'support', label: 'Suporte' },
+] as const;
 
 export interface SaasData {
   codes: AccessCode[];
@@ -748,5 +782,119 @@ export const saasDb = {
     };
 
     saveSaasData(data);
+  },
+
+  getPageAdvertisementConfig: (pageKey: string): PageAdvertisementConfig => {
+    const banner = getSaasData().appBannerConfig;
+    const saved = banner.pages?.[pageKey];
+
+    if (saved) {
+      return {
+        enabled: false,
+        mediaType: 'image',
+        videoFit: 'cover',
+        imagePositionX: 50,
+        imagePositionY: 50,
+        ...saved,
+      };
+    }
+
+    // Compatibilidade com as campanhas antigas na página Contas do Mês.
+    if (pageKey === 'bills') {
+      const mediaType = banner.partnerMediaType || 'image';
+
+      if (banner.enabled && banner.partnerEnabled) {
+        const mediaUrl = mediaType === 'image'
+          ? banner.partnerImageUrl
+          : banner.partnerVideoUrl;
+
+        if (mediaUrl?.trim()) {
+          return {
+            enabled: true,
+            mediaType,
+            imageUrl: mediaType === 'image' ? mediaUrl : '',
+            videoUrl: mediaType !== 'image' ? mediaUrl : '',
+            linkUrl: banner.partnerLinkUrl || '',
+            altText: banner.partnerAltText || 'Publicidade de parceiro',
+            imagePositionX: banner.partnerImagePositionX ?? 50,
+            imagePositionY: banner.partnerImagePositionY ?? 50,
+            videoFit: banner.partnerVideoFit || 'cover',
+          };
+        }
+      }
+
+      const legacyImage = banner.imageUrl?.trim() || '';
+      const isDemoImage = legacyImage === 'https://picsum.photos/seed/ads/800/100';
+
+      if (banner.enabled && legacyImage && !isDemoImage) {
+        return {
+          enabled: true,
+          mediaType: 'image',
+          imageUrl: legacyImage,
+          linkUrl: banner.linkUrl || '',
+          altText: banner.altText || 'Publicidade',
+          imagePositionX: banner.imagePositionX ?? 50,
+          imagePositionY: banner.imagePositionY ?? 50,
+          videoFit: 'cover',
+        };
+      }
+    }
+
+    return {
+      enabled: false,
+      mediaType: 'image',
+      imageUrl: '',
+      videoUrl: '',
+      linkUrl: '',
+      altText: '',
+      imagePositionX: 50,
+      imagePositionY: 50,
+      videoFit: 'cover',
+    };
+  },
+
+  updatePageAdvertisementConfig: async (
+    pageKey: string,
+    config: PageAdvertisementConfig
+  ): Promise<void> => {
+    if (!APP_ADVERTISEMENT_PAGES.some(page => page.key === pageKey)) {
+      throw new Error('Página de publicidade inválida.');
+    }
+
+    // Supabase é a fonte principal; lê a versão atual antes de alterar.
+    const remoteData = await supabaseService.getSaasData();
+    const localData = getSaasData();
+
+    const baseData: SaasData = remoteData
+      ? {
+          ...localData,
+          ...remoteData,
+          appBannerConfig: {
+            ...localData.appBannerConfig,
+            ...(remoteData.appBannerConfig || {}),
+            pages: {
+              ...(localData.appBannerConfig?.pages || {}),
+              ...(remoteData.appBannerConfig?.pages || {}),
+            },
+          },
+        }
+      : localData;
+
+    const safeData = structuredClone(baseData);
+    safeData.appBannerConfig = {
+      ...safeData.appBannerConfig,
+      pages: {
+        ...(safeData.appBannerConfig.pages || {}),
+        [pageKey]: { ...config },
+      },
+    };
+    safeData.paymentConfig = removeLegacyMercadoPagoToken(safeData.paymentConfig);
+
+    // Só altera o cache local depois da confirmação do servidor.
+    await supabaseService.saveSaasData(safeData);
+
+    localStorage.setItem(SAAS_STORAGE_KEY, JSON.stringify(safeData));
+    window.dispatchEvent(new Event('homefin-saas-synced'));
   }
+
 };

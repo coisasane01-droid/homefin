@@ -28,8 +28,7 @@ import {
   parseSpreadsheetCurrency,
   SPREADSHEET_TOTAL_COMMISSION_BASE,
   calculateSpreadsheetColumnFormula,
-  calculateSpreadsheetFormulaColumnValues,
-  validateSpreadsheetFormula,
+  calculateSpreadsheetColumnTotal,
 } from '../services/spreadsheetMath';
 import type {
   HomeFinSpreadsheet,
@@ -169,6 +168,8 @@ const Spreadsheets: React.FC = () => {
   const [records, setRecords] = useState<HomeFinSpreadsheet[]>([]);
   const [selected, setSelected] = useState<HomeFinSpreadsheet | null>(null);
   const [search, setSearch] = useState('');
+  const [rowSearch, setRowSearch] = useState('');
+  const [quickEntry, setQuickEntry] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -178,6 +179,11 @@ const Spreadsheets: React.FC = () => {
   const [columnModal, setColumnModal] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnType, setColumnType] = useState<SpreadsheetColumnType>('text');
+  const [formulaModalColumnId, setFormulaModalColumnId] = useState<string | null>(null);
+  const [formulaMode, setFormulaMode] = useState<'row' | 'column'>('row');
+  const [formulaSourceColumnId, setFormulaSourceColumnId] = useState('');
+  const [formulaOperator, setFormulaOperator] = useState<'+' | '-' | '*' | '/'>('+');
+  const [formulaSecondColumnId, setFormulaSecondColumnId] = useState('');
   const [commissionInput, setCommissionInput] = useState('0');
   const [commissionInputError, setCommissionInputError] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
@@ -254,6 +260,42 @@ const Spreadsheets: React.FC = () => {
       ].some((value) => value.toLocaleLowerCase('pt-BR').includes(query));
     });
   }, [records, search]);
+
+  const filteredRows = useMemo(() => {
+    if (!selected) return [];
+
+    const normalize = (value: string) =>
+      value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
+
+    const query = normalize(rowSearch);
+    if (!query) return selected.rows;
+
+    return selected.rows.filter((row) =>
+      selected.columns.some((column) => {
+        const raw = row.cells[column.id] || '';
+        const formula = column.formulaExpression || column.formula;
+        const hasRowFormula = column.formulaConfig?.mode === 'row' || !!formula;
+        const calculated = hasRowFormula
+          ? calculateSpreadsheetColumnFormula(selected, column.id, row)
+          : null;
+
+        const values = [column.name, raw];
+
+        if (hasRowFormula && calculated !== null && Number.isFinite(calculated)) {
+          values.push(String(calculated), formatCurrency(calculated));
+        }
+
+        if (column.type === 'currency' && !column.formulaConfig && !formula) {
+          const amount = parseSpreadsheetCurrency(raw);
+          if (amount !== null) {
+            values.push(String(amount), formatCurrency(amount));
+          }
+        }
+
+        return values.some((value) => normalize(value).includes(query));
+      })
+    );
+  }, [selected, rowSearch]);
 
   const updateSelected = (update: Partial<HomeFinSpreadsheet>) => {
     if (saving) return;
@@ -382,6 +424,51 @@ const Spreadsheets: React.FC = () => {
   const handleAddRow = () => {
     if (!selected) return;
     updateSelected({ rows: [...selected.rows, emptyRow(selected.columns)] });
+  };
+
+  const handleAddQuickEntry = () => {
+    if (!selected || saving) return;
+
+    const hasContent = selected.columns.some(
+      (column) => (quickEntry[column.id] || '').trim() !== ''
+    );
+
+    if (!hasContent) {
+      setSyncError('Preencha pelo menos um campo antes de adicionar o lançamento.');
+      return;
+    }
+
+    for (const column of selected.columns) {
+      const value = (quickEntry[column.id] || '').trim();
+      if (
+        column.type === 'currency' &&
+        !column.formulaConfig &&
+        !column.formulaExpression &&
+        !column.formula &&
+        value !== '' &&
+        parseSpreadsheetCurrency(value) === null
+      ) {
+        setSyncError(`Confira o valor informado na coluna "${column.name}".`);
+        return;
+      }
+    }
+
+    const cells = Object.fromEntries(
+      selected.columns.map((column) => [
+        column.id,
+        column.formulaConfig || column.formulaExpression || column.formula
+          ? ''
+          : (quickEntry[column.id] || '').trim(),
+      ])
+    );
+
+    updateSelected({
+      rows: [...selected.rows, { id: crypto.randomUUID(), cells }],
+    });
+
+    setQuickEntry({});
+    setRowSearch('');
+    setSyncError('');
   };
 
   const handleCellChange = (rowId: string, columnId: string, value: string) => {
@@ -600,22 +687,91 @@ const Spreadsheets: React.FC = () => {
 
   const handleSetColumnFormula = (column: SpreadsheetColumn) => {
     if (!selected || column.type !== 'currency') return;
-    const current = column.formulaExpression || column.formula || '';
-    const expression = window.prompt(
-      `Fórmula da coluna "${column.name}". Use nomes de outras colunas sem espaços e operadores + - * /. Exemplo: Venda-Original. Deixe vazio para remover a fórmula.`,
-      current
+
+    const available = selected.columns.filter(
+      (item) =>
+        item.type === 'currency' &&
+        item.id !== column.id &&
+        !item.formulaConfig &&
+        !item.formulaExpression &&
+        !item.formula
     );
-    if (expression === null) return;
-    const trimmed = expression.trim();
-    if (trimmed && !validateSpreadsheetFormula(trimmed, selected.columns.filter(item => item.id !== column.id))) {
-      setSyncError('Fórmula inválida. Confira os nomes das colunas e os operadores.');
+
+    const current = column.formulaConfig;
+    setFormulaModalColumnId(column.id);
+    setFormulaMode(current?.mode || 'row');
+    setFormulaOperator(current?.operator || '+');
+    setFormulaSourceColumnId(
+      current?.sourceColumnId && available.some((item) => item.id === current.sourceColumnId)
+        ? current.sourceColumnId
+        : available[0]?.id || ''
+    );
+    setFormulaSecondColumnId(
+      current?.secondColumnId && available.some((item) => item.id === current.secondColumnId)
+        ? current.secondColumnId
+        : available.find((item) => item.id !== (current?.sourceColumnId || available[0]?.id))?.id || ''
+    );
+    setSyncError('');
+  };
+
+  const handleSaveColumnFormula = () => {
+    if (!selected || !formulaModalColumnId) return;
+
+    const target = selected.columns.find((item) => item.id === formulaModalColumnId);
+    const first = selected.columns.find((item) => item.id === formulaSourceColumnId);
+    const second = selected.columns.find((item) => item.id === formulaSecondColumnId);
+
+    const isManualCurrency = (column?: SpreadsheetColumn) =>
+      !!column &&
+      column.type === 'currency' &&
+      !column.formulaConfig &&
+      !column.formulaExpression &&
+      !column.formula;
+
+    if (
+      !target ||
+      target.type !== 'currency' ||
+      !isManualCurrency(first) ||
+      !isManualCurrency(second) ||
+      first.id === second.id ||
+      first.id === target.id ||
+      second.id === target.id
+    ) {
+      setSyncError('Escolha duas colunas monetárias diferentes e válidas para calcular.');
       return;
     }
+
     updateSelected({
-      columns: selected.columns.map(item =>
-        item.id === column.id ? { ...item, formulaExpression: trimmed || null, formula: trimmed || null } : item
+      columns: selected.columns.map((item) =>
+        item.id === target.id
+          ? {
+              ...item,
+              formulaConfig: {
+                mode: formulaMode,
+                sourceColumnId: first.id,
+                operator: formulaOperator,
+                secondColumnId: second.id,
+              },
+              formula: null,
+              formulaExpression: null,
+            }
+          : item
       ),
     });
+    setFormulaModalColumnId(null);
+  };
+
+  const handleRemoveColumnFormula = () => {
+    if (!selected || !formulaModalColumnId) return;
+
+    updateSelected({
+      columns: selected.columns.map((item) =>
+        item.id === formulaModalColumnId
+          ? { ...item, formulaConfig: null, formula: null, formulaExpression: null }
+          : item
+      ),
+    });
+    setFormulaModalColumnId(null);
   };
 
   const handleRenameColumn = (column: SpreadsheetColumn) => {
@@ -639,7 +795,15 @@ const Spreadsheets: React.FC = () => {
       return;
     }
     updateSelected({
-      columns: selected.columns.filter((item) => item.id !== column.id),
+      columns: selected.columns
+        .filter((item) => item.id !== column.id)
+        .map((item) =>
+          item.formulaConfig &&
+          (item.formulaConfig.sourceColumnId === column.id ||
+            item.formulaConfig.secondColumnId === column.id)
+            ? { ...item, formulaConfig: null, formula: null, formulaExpression: null }
+            : item
+        ),
       ...(selected.commissionColumnId === column.id
         ? {
             commissionColumnId: selected.columns.find(
@@ -674,7 +838,8 @@ const Spreadsheets: React.FC = () => {
     const columnTitles = [...selected.columns.map((column) => column.name), 'Total'];
     const body = selected.rows.map((row) => [
       ...selected.columns.map((column) => {
-        if (column.formulaExpression || column.formula) {
+        if (column.formulaConfig?.mode === 'column') return '—';
+        if (column.formulaConfig || column.formulaExpression || column.formula) {
           const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
           return value === null || !Number.isFinite(value) ? '—' : formatCurrency(value);
         }
@@ -700,10 +865,25 @@ const Spreadsheets: React.FC = () => {
       30
     );
 
+    const pdfColumnTotals = selected.columns.map((column) =>
+      column.type !== 'currency'
+        ? '—'
+        : formatCurrency(calculateSpreadsheetColumnTotal(selected, column.id))
+    );
+
     autoTable(doc, {
       startY: 36,
       head: [columnTitles],
       body,
+      foot: [[...pdfColumnTotals, formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))]],
+      showFoot: 'lastPage',
+      footStyles: {
+        fillColor: [220, 252, 231],
+        textColor: [22, 101, 52],
+        fontStyle: 'bold',
+        lineColor: [134, 239, 172],
+        lineWidth: 0.3,
+      },
       theme: 'grid',
       margin: { left: 14, right: 14, top: 36, bottom: 14 },
       styles: {
@@ -727,6 +907,7 @@ const Spreadsheets: React.FC = () => {
     const finalY = tableDocument.lastAutoTable?.finalY || 40;
     const pageHeight = doc.internal.pageSize.getHeight();
     let summaryY = finalY + 9;
+    const summaryHeight = selected.commissionEnabled ? 20 : 12;
     const writeContinuationHeader = (title: string) => {
       doc.setTextColor(55, 48, 163);
       doc.setFont('helvetica', 'bold');
@@ -738,19 +919,24 @@ const Spreadsheets: React.FC = () => {
       return 30;
     };
 
-    if (summaryY > pageHeight - 16) {
+    if (summaryY + summaryHeight + 8 > pageHeight - 14) {
       doc.addPage();
       summaryY = writeContinuationHeader('Resumo');
     }
 
+    const pageWidth = doc.internal.pageSize.getWidth();
+    doc.setFillColor(220, 252, 231);
+    doc.setDrawColor(134, 239, 172);
+    doc.roundedRect(14, summaryY - 6, pageWidth - 28, summaryHeight, 2, 2, 'FD');
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(55, 48, 163);
-    doc.text(`Total geral: ${formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}`, 14, summaryY);
+    doc.setTextColor(22, 101, 52);
+    doc.text(`Total geral: ${formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}`, 18, summaryY + 1);
 
     if (selected.commissionEnabled) {
       doc.setFontSize(10);
-      doc.setTextColor(5, 150, 105);
+      doc.setTextColor(22, 101, 52);
       doc.text(
         `Comissão (${selected.commissionPercentage ?? 0}%): ${formatCurrency(calculateSpreadsheetCommission(selected))}`,
         14,
@@ -766,7 +952,7 @@ const Spreadsheets: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(55, 65, 81);
-      let notesY = summaryY + (selected.commissionEnabled ? 14 : 8);
+      let notesY = summaryY + (selected.commissionEnabled ? 24 : 16);
       for (const line of notes) {
         if (notesY > pageHeight - 14) {
           doc.addPage();
@@ -780,7 +966,6 @@ const Spreadsheets: React.FC = () => {
       }
     }
 
-    const pageWidth = doc.internal.pageSize.getWidth();
     const pageCount = doc.getNumberOfPages();
     for (let page = 1; page <= pageCount; page += 1) {
       doc.setPage(page);
@@ -806,6 +991,120 @@ const Spreadsheets: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12">
+      {formulaModalColumnId && selected && (() => {
+        const target = selected.columns.find((item) => item.id === formulaModalColumnId);
+        const available = selected.columns.filter(
+          (item) =>
+            item.type === 'currency' &&
+            item.id !== formulaModalColumnId &&
+            !item.formulaConfig &&
+            !item.formulaExpression &&
+            !item.formula
+        );
+        const validSources =
+          available.some((item) => item.id === formulaSourceColumnId) &&
+          available.some((item) => item.id === formulaSecondColumnId) &&
+          formulaSourceColumnId !== formulaSecondColumnId;
+
+        return (
+          <div role="dialog" aria-modal="true" aria-labelledby="formula-modal-title" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <section className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">Cálculo automático</p>
+                  <h2 id="formula-modal-title" className="mt-1 text-xl font-bold text-gray-900 dark:text-white">
+                    Fórmula: {target?.name || 'Coluna'}
+                  </h2>
+                </div>
+                <button type="button" onClick={() => setFormulaModalColumnId(null)} aria-label="Fechar" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <label className="mb-4 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Como deseja calcular?
+                <select
+                  value={formulaMode}
+                  onChange={(event) => setFormulaMode(event.target.value as 'row' | 'column')}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="row">Por linha — calcular cada registro</option>
+                  <option value="column">Por coluna — calcular os totais acumulados</option>
+                </select>
+              </label>
+
+              <label className="mb-4 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Primeira coluna
+                <select
+                  value={formulaSourceColumnId}
+                  onChange={(event) => setFormulaSourceColumnId(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="">Selecione uma coluna</option>
+                  {available.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+
+              <label className="mb-4 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Operação
+                <select
+                  value={formulaOperator}
+                  onChange={(event) => setFormulaOperator(event.target.value as '+' | '-' | '*' | '/')}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="+">+ Somar</option>
+                  <option value="-">− Subtrair</option>
+                  <option value="*">× Multiplicar</option>
+                  <option value="/">÷ Dividir</option>
+                </select>
+              </label>
+
+              <label className="mb-4 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Segunda coluna
+                <select
+                  value={formulaSecondColumnId}
+                  onChange={(event) => setFormulaSecondColumnId(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="">Selecione uma coluna</option>
+                  {available.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+
+              <div className="mb-5 rounded-xl bg-primary-50 p-3 text-sm leading-6 text-primary-900 dark:bg-primary-950/40 dark:text-primary-200">
+                {formulaMode === 'row'
+                  ? 'O HomeFin fará a operação entre os dois valores em cada linha. O resultado aparecerá na coluna calculada e entrará no total da linha e no total geral.'
+                  : 'O HomeFin somará primeiro cada uma das duas colunas e depois fará a operação entre esses totais. O resultado aparecerá somente no rodapé da coluna calculada.'}
+                {formulaOperator === '/' && (
+                  <p className="mt-2 font-medium">Se o divisor for zero, o resultado será exibido como traço (—).</p>
+                )}
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+                <div className="flex gap-2">
+                  {(target?.formulaConfig || target?.formula || target?.formulaExpression) && (
+                    <button type="button" onClick={handleRemoveColumnFormula} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/30">
+                      Remover fórmula
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setFormulaModalColumnId(null)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={handleSaveColumnFormula} disabled={!validSources} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50">
+                    Aplicar fórmula
+                  </button>
+                </div>
+              </div>
+              {available.length < 2 && (
+                <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">Adicione pelo menos duas colunas do tipo Valor em R$ sem fórmula para configurar este cálculo.</p>
+              )}
+            </section>
+          </div>
+        );
+      })()}
+
       {columnModal && (
         <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
@@ -1164,7 +1463,80 @@ const Spreadsheets: React.FC = () => {
             </div>
           </div>
 
-          <div className="max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+          <section className="space-y-3 rounded-xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900 dark:bg-primary-950/20">
+            <div>
+              <h3 className="font-semibold text-gray-900 dark:text-white">Preenchimento rápido</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Preencha os campos e adicione o lançamento depois do último registro.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {selected.columns.map((column) => (
+                <label key={column.id} className="block min-w-0 text-sm">
+                  <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">
+                    {column.name}
+                    {column.formulaExpression || column.formula ? ' · automático' : ''}
+                  </span>
+                  {column.formulaExpression || column.formula ? (
+                    <div className="rounded-lg border border-primary-200 bg-primary-100/70 px-3 py-2 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-950/50 dark:text-primary-200">
+                      Calculado automaticamente
+                    </div>
+                  ) : (
+                    <input
+                      value={quickEntry[column.id] || ''}
+                      onChange={(event) =>
+                        setQuickEntry((current) => ({
+                          ...current,
+                          [column.id]: event.target.value,
+                        }))
+                      }
+                      maxLength={2000}
+                      inputMode={column.type === 'currency' ? 'decimal' : 'text'}
+                      placeholder={column.type === 'currency' ? '0,00' : `Digite ${column.name.toLocaleLowerCase('pt-BR')}`}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-800 outline-none focus:border-primary-500 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddQuickEntry}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+            >
+              <Plus size={16} /> Adicionar lançamento
+            </button>
+          </section>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <label className="relative block w-full sm:max-w-md">
+              <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={rowSearch}
+                onChange={(event) => setRowSearch(event.target.value)}
+                placeholder="Pesquisar nesta planilha por nome, data ou valor..."
+                className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-10 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+              />
+              {rowSearch && (
+                <button
+                  type="button"
+                  onClick={() => setRowSearch('')}
+                  aria-label="Limpar pesquisa dos lançamentos"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {filteredRows.length} de {selected.rows.length} lançamento(s)
+            </p>
+          </div>
+
+          <div className="max-h-[70vh] max-w-full overflow-auto rounded-xl border border-gray-200 dark:border-gray-700">
             <table className="w-full min-w-[1180px] border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-gray-100 dark:bg-gray-900">
                 <tr>
@@ -1207,7 +1579,7 @@ const Spreadsheets: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleSetColumnFormula(column)}
-                            title={column.formulaExpression || column.formula ? 'Editar fórmula' : 'Definir fórmula'}
+                            title={column.formulaConfig || column.formulaExpression || column.formula ? 'Editar fórmula' : 'Definir fórmula'}
                             aria-label={`Definir fórmula para ${column.name}`}
                             className="rounded p-1 text-primary-600 hover:bg-primary-50 dark:hover:bg-gray-700"
                           >
@@ -1226,7 +1598,7 @@ const Spreadsheets: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {selected.rows.map((row, rowIndex) => (
+                {filteredRows.map((row, rowIndex) => (
                   <tr
                     key={row.id}
                     data-row-id={row.id}
@@ -1263,7 +1635,11 @@ const Spreadsheets: React.FC = () => {
                     </td>
                     {selected.columns.map((column) => (
                       <td key={column.id} className="border-r border-b border-gray-200 p-1.5 dark:border-gray-700">
-                        {(column.formulaExpression || column.formula) ? (
+                        {column.formulaConfig?.mode === 'column' ? (
+                          <div className="rounded-md bg-gray-100 px-2 py-2 text-center text-xs font-medium text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                            No total da coluna
+                          </div>
+                        ) : (column.formulaConfig || column.formulaExpression || column.formula) ? (
                           <div className="rounded-md border border-primary-200 bg-primary-50 px-2 py-2 text-right font-semibold text-primary-800 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-200">
                             {(() => {
                               const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
@@ -1310,10 +1686,12 @@ const Spreadsheets: React.FC = () => {
                     </td>
                   </tr>
                 ))}
-                {!selected.rows.length && (
+                {!filteredRows.length && (
                   <tr>
                     <td colSpan={selected.columns.length + 3} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                      Nenhuma linha. Use “Nova linha” para adicionar um lançamento.
+                      {selected.rows.length
+                        ? 'Nenhum lançamento encontrado para esta pesquisa.'
+                        : 'Nenhuma linha. Use “Nova linha” ou o preenchimento rápido para adicionar um lançamento.'}
                     </td>
                   </tr>
                 )}
@@ -1325,12 +1703,7 @@ const Spreadsheets: React.FC = () => {
                     if (column.type !== 'currency') {
                       return <td key={column.id} className="border-t border-gray-200 px-3 py-3 text-right text-gray-400 dark:border-gray-700">—</td>;
                     }
-                    const formulaValues = (column.formulaExpression || column.formula)
-                      ? calculateSpreadsheetFormulaColumnValues(selected, column.id)
-                      : null;
-                    const total = formulaValues
-                      ? formulaValues.reduce((sum, value) => sum + (value ?? 0), 0)
-                      : selected.rows.reduce((sum, row) => sum + (parseSpreadsheetCurrency(row.cells[column.id] || '') || 0), 0);
+                    const total = calculateSpreadsheetColumnTotal(selected, column.id);
                     return <td key={column.id} className="border-t border-gray-200 px-3 py-3 text-right text-gray-800 dark:border-gray-700 dark:text-gray-100">{formatCurrency(total)}</td>;
                   })}
                   <td className="border-t border-gray-200 px-3 py-3 text-right">—</td>

@@ -37,6 +37,7 @@ const Settings: React.FC = () => {
       theme: 'light',
       houseName: '',
       primaryColor: 'indigo',
+      homePage: '/dashboard',
       integrations: { openBanking: false, saneago: false, equatorial: false },
       backgroundZoom: 100,
       backgroundOpacity: 100,
@@ -582,6 +583,45 @@ const Settings: React.FC = () => {
                         <Moon /> Escuro
                     </button>
                 </div>
+            </div>
+
+            {/* Página inicial após o login */}
+            <div className="space-y-3 pt-4 border-t dark:border-gray-700">
+                <label
+                    htmlFor="homefin-home-page"
+                    className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                    Página inicial após o login
+                </label>
+
+                <select
+                    id="homefin-home-page"
+                    value={settings.homePage || '/dashboard'}
+                    onChange={(e) => setSettings({
+                        ...settings,
+                        homePage: e.target.value
+                    })}
+                    className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 outline-none"
+                >
+                    <option value="/dashboard">Dashboard</option>
+                    <option value="/bills">Contas do mês</option>
+                    <option value="/shopping">Compras</option>
+                    <option value="/calendar">Calendário</option>
+                    <option value="/wallets">Carteiras</option>
+                    <option value="/goals">Metas</option>
+                    <option value="/assets">Patrimônio</option>
+                    <option value="/reports">Relatórios</option>
+                    <option value="/inventory">Estoque</option>
+                    <option value="/spreadsheets">Planilhas</option>
+                    <option value="/ranking">Ranking</option>
+                    <option value="/debts">Dívidas</option>
+                </select>
+
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Escolha qual tela será aberta automaticamente quando
+                    alguém entrar nesta família. A preferência será salva
+                    junto com as demais configurações.
+                </p>
             </div>
 
             {/* Primary Color Picker */}

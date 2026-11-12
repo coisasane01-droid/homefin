@@ -47,6 +47,30 @@ export const parseSpreadsheetCurrency = (value: string | number | null | undefin
   return Number.isFinite(amount) ? amount : null;
 };
 
+const applyStructuredSpreadsheetFormula = (
+  first: number,
+  operator: '+' | '-' | '*' | '/',
+  second: number
+): number | null => {
+  let result: number;
+  if (operator === '+') result = first + second;
+  else if (operator === '-') result = first - second;
+  else if (operator === '*') result = first * second;
+  else {
+    if (second === 0) return null;
+    result = first / second;
+  }
+  return Number.isFinite(result) ? result : null;
+};
+
+const getRawSpreadsheetColumnTotal = (
+  spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows'>,
+  columnId: string
+): number => spreadsheet.rows.reduce((total, row) => {
+  const amount = parseSpreadsheetCurrency(row.cells[columnId] || '');
+  return amount === null ? total : total + amount;
+}, 0);
+
 export const calculateSpreadsheetColumnTotal = (
   spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows'>,
   columnId: string | null | undefined
@@ -56,11 +80,33 @@ export const calculateSpreadsheetColumnTotal = (
   const column = spreadsheet.columns.find((item) => item.id === columnId);
   if (!column || column.type !== 'currency') return 0;
 
-  return spreadsheet.rows.reduce((total, row) => {
-    const value = row.cells[column.id];
-    const amount = parseSpreadsheetCurrency(value);
-    return amount === null ? total : total + amount;
-  }, 0);
+  const config = column.formulaConfig;
+  if (config) {
+    const firstColumn = spreadsheet.columns.find((item) => item.id === config.sourceColumnId);
+    const secondColumn = spreadsheet.columns.find((item) => item.id === config.secondColumnId);
+    if (!firstColumn || !secondColumn) return 0;
+
+    if (config.mode === 'column') {
+      const first = getRawSpreadsheetColumnTotal(spreadsheet, firstColumn.id);
+      const second = getRawSpreadsheetColumnTotal(spreadsheet, secondColumn.id);
+      return applyStructuredSpreadsheetFormula(first, config.operator, second) ?? 0;
+    }
+
+    return spreadsheet.rows.reduce((total, row) => {
+      const value = calculateSpreadsheetColumnFormula(spreadsheet, column.id, row);
+      return total + (value ?? 0);
+    }, 0);
+  }
+
+  const formula = column.formulaExpression || column.formula;
+  if (formula) {
+    return spreadsheet.rows.reduce((total, row) => {
+      const value = calculateSpreadsheetColumnFormula(spreadsheet, column.id, row);
+      return total + (value ?? 0);
+    }, 0);
+  }
+
+  return getRawSpreadsheetColumnTotal(spreadsheet, column.id);
 };
 
 export const calculateSpreadsheetColumnTotals = (
@@ -80,6 +126,20 @@ export const calculateSpreadsheetRowTotal = (
   let total = 0;
   for (const column of columns) {
     if (column.type !== 'currency') continue;
+
+    if (column.formulaConfig?.mode === 'column') continue;
+
+    if (column.formulaConfig || column.formulaExpression || column.formula) {
+      const value = calculateSpreadsheetColumnFormula(
+        { columns, rows: [row] },
+        column.id,
+        row
+      );
+      if (value === null) return null;
+      total += value;
+      continue;
+    }
+
     const amount = parseSpreadsheetCurrency(row.cells[column.id] || '');
     if (amount === null) return null;
     total += amount;
@@ -90,13 +150,10 @@ export const calculateSpreadsheetRowTotal = (
 export const calculateSpreadsheetTotal = (
   spreadsheet: HomeFinSpreadsheet
 ): number | null => {
-  let total = 0;
-  for (const row of spreadsheet.rows) {
-    const rowTotal = calculateSpreadsheetRowTotal(row, spreadsheet.columns);
-    if (rowTotal === null) return null;
-    total += rowTotal;
-  }
-  return total;
+  if (hasInvalidSpreadsheetCurrency(spreadsheet)) return null;
+  return spreadsheet.columns
+    .filter((column) => column.type === 'currency')
+    .reduce((total, column) => total + calculateSpreadsheetColumnTotal(spreadsheet, column.id), 0);
 };
 
 export const calculateSpreadsheetCommissionBase = (
@@ -105,21 +162,12 @@ export const calculateSpreadsheetCommissionBase = (
 ): number => {
   if (!columnId) return 0;
   if (columnId === SPREADSHEET_TOTAL_COMMISSION_BASE) {
-    return spreadsheet.rows.reduce((grandTotal, row) => (
-      grandTotal + spreadsheet.columns.reduce((rowTotal, column) => {
-        if (column.type !== 'currency') return rowTotal;
-        const amount = parseSpreadsheetCurrency(row.cells[column.id] || '');
-        return amount === null ? rowTotal : rowTotal + amount;
-      }, 0)
-    ), 0);
+    return spreadsheet.columns
+      .filter((column) => column.type === 'currency')
+      .reduce((total, column) => total + calculateSpreadsheetColumnTotal(spreadsheet, column.id), 0);
   }
 
-  return spreadsheet.rows.reduce((total, row) => {
-    const value = row.cells[columnId]?.trim() || '';
-    if (!value) return total;
-    const amount = parseSpreadsheetCurrency(value);
-    return amount === null ? total : total + amount;
-  }, 0);
+  return calculateSpreadsheetColumnTotal(spreadsheet, columnId);
 };
 
 export const parseSpreadsheetCommissionPercentage = (value: string): number | null => {
@@ -146,6 +194,9 @@ export const hasInvalidSpreadsheetCurrency = (
 ): boolean => spreadsheet.rows.some((row) =>
   spreadsheet.columns.some((column) =>
     column.type === 'currency' &&
+    !column.formulaConfig &&
+    !column.formulaExpression &&
+    !column.formula &&
     parseSpreadsheetCurrency(row.cells[column.id] || '') === null
   )
 );
@@ -387,6 +438,20 @@ export const calculateSpreadsheetColumnFormula = (
   if (!column) return null;
 
   const targetRow = row ?? spreadsheet.rows[0];
+  const config = column.formulaConfig;
+
+  if (config) {
+    if (config.mode === 'column' || !targetRow) return null;
+
+    const firstRaw = targetRow.cells[config.sourceColumnId] || '';
+    const secondRaw = targetRow.cells[config.secondColumnId] || '';
+    const first = parseSpreadsheetCurrency(firstRaw);
+    const second = parseSpreadsheetCurrency(secondRaw);
+
+    if (first === null || second === null) return null;
+    return applyStructuredSpreadsheetFormula(first, config.operator, second);
+  }
+
   if (!targetRow) return null;
   const formula = column.formula || column.formulaExpression;
   if (!formula) return null;

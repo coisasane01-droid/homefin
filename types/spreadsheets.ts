@@ -6,6 +6,12 @@ export interface SpreadsheetColumn {
   type: SpreadsheetColumnType;
   formula?: string | null;
   formulaExpression?: string | null;
+  formulaConfig?: {
+    mode: 'row' | 'column';
+    sourceColumnId: string;
+    operator: '+' | '-' | '*' | '/';
+    secondColumnId: string;
+  } | null;
 }
 
 export interface SpreadsheetRow {
