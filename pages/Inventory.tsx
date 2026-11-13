@@ -23,6 +23,7 @@ const blankProduct = (): InventoryProduct => ({
   supplier: '',
   quantity: 0,
   minimumQuantity: 0,
+  quantityMode: 'integer',
   costPrice: 0,
   salePrice: 0,
   wholesalePrice: 0,
@@ -42,6 +43,8 @@ const Inventory: React.FC = () => {
   const [synced, setSynced] = useState(false);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
+  const [codeSearch, setCodeSearch] = useState('');
+  const [descriptionSearch, setDescriptionSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState<InventoryProduct | null>(null);
@@ -111,11 +114,16 @@ const Inventory: React.FC = () => {
   }), [data.products, search, filter]);
 
   const suggestions = useMemo(() => {
-    if (!search.trim()) return [];
-    return data.products
-      .filter(p => `${p.name} ${p.sku} ${p.category} ${p.supplier}`.toLowerCase().includes(search.trim().toLowerCase()))
-      .slice(0, 8);
-  }, [data.products, search]);
+    const code = codeSearch.trim().toLowerCase();
+    const description = descriptionSearch.trim().toLowerCase();
+    if (!code && !description) return [];
+    return data.products.filter(p => {
+      const matchesCode = !code || p.sku.toLowerCase().includes(code);
+      const matchesDescription = !description ||
+        `${p.name} ${p.category} ${p.supplier}`.toLowerCase().includes(description);
+      return matchesCode && matchesDescription;
+    }).slice(0, 8);
+  }, [data.products, codeSearch, descriptionSearch]);
 
   const zeroStock = data.products.filter(p => p.quantity <= 0);
   const lowCount = data.products.filter(p => p.quantity <= p.minimumQuantity).length;
@@ -137,33 +145,72 @@ const Inventory: React.FC = () => {
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing || !editing.name.trim()) return;
+    const quantityMode = editing.quantityMode || 'integer';
+    const quantity = Number(editing.quantity);
+    const minimumQuantity = Number(editing.minimumQuantity);
+    const validQuantity = (value: number) =>
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 100000000 &&
+      Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7;
+    if (
+      !['integer', 'decimal'].includes(quantityMode) ||
+      !validQuantity(quantity) ||
+      !validQuantity(minimumQuantity) ||
+      (quantityMode === 'integer' &&
+        (!Number.isInteger(quantity) || !Number.isInteger(minimumQuantity)))
+    ) {
+      setMessage(quantityMode === 'decimal'
+        ? 'Confira as quantidades. Use no máximo três casas decimais.'
+        : 'Este produto aceita somente quantidades inteiras.');
+      return;
+    }
     const salePrice = Number(editing.salePrice ?? 0);
     const wholesalePrice = Number(editing.wholesalePrice ?? 0);
     if (![salePrice, wholesalePrice].every(v => Number.isFinite(v) && v >= 0 && v <= 1e9)) {
       setMessage('Confira os preços de varejo e atacado.');
       return;
     }
-    const result = await inventoryService.saveProduct(familyId, {
-      ...editing,
-      costPrice: Number(editing.costPrice ?? 0),
-      salePrice,
-      wholesalePrice,
-      updatedAt: new Date().toISOString(),
-    });
-    setData({ products: result.data.products, movements: result.data.movements });
-    setSynced(result.synced);
-    setEditing(null);
-    setMessage(result.synced
-      ? 'Produto salvo e confirmado na nuvem.'
-      : result.error || 'Produto salvo neste aparelho; sincronização pendente.');
+    try {
+      const result = await inventoryService.saveProduct(familyId, {
+        ...editing,
+        quantity,
+        minimumQuantity,
+        quantityMode,
+        costPrice: Number(editing.costPrice ?? 0),
+        salePrice,
+        wholesalePrice,
+        updatedAt: new Date().toISOString(),
+      });
+      setData({ products: result.data.products, movements: result.data.movements });
+      setSynced(result.synced);
+      setEditing(null);
+      setMessage(result.synced
+        ? 'Produto salvo e confirmado na nuvem.'
+        : result.error || 'Produto salvo neste aparelho; sincronização pendente.');
+    } catch (error) {
+      setMessage(error instanceof Error
+        ? error.message
+        : 'Não foi possível salvar o produto. Confira os dados e tente novamente.');
+    }
   };
 
   const move = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!movementProduct) return;
     const quantity = Number(movementQuantity);
-    if (!Number.isInteger(quantity) || quantity < 1) {
-      setMessage('Informe uma quantidade inteira maior que zero.');
+    const quantityMode = movementProduct.quantityMode || 'integer';
+    const validQuantity = Number.isFinite(quantity) &&
+      quantity > 0 &&
+      quantity <= 100000000 &&
+      Math.abs(quantity * 1000 - Math.round(quantity * 1000)) < 1e-7;
+    if (
+      !validQuantity ||
+      (quantityMode === 'integer' && !Number.isInteger(quantity))
+    ) {
+      setMessage(quantityMode === 'decimal'
+        ? 'Informe uma quantidade válida, com até três casas decimais.'
+        : 'Este produto aceita somente quantidades inteiras maiores que zero.');
       return;
     }
     try {
@@ -204,6 +251,8 @@ const Inventory: React.FC = () => {
       unitPrice: Number(product.salePrice ?? 0),
     }]);
     setSearch('');
+    setCodeSearch('');
+    setDescriptionSearch('');
     setShowSuggestions(false);
     setMessage(`${product.name} adicionado à lista.`);
   };
@@ -225,8 +274,18 @@ const Inventory: React.FC = () => {
         return;
       }
 
-      if (!Number.isInteger(item.quantity) || item.quantity < 1) {
-        setMessage(`Informe uma quantidade válida para ${product.name}.`);
+      const quantityMode = product.quantityMode || 'integer';
+      const validQuantity = Number.isFinite(item.quantity) &&
+        item.quantity > 0 &&
+        item.quantity <= 100000000 &&
+        Math.abs(item.quantity * 1000 - Math.round(item.quantity * 1000)) < 1e-7;
+      if (
+        !validQuantity ||
+        (quantityMode === 'integer' && !Number.isInteger(item.quantity))
+      ) {
+        setMessage(quantityMode === 'decimal'
+          ? `Confira a quantidade de ${product.name}. Use até três casas decimais.`
+          : `Informe uma quantidade inteira válida para ${product.name}.`);
         return;
       }
 
@@ -341,32 +400,126 @@ const Inventory: React.FC = () => {
         </>}
       </section>}
 
-      <section className="space-y-3 rounded-2xl border p-4 dark:border-gray-700">
-        <div>
-          <h2 className="font-bold">Pesquisar e selecionar produtos</h2>
-          <p className="text-xs text-gray-500">Digite o nome, código ou categoria e selecione um produto para adicionar à lista de saída.</p>
+      <section className="overflow-hidden rounded-lg border-2 border-slate-300 bg-[#e5e9ec] shadow-md">
+        <div className="flex items-center justify-between bg-[#003816] px-4 py-3 text-white">
+          <h2 className="text-lg font-extrabold uppercase tracking-wide">
+            TERMINAL DE ESTOQUE
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="hidden rounded border border-emerald-500/40 bg-[#00521e] px-3 py-1 text-xs font-bold text-emerald-200 sm:inline-flex">
+              OPERACIONAL
+            </span>
+            <button
+              type="button"
+              onClick={() => setEntryPicker(true)}
+              className="inline-flex items-center gap-1 rounded bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-500"
+            >
+              <ArrowDownToLine size={16}/>
+              DAR ENTRADA
+            </button>
+            <button
+              type="button"
+              onClick={() => setTableOpen(true)}
+              className="inline-flex items-center gap-1 rounded border border-white/30 bg-white/10 px-3 py-2 text-xs font-extrabold text-white hover:bg-white/20"
+            >
+              <List size={16}/>
+              TABELA F12
+            </button>
+          </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-3.5 text-gray-400" size={19}/>
-          <input value={search}
-            onChange={e => { setSearch(e.target.value); setShowSuggestions(true); }}
-            onFocus={() => setShowSuggestions(true)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && suggestions[0]) {
-                e.preventDefault();
-                addSelected(suggestions[0]);
-              }
-              if (e.key === 'Escape') setShowSuggestions(false);
+        <div className="space-y-4 p-4">
+          <div>
+            <h3 className="font-extrabold uppercase text-slate-900">
+              Código ou descrição do produto
+            </h3>
+            <p className="text-xs text-slate-600">
+              Pesquise e pressione Enter para adicionar à conferência. A baixa só acontece após confirmação.
+            </p>
+          </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-sm font-extrabold uppercase text-slate-900">
+              Código
+            </span>
+            <input
+              value={codeSearch}
+              onChange={e => {
+                setCodeSearch(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (suggestions.length > 0) addSelected(suggestions[0]);
+                }
+                if (e.key === 'Escape') setShowSuggestions(false);
+              }}
+              placeholder="Digite o código ou código de barras..."
+              className="w-full rounded border-2 border-slate-400 bg-white px-3 py-3 font-mono text-slate-900 focus:border-emerald-700 focus:outline-none"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-extrabold uppercase text-slate-900">
+              Descrição do produto
+            </span>
+            <input
+              value={descriptionSearch}
+              onChange={e => {
+                setDescriptionSearch(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (suggestions.length > 0) addSelected(suggestions[0]);
+                }
+                if (e.key === 'Escape') setShowSuggestions(false);
+              }}
+              placeholder="Pesquisar pela descrição..."
+              className="w-full rounded border-2 border-slate-400 bg-white px-3 py-3 font-bold text-slate-900 focus:border-emerald-700 focus:outline-none"
+            />
+          </label>
+        </div>
+
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="max-h-64 overflow-y-auto rounded border-2 border-slate-300 bg-white shadow">
+            {suggestions.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => addSelected(p)}
+                className="flex w-full items-center justify-between gap-3 border-b border-slate-200 p-3 text-left text-slate-900 hover:bg-emerald-50"
+              >
+                <span>
+                  <strong className="block">{p.name}</strong>
+                  <small className="text-slate-500">{p.sku || 'Sem código'}</small>
+                </span>
+                <span className="text-sm font-bold text-emerald-700">
+                  {p.quantity} disponível
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-600">
+            Selecione um produto para incluir na conferência.
+          </p>
+          <button
+            type="button"
+            disabled={!suggestions.length}
+            onClick={() => {
+              if (suggestions.length > 0) addSelected(suggestions[0]);
             }}
-            placeholder="Pesquisar produto..."
-            className="w-full rounded-xl border py-3 pl-11 pr-3 dark:border-gray-700 dark:bg-gray-900"/>
-          {showSuggestions && suggestions.length > 0 && <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
-            {suggestions.map(p => <button key={p.id} onClick={() => addSelected(p)}
-              className="flex w-full items-center justify-between gap-3 border-b p-3 text-left last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
-              <span className="min-w-0"><strong className="block truncate">{p.name}</strong><small className="text-gray-500">{p.sku || p.category || 'Sem código'}</small></span>
-              <span className={`shrink-0 text-sm font-bold ${p.quantity <= p.minimumQuantity ? 'text-amber-600' : 'text-emerald-600'}`}>{p.quantity} disponível</span>
-            </button>)}
-          </div>}
+            className="rounded bg-[#003816] px-5 py-3 font-extrabold uppercase text-white hover:bg-[#00521e] disabled:opacity-40"
+          >
+            <Plus size={17} className="mr-2 inline" />
+            Adicionar produto (Enter)
+          </button>
         </div>
 
         {selectedItems.length > 0 && <div className="space-y-3 pt-2">
@@ -374,40 +527,89 @@ const Inventory: React.FC = () => {
             <h3 className="font-bold">Itens selecionados ({selectedItems.length})</h3>
             <button onClick={() => setSelectedItems([])} disabled={batchBusy} className="text-sm text-red-600">Limpar lista</button>
           </div>
-          {selectedItems.map(item => {
-            const p = data.products.find(product => product.id === item.productId);
-            if (!p) return null;
-            return <div key={item.productId} className="rounded-xl border p-3 dark:border-gray-700">
-              <div className="mb-3 flex items-start justify-between gap-2">
-                <div className="min-w-0"><strong className="block">{p.name}</strong><small className="text-gray-500">Disponível: {p.quantity}</small></div>
-                <button onClick={() => setSelectedItems(items => items.filter(x => x.productId !== item.productId))} disabled={batchBusy} className="rounded-lg p-2 text-red-500"><Trash2 size={17}/></button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                <label className="text-xs text-gray-500">Quantidade
-                  <input type="number" min="1" step="1" value={item.quantity}
-                    onChange={e => updateSelected(p.id, { quantity: Number(e.target.value) })}
-                    className="mt-1 w-full rounded-lg border p-2 text-sm dark:border-gray-700 dark:bg-gray-900"/>
-                </label>
-                <label className="text-xs text-gray-500">Tabela de preço
-                  <select value={item.priceType} onChange={e => {
-                    const type = e.target.value as SelectedItem['priceType'];
-                    updateSelected(p.id, { priceType: type, unitPrice: Number(type === 'retail' ? p.salePrice : p.wholesalePrice ?? 0) });
-                  }} className="mt-1 w-full rounded-lg border p-2 text-sm dark:border-gray-700 dark:bg-gray-900">
-                    <option value="retail">Varejo</option><option value="wholesale">Atacado</option>
-                  </select>
-                </label>
-                <label className="col-span-2 text-xs text-gray-500 md:col-span-2">Preço unitário de referência (R$)
-                  <input inputMode="decimal" value={moneyInput(item.unitPrice)}
-                    onChange={e => updateSelected(p.id, { unitPrice: parseMoney(e.target.value) })}
-                    className="mt-1 w-full rounded-lg border p-2 text-sm dark:border-gray-700 dark:bg-gray-900"/>
-                </label>
-              </div>
-              <div className="mt-3 border-t pt-2 text-right text-sm dark:border-gray-700">
-                <span className="text-gray-500">Subtotal de referência: </span>
-                <strong>{formatCurrency(item.quantity * item.unitPrice)}</strong>
-              </div>
-            </div>;
-          })}
+          <div className="overflow-x-auto rounded-lg border-2 border-slate-300 bg-white">
+            <div className="bg-[#003816] px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-white">
+              Fila de conferência e baixa ({selectedItems.length} itens)
+            </div>
+            <table className="w-full min-w-[850px] border-collapse text-sm text-slate-900">
+              <thead className="bg-slate-100 text-xs uppercase">
+                <tr>
+                  {['Código', 'Descrição do produto', 'Estoque atual', 'Qtd. movimento', 'Tabela de preço', 'Valor unitário', 'Valor total', 'Ações'].map(title => (
+                    <th key={title} className="border-b border-r border-slate-200 px-3 py-3 text-left">{title}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {selectedItems.map(item => {
+                  const p = data.products.find(product => product.id === item.productId);
+                  if (!p) return null;
+                  return (
+                    <tr key={item.productId} className="border-b border-slate-200 hover:bg-slate-50">
+                      <td className="px-3 py-3 font-mono font-bold">{p.sku || '—'}</td>
+                      <td className="px-3 py-3">
+                        <strong className="block">{p.name}</strong>
+                        <span className="text-xs text-slate-500">{p.category || p.supplier || ''}</span>
+                      </td>
+                      <td className="px-3 py-3 font-bold">{p.quantity}</td>
+                      <td className="bg-emerald-50 px-3 py-3">
+                        <input
+                          type="number"
+                          min={p.quantityMode === 'decimal' ? '0.001' : '1'}
+                          step={p.quantityMode === 'decimal' ? '0.001' : '1'}
+                          value={item.quantity}
+                          disabled={batchBusy}
+                          onChange={e => updateSelected(p.id, { quantity: Number(e.target.value) })}
+                          className="w-24 rounded border border-emerald-400 bg-white p-2 text-center font-bold"
+                          aria-label={`Quantidade de ${p.name}`}
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          value={item.priceType}
+                          disabled={batchBusy}
+                          onChange={e => {
+                            const type = e.target.value as SelectedItem['priceType'];
+                            updateSelected(p.id, {
+                              priceType: type,
+                              unitPrice: Number(type === 'retail' ? p.salePrice : p.wholesalePrice ?? 0),
+                            });
+                          }}
+                          className="rounded border border-slate-300 bg-white p-2"
+                        >
+                          <option value="retail">Varejo</option>
+                          <option value="wholesale">Atacado</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          inputMode="decimal"
+                          value={moneyInput(item.unitPrice)}
+                          disabled={batchBusy}
+                          onChange={e => updateSelected(p.id, { unitPrice: parseMoney(e.target.value) })}
+                          className="w-28 rounded border border-slate-300 bg-white p-2 text-right"
+                          aria-label={`Preço unitário de ${p.name}`}
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-right font-extrabold">
+                        {formatCurrency(item.quantity * item.unitPrice)}
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          disabled={batchBusy}
+                          onClick={() => setSelectedItems(items => items.filter(x => x.productId !== item.productId))}
+                          className="rounded p-2 text-red-600 hover:bg-red-50"
+                          title="Remover da conferência"
+                        >
+                          <Trash2 size={18}/>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <label className="block text-xs text-gray-500">Observação da saída (opcional)
             <input value={batchNote} maxLength={500} onChange={e => setBatchNote(e.target.value)}
               placeholder="Ex.: retirada de material"
@@ -421,6 +623,7 @@ const Inventory: React.FC = () => {
             </button>
           </div>
         </div>}
+        </div>
       </section>
 
       <section className="rounded-xl border dark:border-gray-700">
@@ -481,8 +684,16 @@ const Inventory: React.FC = () => {
             <label className="text-sm">Código / SKU<input value={editing.sku} onChange={e => setEditing({...editing,sku:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Categoria<input value={editing.category} onChange={e => setEditing({...editing,category:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm sm:col-span-2">Fornecedor<input value={editing.supplier} onChange={e => setEditing({...editing,supplier:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
-            <label className="text-sm">Quantidade inicial<input type="number" min="0" step="1" disabled={data.products.some(p => p.id === editing.id)} value={editing.quantity} onChange={e => setEditing({...editing,quantity:Number(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800"/>{data.products.some(p => p.id === editing.id) && <span className="text-xs text-gray-500">Para alterar o saldo, use Entrada ou Saída.</span>}</label>
-            <label className="text-sm">Estoque mínimo<input type="number" min="0" step="1" value={editing.minimumQuantity} onChange={e => setEditing({...editing,minimumQuantity:Number(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+            <label className="text-sm">Tipo de quantidade
+              <select value={editing.quantityMode || 'integer'}
+                onChange={e => setEditing({...editing, quantityMode: e.target.value as 'integer' | 'decimal'})}
+                className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800">
+                <option value="integer">Inteira (unidades)</option>
+                <option value="decimal">Fracionada (até 3 casas decimais)</option>
+              </select>
+            </label>
+            <label className="text-sm">Quantidade inicial<input type="number" min="0" step={editing.quantityMode === 'decimal' ? '0.001' : '1'} disabled={data.products.some(p => p.id === editing.id)} value={editing.quantity} onChange={e => setEditing({...editing,quantity:Number(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800"/>{data.products.some(p => p.id === editing.id) && <span className="text-xs text-gray-500">Para alterar o saldo, use Entrada ou Saída.</span>}</label>
+            <label className="text-sm">Estoque mínimo<input type="number" min="0" step={editing.quantityMode === 'decimal' ? '0.001' : '1'} value={editing.minimumQuantity} onChange={e => setEditing({...editing,minimumQuantity:Number(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Preço de varejo (R$)<input inputMode="decimal" value={moneyInput(editing.salePrice)} onChange={e => setEditing({...editing,salePrice:parseMoney(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Preço de atacado (R$)<input inputMode="decimal" value={moneyInput(Number(editing.wholesalePrice ?? 0))} onChange={e => setEditing({...editing,wholesalePrice:parseMoney(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
           </div>
@@ -495,7 +706,10 @@ const Inventory: React.FC = () => {
         <form onSubmit={move} className="w-full max-w-md space-y-3 rounded-2xl bg-white p-5 dark:bg-gray-900">
           <h2 className="text-xl font-bold">{movementType === 'entry' ? 'Entrada de estoque' : 'Saída de estoque'}</h2>
           <p>{movementProduct.name} — saldo atual: {movementProduct.quantity}</p>
-          <label className="block text-sm">Quantidade<input type="number" min="1" step="1" required value={movementQuantity} onChange={e => setMovementQuantity(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+          <label className="block text-sm">Quantidade<input type="number"
+            min={movementProduct.quantityMode === 'decimal' ? '0.001' : '1'}
+            step={movementProduct.quantityMode === 'decimal' ? '0.001' : '1'}
+            required value={movementQuantity} onChange={e => setMovementQuantity(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
           <label className="block text-sm">Observação<input maxLength={500} value={movementNote} onChange={e => setMovementNote(e.target.value)} placeholder="Ex.: recebimento, reposição, retirada..." className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
           <div className="flex justify-end gap-2"><button type="button" onClick={() => setMovementProduct(null)} className="rounded-lg border px-4 py-2">Cancelar</button><button className="rounded-lg bg-primary-600 px-4 py-2 text-white">Confirmar entrada/saída</button></div>
         </form>

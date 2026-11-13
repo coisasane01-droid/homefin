@@ -31,6 +31,14 @@ async function db(path, options = {}) {
   return body ? JSON.parse(body) : null;
 }
 
+function validStockQuantity(value, allowZero = false) {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    (allowZero ? value >= 0 : value > 0) &&
+    value <= 100000000 &&
+    Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7;
+}
+
 function productFromDb(row) {
   return {
     id: row.id, name: row.name, sku: row.sku || '', category: row.category || '',
@@ -38,6 +46,7 @@ function productFromDb(row) {
     minimumQuantity: Number(row.minimum_quantity),
     costPrice: Number(row.cost_price), salePrice: Number(row.sale_price),
     wholesalePrice: Number(row.wholesale_price ?? 0),
+    quantityMode: row.quantity_mode === 'decimal' ? 'decimal' : 'integer',
     updatedAt: row.updated_at,
   };
 }
@@ -50,13 +59,17 @@ function movementFromDb(row) {
 }
 
 function validProduct(p) {
+  const quantityMode = p?.quantityMode || 'integer';
   return p && UUID_PATTERN.test(String(p.id || '')) &&
     typeof p.name === 'string' && p.name.trim().length > 0 && p.name.length <= 160 &&
     typeof p.sku === 'string' && p.sku.length <= 80 &&
     typeof p.category === 'string' && p.category.length <= 100 &&
     typeof p.supplier === 'string' && p.supplier.length <= 160 &&
-    Number.isInteger(p.quantity) && p.quantity >= 0 && p.quantity <= 100000000 &&
-    Number.isInteger(p.minimumQuantity) && p.minimumQuantity >= 0 && p.minimumQuantity <= 100000000 &&
+    ['integer', 'decimal'].includes(quantityMode) &&
+    validStockQuantity(p.quantity, true) &&
+    validStockQuantity(p.minimumQuantity, true) &&
+    (quantityMode === 'decimal' ||
+      (Number.isInteger(p.quantity) && Number.isInteger(p.minimumQuantity))) &&
     Number.isFinite(p.costPrice) && p.costPrice >= 0 && p.costPrice <= 1000000000 &&
     Number.isFinite(p.salePrice) && p.salePrice >= 0 && p.salePrice <= 1000000000 &&
     Number.isFinite(Number(p.wholesalePrice ?? 0)) &&
@@ -237,6 +250,7 @@ export default async function handler(req, res) {
             cost_price: p.costPrice,
             sale_price: p.salePrice,
             wholesale_price: Number(p.wholesalePrice ?? 0),
+            quantity_mode: p.quantityMode || 'integer',
           },
         }),
       });
@@ -290,9 +304,7 @@ export default async function handler(req, res) {
           if (
             !UUID_PATTERN.test(productId) ||
             seen.has(productId) ||
-            !Number.isInteger(quantity) ||
-            quantity < 1 ||
-            quantity > 100000000
+            !validStockQuantity(quantity)
           ) {
             return res.status(400).json({
               error: 'Há produto repetido ou quantidade inválida na lista.',
@@ -349,7 +361,7 @@ export default async function handler(req, res) {
       const { productId, type, quantity, note = '' } = req.body;
       if (!UUID_PATTERN.test(String(productId || '')) ||
           !['entry', 'exit'].includes(type) ||
-          !Number.isInteger(quantity) || quantity < 1 || quantity > 100000000 ||
+          !validStockQuantity(quantity) ||
           typeof note !== 'string' || note.length > 500) {
         return res.status(400).json({ error: 'Dados da movimentação inválidos.' });
       }

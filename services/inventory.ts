@@ -29,7 +29,12 @@ function readCache(familyId: string): InventoryCache {
     if (!raw) return emptyCache();
     const parsed = JSON.parse(raw);
     return {
-      products: Array.isArray(parsed.products) ? parsed.products : [],
+      products: Array.isArray(parsed.products)
+        ? parsed.products.map((product: InventoryProduct) => ({
+            ...product,
+            quantityMode: product.quantityMode === 'decimal' ? 'decimal' : 'integer',
+          }))
+        : [],
       movements: Array.isArray(parsed.movements) ? parsed.movements : [],
       pendingIds: Array.isArray(parsed.pendingIds) ? parsed.pendingIds : [],
       deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
@@ -266,8 +271,13 @@ export const inventoryService = {
     }
 
     for (const item of items) {
-      if (!Number.isInteger(item.quantity) || item.quantity < 1) {
-        throw new Error('Confira as quantidades informadas.');
+      if (
+        !Number.isFinite(item.quantity) ||
+        item.quantity <= 0 ||
+        item.quantity > 100000000 ||
+        Math.abs(item.quantity * 1000 - Math.round(item.quantity * 1000)) >= 1e-7
+      ) {
+        throw new Error('Confira as quantidades. Use até três casas decimais.');
       }
     }
 
@@ -292,6 +302,10 @@ export const inventoryService = {
       }
 
       const requested = items.find(item => item.productId === id)!;
+      const quantityMode = product.quantityMode || 'integer';
+      if (quantityMode === 'integer' && !Number.isInteger(requested.quantity)) {
+        throw new Error(`${product.name} aceita somente quantidades inteiras.`);
+      }
       if (requested.quantity > product.quantity) {
         throw new Error(
           `Estoque insuficiente para ${product.name}. Disponível: ${product.quantity}.`
@@ -368,6 +382,23 @@ export const inventoryService = {
         throw new Error('O produto ainda não foi sincronizado. Conecte-se e tente novamente.');
       }
     }
+    const product = cache.products.find(item => item.id === productId);
+    if (!product) {
+      throw new Error('Produto não encontrado no estoque sincronizado.');
+    }
+    const quantityMode = product.quantityMode || 'integer';
+    if (
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      quantity > 100000000 ||
+      Math.abs(quantity * 1000 - Math.round(quantity * 1000)) >= 1e-7 ||
+      (quantityMode === 'integer' && !Number.isInteger(quantity))
+    ) {
+      throw new Error(quantityMode === 'decimal'
+        ? 'Informe uma quantidade válida com até três casas decimais.'
+        : 'Este produto aceita somente quantidades inteiras.');
+    }
+
     const result = await request(familyId, {
       action: 'move',
       productId,

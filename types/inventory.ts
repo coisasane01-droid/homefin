@@ -8,6 +8,7 @@ export interface InventoryProduct {
   supplier: string;
   quantity: number;
   minimumQuantity: number;
+  quantityMode: 'integer' | 'decimal';
   costPrice: number;
   salePrice: number;
   wholesalePrice: number;

@@ -16,7 +16,7 @@ AS $$
 DECLARE
   v_item jsonb;
   v_product_id uuid;
-  v_quantity integer;
+  v_quantity numeric(14,3);
   v_count integer;
   v_locked integer;
   v_product public.homefin_inventory_products%ROWTYPE;
@@ -48,12 +48,12 @@ BEGIN
     IF jsonb_typeof(v_item) IS DISTINCT FROM 'object'
        OR coalesce(v_item->>'product_id', '') !~*
          '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-       OR coalesce(v_item->>'quantity', '') !~ '^[0-9]{1,9}$' THEN
+       OR coalesce(v_item->>'quantity', '') !~ '^[0-9]{1,9}(\.[0-9]{1,3})?$' THEN
       RAISE EXCEPTION 'Produto ou quantidade inválida na baixa em lote.';
     END IF;
 
-    v_quantity := (v_item->>'quantity')::integer;
-    IF v_quantity < 1 OR v_quantity > 100000000 THEN
+    v_quantity := (v_item->>'quantity')::numeric(14,3);
+    IF v_quantity <= 0 OR v_quantity > 100000000 THEN
       RAISE EXCEPTION 'Quantidade inválida na baixa em lote.';
     END IF;
   END LOOP;
@@ -102,7 +102,7 @@ BEGIN
   FOR v_item IN SELECT value FROM jsonb_array_elements(p_items)
   LOOP
     v_product_id := (v_item->>'product_id')::uuid;
-    v_quantity := (v_item->>'quantity')::integer;
+    v_quantity := (v_item->>'quantity')::numeric(14,3);
 
     SELECT * INTO v_product
     FROM public.homefin_inventory_products
@@ -111,6 +111,11 @@ BEGIN
 
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Produto não encontrado neste Estoque.';
+    END IF;
+
+    IF coalesce(v_product.quantity_mode, 'integer') <> 'decimal'
+       AND v_quantity <> trunc(v_quantity) THEN
+      RAISE EXCEPTION 'O produto % aceita somente quantidades inteiras.', v_product.name;
     END IF;
 
     IF v_product.quantity < v_quantity THEN
@@ -123,7 +128,7 @@ BEGIN
   FOR v_item IN SELECT value FROM jsonb_array_elements(p_items)
   LOOP
     v_product_id := (v_item->>'product_id')::uuid;
-    v_quantity := (v_item->>'quantity')::integer;
+    v_quantity := (v_item->>'quantity')::numeric(14,3);
 
     UPDATE public.homefin_inventory_products
     SET quantity = quantity - v_quantity,

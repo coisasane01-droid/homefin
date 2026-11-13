@@ -1,0 +1,23 @@
+# Backups e arquivos temporários
+backups/
+*.backup-*
+*.zip
+
+# Arquivos de desenvolvimento
+.git/
+.github/
+.vscode/
+node_modules/
+dist/
+
+# Migrações e testes
+scripts/
+tests/
+
+# Arquivos temporários encontrados no projeto
+/0
+/100000000
+/=
+/p_owner_family_id
+/v_count
+/{
