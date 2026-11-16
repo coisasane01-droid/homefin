@@ -12,6 +12,15 @@ export interface InventoryProduct {
   costPrice: number;
   salePrice: number;
   wholesalePrice: number;
+  barcode?: string;
+  measure?: string;
+  unit?: string;
+  ncm?: string;
+  promotionalPrice?: number;
+  averageMonthlySales?: number;
+  notes?: string;
+  favorite?: boolean;
+  photoStoragePath?: string;
   updatedAt: string;
 }
 

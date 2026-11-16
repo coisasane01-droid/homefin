@@ -45,7 +45,7 @@ function setupFetch(owner = 'family-one', shared = false) {
     if (path.includes('/rpc/')) {
       calls.push({ path, body });
 
-      if (path.endsWith('/rpc/homefin_inventory_move_batch_authorized')) {
+      if (path.endsWith('/rpc/homefin_inventory_move_batch_idempotent_authorized')) {
         const items = body.p_items || [];
 
         return Response.json({
@@ -90,6 +90,7 @@ async function invoke(action, fields = {}, familyId = 'family-one') {
       action,
       familyId,
       expectedOwnerFamilyId: familyId,
+      operationId: '00000000-0000-4000-8000-000000000099',
       ...fields,
     },
   }, response);
@@ -203,10 +204,15 @@ test('encaminha baixa em lote com quantidades fracionadas', async () => {
   assert.equal(result.statusCode, 200);
 
   const batchCall = calls.find(call =>
-    call.path.endsWith('/rpc/homefin_inventory_move_batch_authorized')
+    call.path.endsWith('/rpc/homefin_inventory_move_batch_idempotent_authorized')
   );
 
   assert.ok(batchCall, 'A RPC de baixa em lote deve ser chamada.');
+  assert.equal(
+    batchCall.body.p_operation_id,
+    '00000000-0000-4000-8000-000000000099'
+  );
+
   assert.deepEqual(
     batchCall.body.p_items,
     items.map(item => ({

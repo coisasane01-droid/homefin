@@ -47,6 +47,15 @@ function productFromDb(row) {
     costPrice: Number(row.cost_price), salePrice: Number(row.sale_price),
     wholesalePrice: Number(row.wholesale_price ?? 0),
     quantityMode: row.quantity_mode === 'decimal' ? 'decimal' : 'integer',
+    barcode: row.barcode || '',
+    measure: row.measure || '',
+    unit: row.unit || 'UN',
+    ncm: row.ncm || '',
+    promotionalPrice: Number(row.promotional_price ?? 0),
+    averageMonthlySales: Number(row.average_monthly_sales ?? 0),
+    notes: row.notes || '',
+    favorite: Boolean(row.favorite),
+    photoStoragePath: row.photo_storage_path || '',
     updatedAt: row.updated_at,
   };
 }
@@ -75,6 +84,46 @@ function validProduct(p) {
     Number.isFinite(Number(p.wholesalePrice ?? 0)) &&
     Number(p.wholesalePrice ?? 0) >= 0 &&
     Number(p.wholesalePrice ?? 0) <= 1000000000;
+}
+
+function validInventoryExtras(p) {
+  const fields = [
+    ['barcode', 100],
+    ['measure', 120],
+    ['unit', 30],
+    ['ncm', 20],
+    ['notes', 10000],
+  ];
+
+  for (const [key, limit] of fields) {
+    if (p[key] !== undefined &&
+        (typeof p[key] !== 'string' || p[key].length > limit)) {
+      return false;
+    }
+  }
+
+  for (const key of ['promotionalPrice', 'averageMonthlySales']) {
+    if (p[key] !== undefined &&
+        (typeof p[key] !== 'number' ||
+         !Number.isFinite(p[key]) ||
+         p[key] < 0 ||
+         p[key] > 100000000)) {
+      return false;
+    }
+  }
+
+  if (p.favorite !== undefined && typeof p.favorite !== 'boolean') {
+    return false;
+  }
+
+  // O caminho da foto será administrado exclusivamente
+  // pela API autenticada de imagens.
+  if (p.photoStoragePath !== undefined &&
+      typeof p.photoStoragePath !== 'string') {
+    return false;
+  }
+
+  return true;
 }
 
 async function resolveInventoryAccess(familyId) {
@@ -232,7 +281,14 @@ export default async function handler(req, res) {
 
     if (action === 'save') {
       const p = req.body.product;
-      if (!validProduct(p)) return res.status(400).json({ error: 'Dados do produto inválidos.' });
+      if (!validProduct(p) || !validInventoryExtras(p)) {
+        return res.status(400).json({ error: 'Dados do produto inválidos.' });
+      }
+
+      // O caminho da foto nunca é enviado à função de cadastro.
+      // A API de imagens é a única responsável por vinculá-lo.
+      // Produtos já existentes podem carregar essa referência
+      // sem que ela seja utilizada para alterar o banco.
 
       const product = await db('rpc/homefin_inventory_save_authorized', {
         method: 'POST',
@@ -251,6 +307,20 @@ export default async function handler(req, res) {
             sale_price: p.salePrice,
             wholesale_price: Number(p.wholesalePrice ?? 0),
             quantity_mode: p.quantityMode || 'integer',
+            ...(typeof p.updatedAt === 'string' &&
+                p.updatedAt.trim()
+              ? { expected_updated_at: p.updatedAt }
+              : {}),
+            ...(p.barcode !== undefined ? { barcode: p.barcode } : {}),
+            ...(p.measure !== undefined ? { measure: p.measure } : {}),
+            ...(p.unit !== undefined ? { unit: p.unit } : {}),
+            ...(p.ncm !== undefined ? { ncm: p.ncm } : {}),
+            ...(p.promotionalPrice !== undefined
+              ? { promotional_price: p.promotionalPrice } : {}),
+            ...(p.averageMonthlySales !== undefined
+              ? { average_monthly_sales: p.averageMonthlySales } : {}),
+            ...(p.notes !== undefined ? { notes: p.notes } : {}),
+            ...(p.favorite !== undefined ? { favorite: p.favorite } : {}),
           },
         }),
       });
@@ -282,7 +352,7 @@ export default async function handler(req, res) {
     }
 
       if (action === 'move-batch') {
-        const { items, note = '' } = req.body;
+        const { items, note = '', operationId } = req.body;
 
         if (
           !Array.isArray(items) ||
@@ -292,6 +362,12 @@ export default async function handler(req, res) {
           note.length > 500
         ) {
           return res.status(400).json({ error: 'Dados da baixa em lote inválidos.' });
+        }
+
+        if (!UUID_PATTERN.test(String(operationId || ''))) {
+          return res.status(400).json({
+            error: 'Identificador da baixa inválido.',
+          });
         }
 
         const seen = new Set();
@@ -315,13 +391,14 @@ export default async function handler(req, res) {
           validItems.push({ product_id: productId, quantity });
         }
 
-        const result = await db('rpc/homefin_inventory_move_batch_authorized', {
+        const result = await db('rpc/homefin_inventory_move_batch_idempotent_authorized', {
           method: 'POST',
           body: JSON.stringify({
             p_actor_family_id: familyId,
             p_owner_family_id: inventoryFamilyId,
             p_items: validItems,
             p_note: note,
+            p_operation_id: operationId,
           }),
         });
 
@@ -358,14 +435,20 @@ export default async function handler(req, res) {
       }
 
     if (action === 'move') {
-      const { productId, type, quantity, note = '' } = req.body;
+      const { productId, type, quantity, note = '', operationId } = req.body;
       if (!UUID_PATTERN.test(String(productId || '')) ||
           !['entry', 'exit'].includes(type) ||
           !validStockQuantity(quantity) ||
           typeof note !== 'string' || note.length > 500) {
         return res.status(400).json({ error: 'Dados da movimentação inválidos.' });
       }
-      const result = await db('rpc/homefin_inventory_move_authorized', {
+      if (!UUID_PATTERN.test(String(operationId || ''))) {
+        return res.status(400).json({
+          error: 'Identificador da movimentação inválido.',
+        });
+      }
+
+      const result = await db('rpc/homefin_inventory_move_idempotent_authorized', {
         method: 'POST',
         body: JSON.stringify({
           p_actor_family_id: familyId,
@@ -374,6 +457,7 @@ export default async function handler(req, res) {
           p_type: type,
           p_quantity: quantity,
           p_note: note,
+          p_operation_id: operationId,
         }),
       });
       if (!result || !result.product || !result.movement) {
@@ -387,12 +471,32 @@ export default async function handler(req, res) {
 
     return res.status(400).json({ error: 'Operação de Estoque inválida.' });
   } catch (error) {
-    const status = Number.isInteger(error?.statusCode)
-      ? error.statusCode
-      : ['42501', 'P0001', '23505'].includes(error?.code) ? 409 : 502;
-    console.error('Erro no Estoque:', error?.message || 'erro desconhecido');
+    const isVersionConflict =
+      error?.code === '40001' &&
+      (
+        error?.message === 'Atualize o produto antes de editar.' ||
+        error?.message ===
+          'Este produto foi alterado em outro aparelho. Atualize o Estoque.'
+      );
+
+    const status = isVersionConflict
+      ? 409
+      : Number.isInteger(error?.statusCode)
+        ? error.statusCode
+        : ['42501', 'P0001', '23505'].includes(error?.code)
+          ? 409
+          : 502;
+
+    console.error(
+      'Erro no Estoque:',
+      error?.message || 'erro desconhecido'
+    );
+
     return res.status(status).json({
       error: error?.message || 'Falha ao acessar o Estoque.',
+      ...(isVersionConflict
+        ? { code: 'INVENTORY_VERSION_CONFLICT' }
+        : {}),
     });
   }
 }
