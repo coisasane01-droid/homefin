@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/inventory-photo",
+      "destination": "/api/inventory?mode=photo"
+    },
+    {
       "source": "/api/family-enrollment",
       "destination": "/api/family-auth"
     },

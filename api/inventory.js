@@ -1,4 +1,5 @@
 import { validateFamilySession } from './_family-session.js';
+import inventoryPhotoHandler from './_inventory-photo-handler.js';
 
 const FAMILY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -156,6 +157,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Método não permitido.' });
+  }
+
+  if (req.query?.mode === 'photo') {
+    return inventoryPhotoHandler(req, res);
   }
 
   const { action, familyId } = req.body || {};
