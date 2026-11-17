@@ -8,6 +8,7 @@ import { ListaProdutosModal } from './components/ListaProdutosModal';
 import { CadastroProdutoModal } from './components/CadastroProdutoModal';
 import { AppHeader } from './components/AppHeader';
 import { TerminalPanel } from './components/TerminalPanel';
+import { ProductPhotoModal } from './components/ProductPhotoModal';
 import { MovimentacaoEstoqueSection } from './components/MovimentacaoEstoqueSection';
 
 export default function HomeFinInventoryView() {
@@ -19,6 +20,7 @@ export default function HomeFinInventoryView() {
   const [loading, setLoading] = useState(true);
   const [isListaModalOpen, setIsListaModalOpen] = useState(false);
   const [isCadastroOpen, setIsCadastroOpen] = useState(false);
+  const [activePhotoProduct, setActivePhotoProduct] = useState<Product | null>(null);
   const [processing, setProcessing] = useState(false);
   const processingRef = useRef(false);
   const [message, setMessage] = useState('');
@@ -365,7 +367,7 @@ export default function HomeFinInventoryView() {
       onConfirmEntradaAll={blocked}
       onQuickBaixa={blocked}
       onQuickEntrada={blocked}
-      onOpenPhoto={blocked}
+      onOpenPhoto={setActivePhotoProduct}
       onOpenCadastro={() => setIsCadastroOpen(true)}
       onOpenListaProdutos={blocked}
       onOpenHistorico={blocked}
@@ -421,7 +423,7 @@ export default function HomeFinInventoryView() {
             products={products}
             onOpenListaProdutos={() => setIsListaModalOpen(true)}
             onOpenFavoritos={blocked}
-            onOpenPhoto={blocked}
+            onOpenPhoto={setActivePhotoProduct}
             onAddItemToQueue={addToQueue}
             onQuickBaixa={blocked}
             onQuickEntrada={blocked}
@@ -534,6 +536,13 @@ export default function HomeFinInventoryView() {
         />
       )}
 
+      <ProductPhotoModal
+        product={activePhotoProduct && (
+          products.find(p => p.id === activePhotoProduct.id) || activePhotoProduct
+        )}
+        onClose={() => setActivePhotoProduct(null)}
+      />
+
       <ListaProdutosModal
         isOpen={isListaModalOpen}
         onClose={() => setIsListaModalOpen(false)}
@@ -552,7 +561,7 @@ export default function HomeFinInventoryView() {
         }}
         onConfirmBaixaAll={confirmBaixaAll}
         onConfirmEntradaAll={blocked}
-        onOpenPhoto={blocked}
+        onOpenPhoto={setActivePhotoProduct}
         onQuickBaixaItem={blocked}
         onQuickEntradaItem={blocked}
       />

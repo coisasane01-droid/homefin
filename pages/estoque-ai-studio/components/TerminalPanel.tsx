@@ -299,11 +299,11 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                     key={p.id}
                     onClick={() => selectProduct(p)}
                     onMouseEnter={() => setDropdownActiveIndex(idx)}
-                    className={`p-2.5 cursor-pointer transition-colors flex items-center justify-between gap-3 text-xs ${
+                    className={`p-2.5 cursor-pointer transition-colors flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 text-xs ${
                       dropdownActiveIndex === idx ? 'bg-emerald-50 text-[#003816]' : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0 w-full sm:flex-1">
                       {/* Photo thumbnail */}
                       <img
                         src={p.fotoUrl}
@@ -314,7 +314,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                         <div className="font-bold text-slate-900 font-condensed text-sm truncate uppercase">
                           {p.descricao}
                         </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                           <span className="font-mono bg-slate-200 px-1 rounded text-slate-700">Cód: {p.codigoInterno}</span>
                           <span>Medida: <strong className="text-slate-700">{p.medida}</strong></span>
                           <span>Marca: {p.marcaRefer}</span>
@@ -322,9 +322,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0 text-right">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto min-w-0 text-right border-t border-slate-200 pt-2 sm:border-0 sm:pt-0">
                       {/* Available stock badge */}
-                      <div className="flex flex-col items-end">
+                      <div className="flex flex-col items-start sm:items-end min-w-0">
                         <span className="text-[10px] text-slate-500 uppercase font-semibold">Disponível</span>
                         <span
                           className={`font-condensed font-bold text-sm px-1.5 py-0.2 rounded ${
@@ -333,14 +333,14 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                               : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {p.estoqueAtual.toFixed(0)} {p.unidade}
+                          {formatNumberDecimal(p.estoqueAtual)} {p.unidade}
                         </span>
                       </div>
 
                       {/* Prices */}
-                      <div className="flex flex-col items-end">
+                      <div className="flex flex-col items-start sm:items-end min-w-0">
                         <span className="text-[10px] text-slate-500 uppercase font-semibold">Varejo / Atacado</span>
-                        <div className="font-condensed font-bold text-sm text-slate-900">
+                        <div className="font-condensed font-bold text-sm text-slate-900 break-words">
                           {formatCurrency(p.precoVarejo)}
                           <span className="text-[11px] font-normal text-slate-500 ml-1">
                             ({formatCurrency(p.precoAtacado)})
@@ -380,7 +380,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
               <span className={`px-2 py-0.5 rounded font-mono font-bold ${
                 selectedProduct.estoqueAtual > 0 ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
               }`}>
-                {selectedProduct.estoqueAtual.toFixed(0)} {selectedProduct.unidade}
+                {formatNumberDecimal(selectedProduct.estoqueAtual)} {selectedProduct.unidade}
               </span>
             </div>
           </div>
