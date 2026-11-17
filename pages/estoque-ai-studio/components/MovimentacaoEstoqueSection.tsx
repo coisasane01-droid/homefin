@@ -50,7 +50,7 @@ export const MovimentacaoEstoqueSection: React.FC<MovimentacaoEstoqueSectionProp
   const negativeStockCount = products.filter((p) => p.estoqueAtual <= 0).length;
 
   return (
-    <div className="flex flex-col space-y-3 w-full">
+    <div className="@container flex flex-col space-y-3 w-full">
       {/* Header Action Strip matching image_7cc85eb9.png */}
       <div className="bg-white border-2 border-slate-300 rounded shadow-xs p-3 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -250,7 +250,7 @@ export const MovimentacaoEstoqueSection: React.FC<MovimentacaoEstoqueSectionProp
       </div>
 
       {/* Summary Cards: matching bottom of image_7cc85eb9.png */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+      <div className="grid grid-cols-1 gap-3 pt-1 [@container(min-width:480px)]:grid-cols-2 [@container(min-width:900px)]:grid-cols-3">
         <div className="bg-white p-3.5 rounded border border-slate-300 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[11px] uppercase font-bold text-slate-500 block">TOTAL DE PRODUTOS</span>
@@ -268,7 +268,7 @@ export const MovimentacaoEstoqueSection: React.FC<MovimentacaoEstoqueSectionProp
         <div className="bg-white p-3.5 rounded border border-slate-300 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[11px] uppercase font-bold text-slate-500 block">TABELA COMPLETA</span>
-            <span className="text-2xl font-black font-condensed text-slate-800">Visualizar</span>
+            <span className="text-xl xl:text-2xl font-black font-condensed text-slate-800 break-words">Visualizar</span>
           </div>
           <button
             type="button"

@@ -525,7 +525,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
 
       {/* Retro Status Display: Visível no desktop */}
       <div className="hidden lg:flex mt-8 pt-6 border-t-2 border-slate-300/80 flex-col items-center justify-center text-center">
-        <div className="font-condensed font-black text-4xl sm:text-5xl tracking-wide leading-none text-[#00a843] drop-shadow-xs">
+        <div className="font-condensed font-black text-4xl sm:text-3xl sm:text-4xl xl:text-3xl 2xl:text-4xl tracking-wide leading-none text-[#00a843] drop-shadow-xs">
           ESTOQUE
         </div>
         <div className="font-condensed font-black text-4xl sm:text-5xl tracking-wide leading-none text-[#00a843] drop-shadow-xs mt-1">
