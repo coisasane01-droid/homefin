@@ -7,6 +7,7 @@ import { toAIStudioProduct, toHomeFinProduct } from './services/homefinAdapter';
 import { ListaProdutosModal } from './components/ListaProdutosModal';
 import { CadastroProdutoModal } from './components/CadastroProdutoModal';
 import { AppHeader } from './components/AppHeader';
+import { CompartilharEstoqueHomeFinModal } from './components/CompartilharEstoqueHomeFinModal';
 import { TerminalPanel } from './components/TerminalPanel';
 import { ProductPhotoModal } from './components/ProductPhotoModal';
 import { MovimentacaoEstoqueSection } from './components/MovimentacaoEstoqueSection';
@@ -20,6 +21,7 @@ export default function HomeFinInventoryView() {
   const [loading, setLoading] = useState(true);
   const [isListaModalOpen, setIsListaModalOpen] = useState(false);
   const [isCadastroOpen, setIsCadastroOpen] = useState(false);
+  const [isCompartilharOpen, setIsCompartilharOpen] = useState(false);
   const [activePhotoProduct, setActivePhotoProduct] = useState<Product | null>(null);
   const [processing, setProcessing] = useState(false);
   const processingRef = useRef(false);
@@ -386,7 +388,7 @@ export default function HomeFinInventoryView() {
         onOpenCadastro={() => setIsCadastroOpen(true)}
         onOpenFavoritos={blocked}
         onOpenHistorico={blocked}
-        onOpenGerenciarEstoques={blocked}
+        onOpenGerenciarEstoques={() => setIsCompartilharOpen(true)}
         totalProductsCount={products.length}
         workspaces={[workspace]}
         activeWorkspace={workspace}
@@ -533,6 +535,19 @@ export default function HomeFinInventoryView() {
             }
           }}
           nextCodigoInterno={String(products.length + 1).padStart(6, '0')}
+        />
+      )}
+
+      {isCompartilharOpen && (
+        <CompartilharEstoqueHomeFinModal
+          familyId={familyId}
+          onClose={() => setIsCompartilharOpen(false)}
+          onChanged={async () => {
+            const result = await inventoryService.load(familyId);
+            setSourceProducts(result.data.products);
+            setProducts(result.data.products.map(toAIStudioProduct));
+            if (result.error) setMessage(result.error);
+          }}
         />
       )}
 
