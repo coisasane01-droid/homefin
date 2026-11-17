@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/passkey",
+      "destination": "/api/family-auth?mode=passkey"
+    },
+    {
       "source": "/api/inventory-photo",
       "destination": "/api/inventory?mode=photo"
     },

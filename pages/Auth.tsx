@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Home, Delete, KeyRound, AlertCircle, AlertTriangle } from 'lucide-react';
 import { UserSettings } from '../types';
 import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
+import { loginFamilyPasskey, passkeyAvailable } from '../services/passkeyAuth';
 
 const PIN_LENGTH = 4;
 
@@ -157,6 +158,22 @@ const Auth: React.FC = () => {
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Não foi possível validar o acesso.');
       setPin('');
+    }
+  };
+
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const handlePasskeyLogin = async () => {
+    if (passkeyBusy) return;
+    const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+    setPasskeyBusy(true);
+    setError('');
+    try {
+      await loginFamilyPasskey(familyId);
+      window.location.hash = getPostLoginPath(familyId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível entrar com biometria.');
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -484,6 +501,12 @@ const Auth: React.FC = () => {
                 </div>
             )}
 
+            {authStatusReady && mode === 'login' && passkeyAvailable() && (
+              <button type="button" disabled={passkeyBusy} onClick={handlePasskeyLogin}
+                className={`w-full mb-5 rounded-xl border px-4 py-3 font-semibold disabled:opacity-60 ${hasBackground ? 'border-white/40 bg-white/20 text-white' : 'border-primary-300 text-primary-700 dark:text-primary-300'}`}>
+                {passkeyBusy ? 'Validando biometria…' : 'Entrar com biometria'}
+              </button>
+            )}
             {/* Keypad */}
             <div className="grid grid-cols-3 gap-4 md:gap-6 px-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (

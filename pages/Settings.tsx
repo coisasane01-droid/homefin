@@ -5,6 +5,7 @@ import { db } from '../services/db';
 import { UserSettings } from '../types';
 import { familyDeletionService } from '../services/familyDeletionService';
 import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
+import { registerFamilyPasskey, passkeyAvailable } from '../services/passkeyAuth';
 import { Settings as SettingsIcon, Save, Moon, Sun, Lock, KeyRound, X, CheckCircle2, ShieldCheck, Image as ImageIcon, Maximize2, Palette, Bell, Info, Copy, Check, Trash2, ArrowDown, ArrowUp, Zap } from 'lucide-react';
 import { DEFAULT_QUICK_MENU, normalizeQuickMenu, QUICK_MENU_ACTIONS, QuickMenuDisplayMode } from '../components/quickMenuConfig';
 
@@ -435,6 +436,24 @@ const Settings: React.FC = () => {
         });
     }
     setPositionModal(null);
+  };
+
+  const [passkeyRegisterBusy, setPasskeyRegisterBusy] = useState(false);
+  const handlePasskeyRegister = async () => {
+    if (passkeyRegisterBusy) return;
+    const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
+    setPasskeyRegisterBusy(true);
+    try {
+      const pin = window.prompt('Confirme o PIN atual de 4 dígitos para ativar a biometria:');
+      if (pin === null) return;
+      if (!/^\d{4}$/.test(pin)) throw new Error('Informe um PIN de 4 dígitos.');
+      await registerFamilyPasskey(familyId, pin);
+      showNotification('Biometria cadastrada neste aparelho. Você poderá usá-la no próximo login.', 'success');
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'Não foi possível cadastrar a biometria.', 'warning');
+    } finally {
+      setPasskeyRegisterBusy(false);
+    }
   };
 
   // --- PIN LOGIC ---
@@ -1027,6 +1046,18 @@ const Settings: React.FC = () => {
         </div>
 
         {/* Security Section */}
+        {passkeyAvailable() && (
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm space-y-3">
+            <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-primary-600" /> Biometria do aparelho
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Ative Face ID, impressão digital ou o desbloqueio oferecido pelo aparelho. O PIN continuará disponível.</p>
+            <button type="button" disabled={passkeyRegisterBusy} onClick={handlePasskeyRegister}
+              className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl disabled:opacity-60">
+              {passkeyRegisterBusy ? 'Cadastrando biometria…' : 'Ativar biometria neste aparelho'}
+            </button>
+          </div>
+        )}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm space-y-4">
             <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
                 <Lock className="w-5 h-5 text-gray-400" /> Segurança
