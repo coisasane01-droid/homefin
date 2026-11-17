@@ -177,6 +177,54 @@ const Auth: React.FC = () => {
     }
   };
 
+
+  // Tenta abrir a biometria automaticamente uma vez por
+  // abertura da tela de login. O PIN permanece disponível.
+  useEffect(() => {
+    if (!authStatusReady || mode !== 'login' || passkeyBusy) return;
+
+    const familyId =
+      localStorage.getItem('homefin_current_family_id') || 'v1';
+
+    if (familyId === 'v1' || !passkeyAvailable()) return;
+
+    // Somente aparelhos que já ativaram a biometria.
+    if (localStorage.getItem(
+      `homefin_passkey_enabled_${familyId}`
+    ) !== '1') return;
+
+    const attemptKey = `homefin_passkey_auto_attempt_${familyId}`;
+
+    // Evita repetição na mesma montagem da tela.
+    if (sessionStorage.getItem(attemptKey) === 'running') return;
+
+    sessionStorage.setItem(attemptKey, 'running');
+
+    let cancelled = false;
+
+    const start = async () => {
+      setPasskeyBusy(true);
+      try {
+        await loginFamilyPasskey(familyId);
+        if (!cancelled) {
+          window.location.hash = getPostLoginPath(familyId);
+        }
+      } catch {
+        // Navegadores podem exigir interação do usuário.
+        // Mantém o PIN e o botão manual disponíveis.
+      } finally {
+        sessionStorage.removeItem(attemptKey);
+        if (!cancelled) setPasskeyBusy(false);
+      }
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatusReady, mode]);
+
   const startRecovery = () => {
     setMode(hasRecovery ? 'recovery' : 'reset_warning');
     setPin('');
