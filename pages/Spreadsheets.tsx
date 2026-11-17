@@ -23,6 +23,10 @@ import {
   calculateSpreadsheetTotal,
   calculateSpreadsheetCommission,
   calculateSpreadsheetCommissionBase,
+  calculateSpreadsheetUnitCommission,
+  calculateSpreadsheetUnitCommissionQuantity,
+  calculateSpreadsheetExtraCommission,
+  hasInvalidSpreadsheetExtraCommission,
   hasInvalidSpreadsheetCurrency,
   parseSpreadsheetCommissionPercentage,
   parseSpreadsheetCurrency,
@@ -88,6 +92,15 @@ const createSpreadsheet = (): HomeFinSpreadsheet => {
     commissionEnabled: false,
     commissionColumnId: null,
     commissionPercentage: 0,
+    unitCommissionEnabled: false,
+    unitCommissionColumnId: null,
+    unitCommissionAmount: 0,
+    extraCommissionEnabled: false,
+    extraCommissionOriginalColumnId: null,
+    extraCommissionSaleColumnId: null,
+    extraCommissionQuantityColumnId: null,
+    extraCommissionMode: 'percentage',
+    extraCommissionRate: 0,
     notes: '',
     createdAt: now,
     updatedAt: now,
@@ -321,7 +334,29 @@ const Spreadsheets: React.FC = () => {
     setSyncError('');
   };
 
-  const handleSave = async () => {
+    const hasInvalidUnitQuantity = (sheet: HomeFinSpreadsheet): boolean => {
+    if (!sheet.unitCommissionEnabled) return false;
+
+    const column = sheet.columns.find(
+      item => item.id === sheet.unitCommissionColumnId
+    );
+
+    if (!column || column.type !== 'text') return true;
+
+    return sheet.rows.some(row => {
+      const raw = String(row.cells[column.id] ?? '').trim();
+      if (!raw) return false;
+
+      const normalized = raw.replace(/\s/g, '').replace(',', '.');
+
+      if (!/^\d+(?:\.\d{1,3})?$/.test(normalized)) return true;
+
+      const quantity = Number(normalized);
+      return !Number.isFinite(quantity) || quantity > 99999999999;
+    });
+  };
+
+const handleSave = async () => {
     if (!selected || saving) return;
     if (!familyId || familyId === 'v1') {
       setSyncError('Entre na sua família antes de salvar uma planilha.');
@@ -329,6 +364,14 @@ const Spreadsheets: React.FC = () => {
     }
     if (!selected.name.trim()) {
       setSyncError('Informe um nome para a planilha antes de salvar.');
+      return;
+    }
+    if (hasInvalidSpreadsheetExtraCommission(selected)) {
+      setSyncError('Confira as colunas, quantidades, preços e taxa da comissão extra.');
+      return;
+    }
+    if (hasInvalidUnitQuantity(selected)) {
+      setSyncError('Corrija as quantidades inválidas antes de salvar.');
       return;
     }
     if (hasInvalidSpreadsheetCurrency(selected)) {
@@ -402,6 +445,19 @@ const Spreadsheets: React.FC = () => {
           ? SPREADSHEET_TOTAL_COMMISSION_BASE
           : duplicatedColumns[selected.columns.findIndex((column) => column.id === selected.commissionColumnId)]?.id || null
         : null,
+      unitCommissionColumnId: selected.unitCommissionColumnId
+        ? duplicatedColumns[
+            selected.columns.findIndex(
+              (column) => column.id === selected.unitCommissionColumnId
+            )
+          ]?.id || null
+        : null,
+      extraCommissionOriginalColumnId: selected.extraCommissionOriginalColumnId
+        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionOriginalColumnId)]?.id || null : null,
+      extraCommissionSaleColumnId: selected.extraCommissionSaleColumnId
+        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionSaleColumnId)]?.id || null : null,
+      extraCommissionQuantityColumnId: selected.extraCommissionQuantityColumnId
+        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionQuantityColumnId)]?.id || null : null,
       rows: selected.rows.map((row) => ({
         id: crypto.randomUUID(),
         cells: Object.fromEntries(
@@ -814,6 +870,17 @@ const Spreadsheets: React.FC = () => {
             ) && selected.commissionEnabled,
           }
         : {}),
+      ...(selected.unitCommissionColumnId === column.id
+        ? {
+            unitCommissionColumnId: null,
+            unitCommissionEnabled: false,
+          }
+        : {}),
+      ...( [selected.extraCommissionOriginalColumnId, selected.extraCommissionSaleColumnId, selected.extraCommissionQuantityColumnId].includes(column.id)
+        ? { extraCommissionEnabled: false,
+            extraCommissionOriginalColumnId: selected.extraCommissionOriginalColumnId === column.id ? null : selected.extraCommissionOriginalColumnId,
+            extraCommissionSaleColumnId: selected.extraCommissionSaleColumnId === column.id ? null : selected.extraCommissionSaleColumnId,
+            extraCommissionQuantityColumnId: selected.extraCommissionQuantityColumnId === column.id ? null : selected.extraCommissionQuantityColumnId } : {}),
       rows: selected.rows.map((row) => {
         const cells = { ...row.cells };
         delete cells[column.id];
@@ -824,6 +891,14 @@ const Spreadsheets: React.FC = () => {
 
   const handleExportPdf = async () => {
     if (!selected) return;
+    if (hasInvalidSpreadsheetExtraCommission(selected)) {
+      setSyncError('Confira a configuração e os valores da comissão extra antes de exportar o PDF.');
+      return;
+    }
+      if (hasInvalidUnitQuantity(selected)) {
+        setSyncError('Corrija as quantidades inválidas antes de exportar o PDF.');
+        return;
+      }
     if (hasInvalidSpreadsheetCurrency(selected)) {
       setSyncError('Corrija os valores monetários inválidos antes de exportar o PDF.');
       return;
@@ -903,11 +978,13 @@ const Spreadsheets: React.FC = () => {
       showHead: 'everyPage',
     });
 
-    const tableDocument = doc as JsPDFDocument & { lastAutoTable?: { finalY: number } };
+    const tableDocument = doc as JsPDFDocument & {
+      lastAutoTable?: { finalY: number }
+    };
     const finalY = tableDocument.lastAutoTable?.finalY || 40;
     const pageHeight = doc.internal.pageSize.getHeight();
-    let summaryY = finalY + 9;
-    const summaryHeight = selected.commissionEnabled ? 20 : 12;
+    const pageWidth = doc.internal.pageSize.getWidth();
+
     const writeContinuationHeader = (title: string) => {
       doc.setTextColor(55, 48, 163);
       doc.setFont('helvetica', 'bold');
@@ -915,36 +992,144 @@ const Spreadsheets: React.FC = () => {
       doc.text('HomeFin | Planilhas', 14, 14);
       doc.setTextColor(31, 41, 55);
       doc.setFontSize(9);
-      doc.text(`${selected.name || 'Planilha sem nome'} — ${title}`, 14, 21);
+      doc.text(
+        `${selected.name || 'Planilha sem nome'} - ${title}`,
+        14,
+        21
+      );
       return 30;
     };
 
-    if (summaryY + summaryHeight + 8 > pageHeight - 14) {
-      doc.addPage();
-      summaryY = writeContinuationHeader('Resumo');
-    }
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    doc.setFillColor(220, 252, 231);
-    doc.setDrawColor(134, 239, 172);
-    doc.roundedRect(14, summaryY - 6, pageWidth - 28, summaryHeight, 2, 2, 'FD');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(22, 101, 52);
-    doc.text(`Total geral: ${formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}`, 18, summaryY + 1);
+    const commissions: Array<{
+      title: string;
+      detail: string;
+      amount: number;
+    }> = [];
 
     if (selected.commissionEnabled) {
+      commissions.push({
+        title: 'Comissao percentual',
+        detail: `${selected.commissionPercentage ?? 0}% sobre a base selecionada`,
+        amount: calculateSpreadsheetCommission(selected),
+      });
+    }
+
+    if (selected.unitCommissionEnabled) {
+      commissions.push({
+        title: 'Comissao por unidade',
+        detail:
+          `${calculateSpreadsheetUnitCommissionQuantity(selected).toLocaleString('pt-BR')} unidades x ` +
+          formatCurrency(selected.unitCommissionAmount ?? 0),
+        amount: calculateSpreadsheetUnitCommission(selected),
+      });
+    }
+
+    if (selected.extraCommissionEnabled) {
+      commissions.push({
+        title: 'Comissao extra',
+        detail: selected.extraCommissionMode === 'fixed'
+          ? `${formatCurrency(selected.extraCommissionRate ?? 0)} por unidade acima do preco`
+          : `${selected.extraCommissionRate ?? 0}% sobre o excedente da venda`,
+        amount: calculateSpreadsheetExtraCommission(selected),
+      });
+    }
+
+    const totalCommissions = commissions.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+
+    const summaryHeight =
+      18 +
+      (commissions.length > 0 ? 11 + commissions.length * 15 + 18 : 0);
+
+    let summaryY = finalY + 9;
+
+    if (summaryY + summaryHeight + 8 > pageHeight - 14) {
+      doc.addPage();
+      summaryY = writeContinuationHeader('Resumo financeiro');
+    }
+
+    // Quadro principal: total geral.
+    doc.setFillColor(236, 253, 245);
+    doc.setDrawColor(167, 243, 208);
+    doc.roundedRect(
+      14, summaryY, pageWidth - 28, 18, 2, 2, 'FD'
+    );
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(6, 95, 70);
+    doc.text('TOTAL GERAL', 19, summaryY + 6);
+
+    doc.setFontSize(15);
+    doc.text(
+      formatSpreadsheetTotal(calculateSpreadsheetTotal(selected)),
+      pageWidth - 19,
+      summaryY + 12,
+      { align: 'right' }
+    );
+
+    if (commissions.length > 0) {
+      const sectionY = summaryY + 23;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(31, 41, 55);
+      doc.text('COMISSOES CALCULADAS', 16, sectionY);
+
+      commissions.forEach((item, index) => {
+        const y = sectionY + 5 + index * 15;
+
+        if (index % 2 === 0) {
+          doc.setFillColor(248, 250, 252);
+          doc.roundedRect(
+            14, y, pageWidth - 28, 14, 1.5, 1.5, 'F'
+          );
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(31, 41, 55);
+        doc.text(item.title, 19, y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(item.detail, 19, y + 10);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(22, 101, 52);
+        doc.text(
+          formatCurrency(item.amount),
+          pageWidth - 19,
+          y + 8,
+          { align: 'right' }
+        );
+      });
+
+      const totalY =
+        sectionY + 5 + commissions.length * 15 + 2;
+
+      doc.setFillColor(220, 252, 231);
+      doc.roundedRect(
+        14, totalY, pageWidth - 28, 13, 2, 2, 'F'
+      );
+
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(22, 101, 52);
+      doc.text('TOTAL DAS COMISSOES', 19, totalY + 8);
       doc.text(
-        `Comissão (${selected.commissionPercentage ?? 0}%): ${formatCurrency(calculateSpreadsheetCommission(selected))}`,
-        14,
-        summaryY + 7
+        formatCurrency(Math.round(totalCommissions * 100) / 100),
+        pageWidth - 19,
+        totalY + 8,
+        { align: 'right' }
       );
     }
 
-    if (selected.notes.trim()) {
+      if (selected.notes.trim()) {
       const notes = doc.splitTextToSize(
         `Observações: ${selected.notes}`,
         doc.internal.pageSize.getWidth() - 28
@@ -952,7 +1137,7 @@ const Spreadsheets: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(55, 65, 81);
-      let notesY = summaryY + (selected.commissionEnabled ? 24 : 16);
+      let notesY = summaryY + summaryHeight + 4;
       for (const line of notes) {
         if (notesY > pageHeight - 14) {
           doc.addPage();
@@ -1388,7 +1573,6 @@ const Spreadsheets: React.FC = () => {
               <input
                 type="checkbox"
                 checked={!!selected.commissionEnabled}
-                disabled={!selected.columns.some((column) => column.type === 'currency')}
                 onChange={(event) => {
                   const firstCurrencyColumn = selected.columns.find((column) => column.type === 'currency');
                   updateSelected({
@@ -1444,6 +1628,129 @@ const Spreadsheets: React.FC = () => {
                   Base da comissão: {formatCurrency(calculateSpreadsheetCommissionBase(selected, selected.commissionColumnId))}.
                   Células vazias e textos são ignorados.
                 </p>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={!!selected.unitCommissionEnabled}
+                onChange={(event) => updateSelected({
+                  unitCommissionEnabled: event.target.checked,
+                  unitCommissionColumnId: selected.unitCommissionColumnId || selected.columns[0]?.id || null,
+                })}
+                className="mt-1 h-5 w-5 accent-primary-600"
+              />
+              <span>
+                <span className="block font-semibold text-gray-800 dark:text-gray-100">
+                  Calcular comissão por unidade vendida
+                </span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  Soma as quantidades e multiplica pelo valor da comissão de cada unidade.
+                </span>
+              </span>
+            </label>
+            {selected.unitCommissionEnabled && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Coluna de quantidade vendida
+                  <select
+                    value={selected.unitCommissionColumnId || ''}
+                    onChange={(event) => updateSelected({ unitCommissionColumnId: event.target.value || null })}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                  >
+                    <option value="">Selecione uma coluna</option>
+                    {selected.columns.filter((column) => column.type === 'text').map((column) => (
+                      <option key={column.id} value={column.id}>{column.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Comissão por unidade (R$)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={selected.unitCommissionAmount ?? 0}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (Number.isFinite(value) && value >= 0) {
+                        updateSelected({ unitCommissionAmount: value });
+                      }
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                  />
+                </label>
+                <div className="sm:col-span-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  Quantidade total: {calculateSpreadsheetUnitCommissionQuantity(selected).toLocaleString('pt-BR')}
+                  {' | '}Comissão total: {formatCurrency(calculateSpreadsheetUnitCommission(selected))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <label className="flex items-start gap-3">
+              <input type="checkbox" checked={!!selected.extraCommissionEnabled}
+                onChange={(event) => updateSelected({ extraCommissionEnabled: event.target.checked })}
+                className="mt-1 h-5 w-5 accent-primary-600" />
+              <span>
+                <span className="block font-semibold text-gray-800 dark:text-gray-100">Calcular comissão extra sobre venda acima do preço</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Somente quando o preço vendido superar o original. Multiplica pela quantidade vendida e não altera outras comissões.</span>
+              </span>
+            </label>
+            {selected.extraCommissionEnabled && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {([
+                  ['extraCommissionOriginalColumnId', 'Coluna de preço original'],
+                  ['extraCommissionSaleColumnId', 'Coluna de preço vendido'],
+                ] as const).map(([field, title]) => (
+                  <label key={field} className="text-sm font-medium text-gray-700 dark:text-gray-300">{title}
+                    <select value={selected[field] || ''} onChange={e => updateSelected({ [field]: e.target.value || null })}
+                      className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white">
+                      <option value="">Selecione uma coluna</option>
+                      {selected.columns.filter(c => c.type === 'currency').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </label>
+                ))}
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Coluna de quantidade vendida
+                  <select value={selected.extraCommissionQuantityColumnId || ''} onChange={e => updateSelected({ extraCommissionQuantityColumnId: e.target.value || null })}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white">
+                    <option value="">Selecione uma coluna</option>
+                    {selected.columns.filter(c => c.type === 'text').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Modo de comissão extra
+                  <select value={selected.extraCommissionMode || 'percentage'} onChange={e => updateSelected({ extraCommissionMode: e.target.value as 'percentage' | 'fixed', extraCommissionRate: 0 })}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white">
+                    <option value="percentage">Percentual sobre o excedente</option>
+                    <option value="fixed">Valor fixo por unidade acima do preço</option>
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{selected.extraCommissionMode === 'fixed' ? 'Valor por unidade (R$)' : 'Percentual do excedente (%)'}
+                  <input type="number" min="0" max={selected.extraCommissionMode === 'fixed' ? undefined : 100} step="0.01"
+                    value={selected.extraCommissionRate === 0 ? '' : (selected.extraCommissionRate ?? '')}
+                    placeholder="0"
+                    onChange={e => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        updateSelected({ extraCommissionRate: 0 });
+                        return;
+                      }
+                      const value = Number(raw);
+                      if (Number.isFinite(value) && value >= 0) {
+                        updateSelected({ extraCommissionRate: value });
+                      }
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-white" />
+                </label>
+                <div className="sm:col-span-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  {hasInvalidSpreadsheetExtraCommission(selected)
+                    ? 'Selecione colunas diferentes de preço, a quantidade e confira os valores.'
+                    : `Total da comissão extra: ${formatCurrency(calculateSpreadsheetExtraCommission(selected))}`}
+                </div>
               </div>
             )}
           </section>

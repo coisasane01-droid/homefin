@@ -56,23 +56,51 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
     { label: 'Bico Válvula TR414', type: 'valve', size: '49.1mm' }
   ];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const [processingPhoto, setProcessingPhoto] = useState(false);
 
-    if (file.size > 2 * 1024 * 1024) {
-      setErrorMsg('A imagem é muito grande. Escolha uma foto de até 2MB.');
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('Selecione uma imagem válida.');
       return;
     }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === 'string') {
-        setFotoUrl(event.target.result);
+    setProcessingPhoto(true);
+    setErrorMsg('');
+    try {
+      const image = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      try {
+        let width = image.width;
+        let height = image.height;
+        let result = '';
+        for (let maxSide = 1600; maxSide >= 500 && !result; maxSide = Math.floor(maxSide * 0.75)) {
+          const ratio = Math.min(1, maxSide / Math.max(width, height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(width * ratio));
+          canvas.height = Math.max(1, Math.round(height * ratio));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Não foi possível processar a foto.');
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          for (const quality of [0.85, 0.72, 0.58, 0.42]) {
+            const data = canvas.toDataURL('image/jpeg', quality);
+            if (data.startsWith('data:image/jpeg;base64,') && data.length < 2_600_000) {
+              result = data;
+              break;
+            }
+          }
+        }
+        if (!result) throw new Error('Não foi possível reduzir a foto para menos de 2 MB.');
+        setFotoUrl(result);
         setPhotoSelectedType('upload');
+      } finally {
+        image.close();
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Falha ao processar a foto.');
+    } finally {
+      setProcessingPhoto(false);
+    }
   };
 
   const handleSelectPreset = (presetName: string) => {
@@ -98,8 +126,8 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    if (saving) return;
     e.preventDefault();
+    if (saving || processingPhoto) return;
     if (!descricao.trim()) {
       setErrorMsg('Informe a descrição do produto.');
       return;
@@ -463,7 +491,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
                         className="hidden"
                       />
                     </label>
-                    <span className="text-xs text-slate-500">JPG, PNG ou WEBP até 2MB</span>
+                    <span className="text-xs text-slate-500">Fotos do celular são reduzidas automaticamente para até 2 MB</span>
                   </div>
                 </div>
 

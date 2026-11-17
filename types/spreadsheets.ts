@@ -29,6 +29,15 @@ export interface HomeFinSpreadsheet {
   commissionEnabled?: boolean;
   commissionColumnId?: string | null;
   commissionPercentage?: number;
+  unitCommissionEnabled?: boolean;
+  unitCommissionColumnId?: string | null;
+  unitCommissionAmount?: number;
+  extraCommissionEnabled?: boolean;
+  extraCommissionOriginalColumnId?: string | null;
+  extraCommissionSaleColumnId?: string | null;
+  extraCommissionQuantityColumnId?: string | null;
+  extraCommissionMode?: 'percentage' | 'fixed';
+  extraCommissionRate?: number;
   notes: string;
   createdAt: string;
   updatedAt: string;

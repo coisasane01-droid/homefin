@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, AddedItem } from '../types';
 import { formatCurrency, formatNumberDecimal, formatQuantity } from '../utils/formatters';
-import { Star, Plus, Eye, Trash2, ArrowDownCircle, ArrowUpCircle, Check, Search, X } from 'lucide-react';
+import { Star, Plus, Eye, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Check, Search, X } from 'lucide-react';
 
 interface ListaProdutosModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
+  archivedProducts: Product[];
+  onArchiveAction: (product: Product, action: 'archive' | 'restore' | 'delete') => void;
   addedItems: AddedItem[];
   onAddItem: (product: Product) => void;
   onRemoveItem: (id: string) => void;
@@ -14,6 +16,7 @@ interface ListaProdutosModalProps {
   onConfirmBaixaAll: () => void;
   onConfirmEntradaAll: () => void;
   onOpenPhoto: (product: Product) => void;
+  onEditProduct: (product: Product) => void;
   onToggleFavorite: (product: Product) => void;
   onQuickBaixaItem: (product: Product, quantity: number) => void;
   onQuickEntradaItem: (product: Product, quantity: number) => void;
@@ -23,6 +26,8 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
   isOpen,
   onClose,
   products,
+  archivedProducts,
+  onArchiveAction,
   addedItems,
   onAddItem,
   onRemoveItem,
@@ -30,11 +35,13 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
   onConfirmBaixaAll,
   onConfirmEntradaAll,
   onOpenPhoto,
+  onEditProduct,
   onToggleFavorite,
   onQuickBaixaItem,
   onQuickEntradaItem,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // 798 in screenshot
   const [activeTabFilter, setActiveTabFilter] = useState<'all' | 'pneus' | 'pecas' | 'oleos'>('all');
 
@@ -56,7 +63,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
 
   // Filter products by search term and category
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    return (showArchived ? archivedProducts : products).filter((p) => {
       const q = searchTerm.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -75,7 +82,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
 
       return true;
     });
-  }, [products, searchTerm, activeTabFilter]);
+  }, [products, archivedProducts, showArchived, searchTerm, activeTabFilter]);
 
   if (!isOpen) return null;
 
@@ -127,6 +134,10 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
             )}
           </div>
 
+          <button type="button" onClick={() => setShowArchived(v => !v)}
+            className="px-3 py-1.5 rounded bg-slate-700 text-white text-xs font-bold">
+            {showArchived ? 'Voltar aos ativos' : `Arquivados (${archivedProducts.length})`}
+          </button>
           {/* Quick Filters */}
           <div className="flex items-center gap-1 shrink-0 text-xs font-condensed font-bold uppercase">
             <button
@@ -181,6 +192,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-center">FAVORITO</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-center">FOTO</th>
                 <th className="py-2 px-2.5 border-r border-emerald-900/60 text-center">ADICIONAR</th>
+                <th className="py-2 px-2 text-center">AÇÕES</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60">NCM</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-right">PESO BRUTO</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-right">PESO LIQUIDO</th>
@@ -236,7 +248,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onToggleFavorite(p);
+                          if (!showArchived) onToggleFavorite(p);
                         }}
                         className="p-1 rounded hover:bg-amber-100"
                         title={p.favorito
@@ -276,6 +288,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                     <td className="py-1 px-2.5 text-center">
                       <button
                         type="button"
+                        disabled={showArchived}
                         onClick={(e) => {
                           e.stopPropagation();
                           onAddItem(p);
@@ -290,7 +303,21 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                         <Plus size={20} className="stroke-[3]" />
                       </button>
                     </td>
-                    <td className="py-1 px-2 font-mono text-slate-500">{p.ncm}</td>
+                    <td className="py-1 px-2 text-center">
+                      {!showArchived && <button type="button" onClick={e => { e.stopPropagation(); onEditProduct(p); }}
+                        className="p-1 rounded text-blue-700 hover:bg-blue-100" title="Editar produto">
+                        <Pencil size={17} />
+                      </button>}
+                      <button type="button" onClick={e => { e.stopPropagation(); onArchiveAction(p, showArchived ? 'restore' : 'archive'); }}
+                        className="p-1 rounded text-amber-700 hover:bg-amber-100" title={showArchived ? 'Restaurar produto' : 'Arquivar produto'}>
+                        {showArchived ? 'Restaurar' : 'Arquivar'}
+                      </button>
+                      <button type="button" onClick={e => { e.stopPropagation(); onArchiveAction(p, 'delete'); }}
+                        className="p-1 rounded text-red-700 hover:bg-red-100" title="Excluir produto sem histórico">
+                        <Trash2 size={17} />
+                      </button>
+                    </td>
+                    <td className="py-1 px-2.5 font-mono text-slate-500">{p.ncm}</td>
                     <td className="py-1 px-2 text-right font-mono">{p.pesoBruto}</td>
                     <td className="py-1 px-2 text-right font-mono">{p.pesoLiquido}</td>
                     <td className="py-1 px-2.5 italic text-slate-500 truncate max-w-[200px]">

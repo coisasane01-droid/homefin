@@ -57,6 +57,7 @@ function productFromDb(row) {
     notes: row.notes || '',
     favorite: Boolean(row.favorite),
     photoStoragePath: row.photo_storage_path || '',
+    archivedAt: row.archived_at || null,
     updatedAt: row.updated_at,
   };
 }
@@ -249,7 +250,7 @@ export default async function handler(req, res) {
     const inventoryFamilyId = access.ownerFamilyId;
 
     if (
-      ['save', 'delete', 'move', 'move-batch'].includes(action) &&
+      ['save', 'delete', 'move', 'move-batch', 'set-archived'].includes(action) &&
       (
         typeof req.body.expectedOwnerFamilyId !== 'string' ||
         req.body.expectedOwnerFamilyId !== inventoryFamilyId
@@ -382,9 +383,31 @@ export default async function handler(req, res) {
       return res.status(200).json({ product: productFromDb(product) });
     }
 
+    if (action === 'set-archived') {
+      const { id, archived, expectedUpdatedAt } = req.body;
+      if (!UUID_PATTERN.test(String(id || '')) || typeof archived !== 'boolean' ||
+          typeof expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+        return res.status(400).json({ error: 'Dados inválidos para arquivar ou restaurar.' });
+      }
+      const product = await db('rpc/homefin_inventory_set_archived_authorized', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_actor_family_id: familyId,
+          p_owner_family_id: inventoryFamilyId,
+          p_product_id: id,
+          p_archived: archived,
+          p_expected_updated_at: expectedUpdatedAt,
+        }),
+      });
+      return res.status(200).json({ product: productFromDb(product) });
+    }
+
     if (action === 'delete') {
-      if (!UUID_PATTERN.test(String(req.body.id || ''))) {
-        return res.status(400).json({ error: 'Produto inválido.' });
+      const { id, expectedUpdatedAt } = req.body;
+      if (!UUID_PATTERN.test(String(id || '')) ||
+          typeof expectedUpdatedAt !== 'string' ||
+          !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+        return res.status(400).json({ error: 'Produto ou versão inválida para exclusão.' });
       }
 
       const deleted = await db('rpc/homefin_inventory_delete_authorized', {
@@ -392,7 +415,8 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           p_actor_family_id: familyId,
           p_owner_family_id: inventoryFamilyId,
-          p_product_id: req.body.id,
+          p_product_id: id,
+          p_expected_updated_at: expectedUpdatedAt,
         }),
       });
 

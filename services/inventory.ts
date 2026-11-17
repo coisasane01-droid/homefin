@@ -7,6 +7,7 @@ import type {
 interface InventoryCache extends InventoryData {
   pendingIds: string[];
   deletedIds: string[];
+  deletedVersions: Record<string, string>;
   conflictIds: string[];
   conflictProducts: InventoryProduct[];
 }
@@ -16,6 +17,7 @@ const emptyCache = (): InventoryCache => ({
   movements: [],
   pendingIds: [],
   deletedIds: [],
+  deletedVersions: {},
   conflictIds: [],
   conflictProducts: [],
 });
@@ -42,6 +44,8 @@ function readCache(familyId: string): InventoryCache {
       movements: Array.isArray(parsed.movements) ? parsed.movements : [],
       pendingIds: Array.isArray(parsed.pendingIds) ? parsed.pendingIds : [],
       deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
+      deletedVersions: parsed.deletedVersions && typeof parsed.deletedVersions === 'object' &&
+        !Array.isArray(parsed.deletedVersions) ? parsed.deletedVersions : {},
       conflictIds: Array.isArray(parsed.conflictIds) ? parsed.conflictIds : [],
       conflictProducts: Array.isArray(parsed.conflictProducts)
         ? parsed.conflictProducts
@@ -376,11 +380,21 @@ async function syncPending(
     if (!cache.deletedIds.includes(id)) continue;
 
     const before = cache;
+    const expectedUpdatedAt = cache.deletedVersions[id];
+    if (typeof expectedUpdatedAt !== 'string' ||
+        !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+      return {
+        cache,
+        error: 'Exclusão offline antiga sem versão verificável. Nenhuma exclusão foi enviada. ' +
+          'Preserve os dados locais e procure suporte para conciliar este produto.',
+      };
+    }
 
     try {
       await request(actingFamilyId, {
         action: 'delete',
         id,
+        expectedUpdatedAt,
         expectedOwnerFamilyId: cacheId,
       });
 
@@ -398,6 +412,9 @@ async function syncPending(
       const updated: InventoryCache = {
         ...current,
         deletedIds: current.deletedIds.filter(value => value !== id),
+        deletedVersions: Object.fromEntries(
+          Object.entries(current.deletedVersions).filter(([key]) => key !== id)
+        ),
       };
 
       writeCache(cacheId, updated);
@@ -531,6 +548,61 @@ async function syncPending(
 }
 
 export const inventoryService = {
+  async setArchived(familyId: string, product: InventoryProduct, archived: boolean): Promise<InventoryProduct> {
+    if (!navigator.onLine) throw new Error('Arquivar e restaurar exigem conexão com o Supabase.');
+    const ownerFamilyId = cacheFamilyIdFor(familyId);
+    await assertCurrentOwner(familyId, ownerFamilyId);
+    const cache = readCache(ownerFamilyId);
+    if (cache.pendingIds.includes(product.id) || cache.deletedIds.includes(product.id) ||
+        cache.conflictIds.includes(product.id) || readPendingOperation(familyId)) {
+      throw new Error('Existem alterações pendentes. Sincronize o Estoque antes de continuar.');
+    }
+    const result = await request(familyId, {
+      action: 'set-archived', id: product.id, archived,
+      expectedUpdatedAt: product.updatedAt, expectedOwnerFamilyId: ownerFamilyId,
+    });
+    if (!result?.product || result.product.id !== product.id) {
+      throw new Error('O servidor não confirmou o arquivamento.');
+    }
+    const latest = readCache(ownerFamilyId);
+    if (JSON.stringify(latest) !== JSON.stringify(cache)) {
+      throw new Error(
+        'O servidor confirmou a operação, mas o estoque local mudou durante a requisição. ' +
+        'Os dados locais foram preservados. Atualize o Estoque para conciliar.'
+      );
+    }
+
+    writeCache(ownerFamilyId, {
+      ...latest,
+      products: latest.products.map(item =>
+        item.id === product.id ? result.product : item
+      ),
+    });
+    return result.product as InventoryProduct;
+  },
+
+  async deleteConfirmed(familyId: string, product: InventoryProduct): Promise<void> {
+    if (!navigator.onLine) throw new Error('A exclusão exige conexão com o Supabase.');
+    const ownerFamilyId = cacheFamilyIdFor(familyId);
+    await assertCurrentOwner(familyId, ownerFamilyId);
+    const cache = readCache(ownerFamilyId);
+    if (cache.pendingIds.includes(product.id) || cache.deletedIds.includes(product.id) ||
+        cache.conflictIds.includes(product.id) || readPendingOperation(familyId)) {
+      throw new Error('Existem alterações pendentes. Sincronize o Estoque antes de excluir.');
+    }
+    await request(familyId, { action: 'delete', id: product.id, expectedUpdatedAt: product.updatedAt, expectedOwnerFamilyId: ownerFamilyId });
+    const latest = readCache(ownerFamilyId);
+    if (JSON.stringify(latest) !== JSON.stringify(cache)) {
+      throw new Error(
+        'O servidor confirmou a exclusão, mas o estoque local mudou durante a requisição. ' +
+        'Os dados locais foram preservados. Atualize o Estoque para conciliar.'
+      );
+    }
+    writeCache(ownerFamilyId, { ...latest,
+      products: latest.products.filter(item => item.id !== product.id),
+    });
+  },
+
   async load(familyId: string): Promise<{
     data: InventoryData;
     synced: boolean;
@@ -908,12 +980,22 @@ export const inventoryService = {
       );
     }
 
-    const wasPending = cache.pendingIds.includes(id);
+    const product = cache.products.find(item => item.id === id);
+    if (!product) throw new Error('Produto não encontrado no cache. Atualize o Estoque.');
+    if (cache.pendingIds.includes(id)) {
+      throw new Error('Produto com alterações locais pendentes. Sincronize antes de excluir.');
+    }
+    if (cache.deletedIds.includes(id)) {
+      throw new Error('Este produto já possui uma exclusão pendente.');
+    }
+    if (!product.updatedAt || !Number.isFinite(Date.parse(product.updatedAt))) {
+      throw new Error('Produto sem versão verificável. Sincronize antes de excluir.');
+    }
     const next: InventoryCache = {
       ...cache,
-      products: cache.products.filter(product => product.id !== id),
-      pendingIds: cache.pendingIds.filter(value => value !== id),
-      deletedIds: wasPending ? cache.deletedIds : [...new Set([...cache.deletedIds, id])],
+      products: cache.products.filter(item => item.id !== id),
+      deletedIds: [...cache.deletedIds, id],
+      deletedVersions: { ...cache.deletedVersions, [id]: product.updatedAt },
     };
     writeCache(cacheId, next);
     if (!navigator.onLine) {

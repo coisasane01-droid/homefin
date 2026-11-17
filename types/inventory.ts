@@ -22,6 +22,7 @@ export interface InventoryProduct {
   favorite?: boolean;
   photoStoragePath?: string;
   updatedAt: string;
+  archivedAt?: string | null;
 }
 
 export interface InventoryMovement {

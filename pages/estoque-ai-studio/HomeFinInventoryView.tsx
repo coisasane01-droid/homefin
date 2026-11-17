@@ -16,6 +16,7 @@ import { MovimentacaoEstoqueSection } from './components/MovimentacaoEstoqueSect
 export default function HomeFinInventoryView() {
   const familyId = localStorage.getItem('homefin_current_family_id') || '';
   const [products, setProducts] = useState<Product[]>([]);
+  const [archivedProducts, setArchivedProducts] = useState<Product[]>([]);
   const [sourceProducts, setSourceProducts] =
     useState<InventoryProduct[]>([]);
   const [addedItems, setAddedItems] = useState<AddedItem[]>([]);
@@ -26,6 +27,7 @@ export default function HomeFinInventoryView() {
   const favoriteBusyRef = useRef(false);
 
   const [isCadastroOpen, setIsCadastroOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isCompartilharOpen, setIsCompartilharOpen] = useState(false);
   const [activePhotoProduct, setActivePhotoProduct] = useState<Product | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -55,7 +57,8 @@ export default function HomeFinInventoryView() {
 
         if (!cancelled) {
           setSourceProducts(result.data.products);
-          setProducts(result.data.products.map(toAIStudioProduct));
+          setProducts(result.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+          setArchivedProducts(result.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
           setMessage(result.error || '');
         }
       } catch (error) {
@@ -338,7 +341,8 @@ export default function HomeFinInventoryView() {
       const result = await inventoryService.load(familyId);
 
       setSourceProducts(result.data.products);
-      setProducts(result.data.products.map(toAIStudioProduct));
+      setProducts(result.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+          setArchivedProducts(result.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
 
       setAddedItems([]);
       setMessage('Baixa realizada com sucesso.');
@@ -437,7 +441,7 @@ export default function HomeFinInventoryView() {
       onQuickBaixa={blocked}
       onQuickEntrada={blocked}
       onOpenPhoto={setActivePhotoProduct}
-      onOpenCadastro={() => setIsCadastroOpen(true)}
+      onOpenCadastro={() => { setEditingProduct(null); setIsCadastroOpen(true); }}
       onOpenListaProdutos={blocked}
       onOpenHistorico={blocked}
       onOpenEstoqueCritico={blocked}
@@ -452,7 +456,7 @@ export default function HomeFinInventoryView() {
     <div className="min-h-screen flex flex-col bg-[#cfd6dc] text-slate-900">
       <AppHeader
         onOpenListaProdutos={() => setIsListaModalOpen(true)}
-        onOpenCadastro={() => setIsCadastroOpen(true)}
+        onOpenCadastro={() => { setEditingProduct(null); setIsCadastroOpen(true); }}
         onOpenFavoritos={() => setIsFavoritosOpen(true)}
         onOpenHistorico={blocked}
         onOpenGerenciarEstoques={() => setIsCompartilharOpen(true)}
@@ -475,7 +479,8 @@ export default function HomeFinInventoryView() {
           const result = await inventoryService.load(familyId);
 
           setSourceProducts(result.data.products);
-          setProducts(result.data.products.map(toAIStudioProduct));
+          setProducts(result.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+          setArchivedProducts(result.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
 
           setMessage(
             result.error ||
@@ -508,7 +513,8 @@ export default function HomeFinInventoryView() {
 
       {isCadastroOpen && (
         <CadastroProdutoModal
-          onClose={() => setIsCadastroOpen(false)}
+          onClose={() => { setIsCadastroOpen(false); setEditingProduct(null); }}
+          productToEdit={editingProduct}
           onSaveProduct={async (product) => {
             if (!familyId || familyId === 'v1') {
               throw new Error('Entre na sua família para salvar produtos.');
@@ -522,14 +528,13 @@ export default function HomeFinInventoryView() {
               item => item.id === product.id
             );
 
-            if (previous) {
-              throw new Error(
-                'A edição de produtos existentes ainda está bloqueada ' +
-                'até concluirmos os testes de concorrência.'
-              );
+            if (editingProduct && !previous) {
+              throw new Error('Produto não encontrado. Atualize a lista antes de editar.');
             }
-
-            const homefinProduct = toHomeFinProduct(product);
+            if (previous && !navigator.onLine) {
+              throw new Error('A edição exige conexão para verificar alterações de outros aparelhos.');
+            }
+            const homefinProduct = toHomeFinProduct(product, previous);
 
             const result = await inventoryService.saveProduct(
               familyId,
@@ -537,7 +542,8 @@ export default function HomeFinInventoryView() {
             );
 
             setSourceProducts(result.data.products);
-            setProducts(result.data.products.map(toAIStudioProduct));
+            setProducts(result.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+          setArchivedProducts(result.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
 
             if (!result.synced) {
               setMessage(
@@ -612,7 +618,8 @@ export default function HomeFinInventoryView() {
           onChanged={async () => {
             const result = await inventoryService.load(familyId);
             setSourceProducts(result.data.products);
-            setProducts(result.data.products.map(toAIStudioProduct));
+            setProducts(result.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+          setArchivedProducts(result.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
             if (result.error) setMessage(result.error);
           }}
         />
@@ -639,6 +646,7 @@ export default function HomeFinInventoryView() {
         isOpen={isListaModalOpen}
         onClose={() => setIsListaModalOpen(false)}
         products={products}
+        archivedProducts={archivedProducts}
         addedItems={addedItems}
         onAddItem={addProductFromTable}
         onRemoveItem={id => {
@@ -654,7 +662,37 @@ export default function HomeFinInventoryView() {
         onConfirmBaixaAll={confirmBaixaAll}
         onConfirmEntradaAll={blocked}
         onOpenPhoto={setActivePhotoProduct}
+        onEditProduct={product => {
+          if (processingRef.current) return;
+          setIsListaModalOpen(false);
+          setEditingProduct(product);
+          setIsCadastroOpen(true);
+        }}
         onToggleFavorite={toggleFavorite}
+        onArchiveAction={async (product, action) => {
+          if (processingRef.current) return;
+          const source = sourceProducts.find(item => item.id === product.id);
+          if (!source) { setMessage('Produto não encontrado. Atualize o Estoque.'); return; }
+          const verb = action === 'archive' ? 'arquivar' : action === 'restore' ? 'restaurar' : 'excluir definitivamente';
+          if (!window.confirm(`Deseja ${verb} o produto "${source.name}"?`)) return;
+          processingRef.current = true;
+          setProcessing(true);
+          try {
+            if (action === 'delete') await inventoryService.deleteConfirmed(familyId, source);
+            else await inventoryService.setArchived(familyId, source, action === 'archive');
+            const refreshed = await inventoryService.load(familyId);
+            setSourceProducts(refreshed.data.products);
+            setProducts(refreshed.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+            setArchivedProducts(refreshed.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
+            setAddedItems(current => current.filter(item => item.id !== product.id));
+            setMessage(refreshed.error || `Produto atualizado: ${verb}.`);
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Falha na operação.');
+          } finally {
+            processingRef.current = false;
+            setProcessing(false);
+          }
+        }}
         onQuickBaixaItem={blocked}
         onQuickEntradaItem={blocked}
       />

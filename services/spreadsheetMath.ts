@@ -189,6 +189,45 @@ export const calculateSpreadsheetCommission = (
   return Math.round((commission + Number.EPSILON) * 100) / 100;
 };
 
+
+// Comissão fixa por unidade vendida.
+// Utiliza a coluna de quantidade selecionada, sem alterar o total geral.
+export const calculateSpreadsheetUnitCommissionQuantity = (
+  spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows' | 'unitCommissionColumnId'>
+): number => {
+  const columnId = spreadsheet.unitCommissionColumnId;
+  if (!columnId || !spreadsheet.columns.some(column => column.id === columnId)) {
+    return 0;
+  }
+
+  return spreadsheet.rows.reduce((total, row) => {
+    const raw = String(row.cells[columnId] ?? '').trim();
+    if (!raw) return total;
+
+    const normalized = raw.replace(/\s/g, '').replace(',', '.');
+    if (!/^\d+(?:\.\d{1,3})?$/.test(normalized)) return total;
+
+    const quantity = Number(normalized);
+    return Number.isFinite(quantity)
+      ? Math.round((total + quantity) * 1000) / 1000
+      : total;
+  }, 0);
+};
+
+export const calculateSpreadsheetUnitCommission = (
+  spreadsheet: Pick<
+    HomeFinSpreadsheet,
+    'columns' | 'rows' | 'unitCommissionColumnId' | 'unitCommissionAmount'
+  >
+): number => {
+  const quantity = calculateSpreadsheetUnitCommissionQuantity(spreadsheet);
+  const amount = Number(spreadsheet.unitCommissionAmount ?? 0);
+
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+
+  return Math.round((quantity * amount + Number.EPSILON) * 100) / 100;
+};
+
 export const hasInvalidSpreadsheetCurrency = (
   spreadsheet: HomeFinSpreadsheet
 ): boolean => spreadsheet.rows.some((row) =>
@@ -485,4 +524,50 @@ export const validateSpreadsheetFormula = (
   }
 
   return true;
+};
+
+// Comissão extra: somente a diferença positiva entre preço de venda e preço original.
+// Preços são unitários. Quantidade aceita até três casas decimais.
+export const parseSpreadsheetExtraQuantity = (value: string | number | null | undefined): number | null => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/\s/g, '').replace(',', '.');
+  if (!/^\d+(?:\.\d{1,3})?$/.test(normalized)) return null;
+  const quantity = Number(normalized);
+  return Number.isFinite(quantity) && quantity <= 99999999999 ? quantity : null;
+};
+
+export const hasInvalidSpreadsheetExtraCommission = (sheet: HomeFinSpreadsheet): boolean => {
+  if (!sheet.extraCommissionEnabled) return false;
+  const original = sheet.columns.find(c => c.id === sheet.extraCommissionOriginalColumnId && c.type === 'currency');
+  const sale = sheet.columns.find(c => c.id === sheet.extraCommissionSaleColumnId && c.type === 'currency');
+  const quantity = sheet.columns.find(c => c.id === sheet.extraCommissionQuantityColumnId && c.type === 'text');
+  const rate = Number(sheet.extraCommissionRate ?? 0);
+  if (!original || !sale || !quantity || original.id === sale.id ||
+      !['percentage', 'fixed'].includes(sheet.extraCommissionMode ?? 'percentage') ||
+      !Number.isFinite(rate) || rate < 0 ||
+      (sheet.extraCommissionMode === 'fixed' ? rate > 999999999999.99 || Math.abs(rate * 100 - Math.round(rate * 100)) > 0.000001 : rate > 100 || Math.abs(rate * 100 - Math.round(rate * 100)) > 0.000001)) return true;
+  return sheet.rows.some(row => {
+    const q = parseSpreadsheetExtraQuantity(row.cells[quantity.id]);
+    const a = parseSpreadsheetCurrency(row.cells[original.id]);
+    const b = parseSpreadsheetCurrency(row.cells[sale.id]);
+    return q === null || a === null || b === null || a < 0 || b < 0;
+  });
+};
+
+export const calculateSpreadsheetExtraCommission = (sheet: HomeFinSpreadsheet): number => {
+  if (!sheet.extraCommissionEnabled || hasInvalidSpreadsheetExtraCommission(sheet)) return 0;
+  let cents = 0;
+  for (const row of sheet.rows) {
+    const original = parseSpreadsheetCurrency(row.cells[sheet.extraCommissionOriginalColumnId!]) ?? 0;
+    const sale = parseSpreadsheetCurrency(row.cells[sheet.extraCommissionSaleColumnId!]) ?? 0;
+    const quantity = parseSpreadsheetExtraQuantity(row.cells[sheet.extraCommissionQuantityColumnId!]) ?? 0;
+    const excessCents = Math.max(0, Math.round(sale * 100) - Math.round(original * 100));
+    const rate = sheet.extraCommissionRate ?? 0;
+    const rowCents = sheet.extraCommissionMode === 'fixed'
+      ? (excessCents > 0 ? quantity * Math.round(rate * 100) : 0)
+      : excessCents * quantity * rate / 100;
+    cents += rowCents;
+  }
+  return Math.round(cents) / 100;
 };

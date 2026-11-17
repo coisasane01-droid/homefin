@@ -181,6 +181,7 @@ test('preserva cache alterado durante exclusão remota', async () => {
       products: [],
       pendingIds: [],
       deletedIds: [product.id],
+      deletedVersions: { [product.id]: product.updatedAt },
     }))
   );
 
@@ -402,4 +403,49 @@ test('baixa em lote não sobrescreve alteração local simultânea', async () =>
     finalCache.pendingIds.includes('another-product'),
     'A baixa em lote não pode apagar uma pendência recente.'
   );
+});
+
+
+test('bloqueia exclusão offline antiga sem versão', async () => {
+  const env = createEnvironment();
+  setupSession(env);
+
+  const legacyCache = makeCache({
+    products: [],
+    pendingIds: [],
+    deletedIds: [product.id],
+    deletedVersions: {},
+  });
+
+  env.localStorage.setItem(cacheKey, JSON.stringify(legacyCache));
+
+  const actions = [];
+
+  env.setFetch(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    actions.push(body.action);
+
+    if (body.action === 'list') {
+      return jsonResponse({
+        ownerFamilyId: familyId,
+        products: [product],
+        movements: [],
+      });
+    }
+
+    if (body.action === 'delete') {
+      throw new Error('Exclusão insegura enviada ao servidor.');
+    }
+
+    throw new Error('Ação inesperada: ' + body.action);
+  });
+
+  const result = await env.service.load(familyId);
+  const finalCache = JSON.parse(env.localStorage.getItem(cacheKey));
+
+  assert.equal(result.synced, false);
+  assert.match(result.error || '', /sem versão verificável/);
+  assert.equal(actions.includes('delete'), false);
+  assert.ok(finalCache.deletedIds.includes(product.id));
+  assert.equal(finalCache.deletedVersions[product.id], undefined);
 });
