@@ -680,12 +680,30 @@ export default function HomeFinInventoryView() {
           try {
             if (action === 'delete') await inventoryService.deleteConfirmed(familyId, source);
             else await inventoryService.setArchived(familyId, source, action === 'archive');
-            const refreshed = await inventoryService.load(familyId);
-            setSourceProducts(refreshed.data.products);
-            setProducts(refreshed.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
-            setArchivedProducts(refreshed.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
-            setAddedItems(current => current.filter(item => item.id !== product.id));
-            setMessage(refreshed.error || `Produto atualizado: ${verb}.`);
+            if (action === 'delete') {
+              // A exclusão já foi confirmada pelo servidor.
+              // Remove imediatamente o produto das listas visíveis.
+              setSourceProducts(current =>
+                current.filter(item => item.id !== source.id)
+              );
+              setProducts(current =>
+                current.filter(item => item.id !== source.id)
+              );
+              setArchivedProducts(current =>
+                current.filter(item => item.id !== source.id)
+              );
+              setAddedItems(current =>
+                current.filter(item => item.productId !== source.id)
+              );
+              setMessage('Produto excluído definitivamente.');
+            } else {
+              const refreshed = await inventoryService.load(familyId);
+              setSourceProducts(refreshed.data.products);
+              setProducts(refreshed.data.products.filter(p => !p.archivedAt).map(toAIStudioProduct));
+              setArchivedProducts(refreshed.data.products.filter(p => Boolean(p.archivedAt)).map(toAIStudioProduct));
+              setAddedItems(current => current.filter(item => item.productId !== source.id));
+              setMessage(refreshed.error || `Produto atualizado: ${verb}.`);
+            }
           } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Falha na operação.');
           } finally {
