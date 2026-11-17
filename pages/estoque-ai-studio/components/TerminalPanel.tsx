@@ -299,11 +299,11 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                     key={p.id}
                     onClick={() => selectProduct(p)}
                     onMouseEnter={() => setDropdownActiveIndex(idx)}
-                    className={`p-2.5 cursor-pointer transition-colors flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 text-xs ${
+                    className={`p-2.5 cursor-pointer transition-colors flex flex-col gap-2 text-xs ${
                       dropdownActiveIndex === idx ? 'bg-emerald-50 text-[#003816]' : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 w-full sm:flex-1">
+                    <div className="flex items-start gap-2.5 min-w-0 w-full">
                       {/* Photo thumbnail */}
                       <img
                         src={p.fotoUrl}
@@ -311,7 +311,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                         className="w-10 h-10 object-contain bg-slate-100 rounded border border-slate-200 shrink-0"
                       />
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 font-condensed text-sm truncate uppercase">
+                        <div className="font-bold text-slate-900 font-condensed text-sm break-words uppercase">
                           {p.descricao}
                         </div>
                         <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
@@ -322,9 +322,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 w-full sm:w-auto min-w-0 text-right border-t border-slate-200 pt-2 sm:border-0 sm:pt-0">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2 w-full min-w-0 border-t border-slate-200 pt-2">
                       {/* Available stock badge */}
-                      <div className="flex flex-col items-start sm:items-end min-w-0">
+                      <div className="flex flex-col items-start min-w-0">
                         <span className="text-[10px] text-slate-500 uppercase font-semibold">Disponível</span>
                         <span
                           className={`font-condensed font-bold text-sm px-1.5 py-0.2 rounded ${
@@ -338,7 +338,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
                       </div>
 
                       {/* Prices */}
-                      <div className="flex flex-col items-start sm:items-end min-w-0">
+                      <div className="flex flex-col items-start min-w-0">
                         <span className="text-[10px] text-slate-500 uppercase font-semibold">Varejo / Atacado</span>
                         <div className="font-condensed font-bold text-sm text-slate-900 break-words">
                           {formatCurrency(p.precoVarejo)}
