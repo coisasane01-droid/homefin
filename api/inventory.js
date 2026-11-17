@@ -284,6 +284,52 @@ export default async function handler(req, res) {
       });
     }
 
+    if (action === 'set-favorite') {
+      const productId = String(req.body.productId || '');
+      const favorite = req.body.favorite;
+      const expectedUpdatedAt = req.body.expectedUpdatedAt;
+
+      if (!UUID_PATTERN.test(productId) ||
+          typeof favorite !== 'boolean' ||
+          typeof expectedUpdatedAt !== 'string' ||
+          !expectedUpdatedAt.trim() ||
+          !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+        return res.status(400).json({
+          error: 'Dados inválidos para atualizar favorito.',
+        });
+      }
+
+      if (req.body.expectedOwnerFamilyId !== inventoryFamilyId) {
+        return res.status(409).json({
+          error: 'O compartilhamento do Estoque mudou. Atualize a tela.',
+        });
+      }
+
+      const product = await db(
+        'rpc/homefin_inventory_set_favorite_authorized',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            p_actor_family_id: familyId,
+            p_owner_family_id: inventoryFamilyId,
+            p_product_id: productId,
+            p_favorite: favorite,
+            p_expected_updated_at: expectedUpdatedAt,
+          }),
+        }
+      );
+
+      if (!product) {
+        return res.status(502).json({
+          error: 'O Supabase não confirmou a atualização do favorito.',
+        });
+      }
+
+      return res.status(200).json({
+        product: productFromDb(product),
+      });
+    }
+
     if (action === 'save') {
       const p = req.body.product;
       if (!validProduct(p) || !validInventoryExtras(p)) {
@@ -481,7 +527,9 @@ export default async function handler(req, res) {
       (
         error?.message === 'Atualize o produto antes de editar.' ||
         error?.message ===
-          'Este produto foi alterado em outro aparelho. Atualize o Estoque.'
+          'Este produto foi alterado em outro aparelho. Atualize o Estoque.' ||
+        error?.message ===
+          'Produto atualizado em outro aparelho. Recarregue o estoque.'
       );
 
     const status = isVersionConflict

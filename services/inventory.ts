@@ -783,6 +783,80 @@ export const inventoryService = {
     };
   },
 
+  async setFavorite(
+    familyId: string,
+    productId: string,
+    favorite: boolean,
+    expectedUpdatedAt: string
+  ): Promise<InventoryProduct> {
+    if (!navigator.onLine) {
+      throw new Error(
+        'É necessária conexão para atualizar os favoritos.'
+      );
+    }
+
+    let cacheId = cacheFamilyIdFor(familyId);
+    await assertCurrentOwner(familyId, cacheId);
+    cacheId = cacheFamilyIdFor(familyId);
+
+    const cache = readCache(cacheId);
+
+    if (
+      cache.conflictIds.includes(productId) ||
+      cache.pendingIds.includes(productId) ||
+      cache.deletedIds.includes(productId)
+    ) {
+      throw new Error(
+        'Este produto possui alterações pendentes ou em conflito. ' +
+        'Resolva antes de alterar o favorito.'
+      );
+    }
+
+    const result = await request(familyId, {
+      action: 'set-favorite',
+      productId,
+      favorite,
+      expectedUpdatedAt,
+      expectedOwnerFamilyId: cacheId,
+    });
+
+    if (!result?.product) {
+      throw new Error(
+        'O servidor não confirmou a atualização do favorito.'
+      );
+    }
+
+    const current = readCache(cacheId);
+
+    if (
+      current.conflictIds.includes(productId) ||
+      current.pendingIds.includes(productId) ||
+      current.deletedIds.includes(productId)
+    ) {
+      throw new Error(
+        'O favorito foi atualizado no servidor, mas existem ' +
+        'alterações locais pendentes. Atualize o estoque.'
+      );
+    }
+
+    const updated = result.product as InventoryProduct;
+
+    writeCache(cacheId, {
+      ...current,
+      products: current.products.map(product =>
+        product.id === productId
+          ? {
+              ...product,
+              favorite: Boolean(updated.favorite),
+              updatedAt: updated.updatedAt,
+            }
+          : product
+      ),
+    });
+
+    return updated;
+  },
+
   async saveProduct(familyId: string, product: InventoryProduct) {
     let cacheId = cacheFamilyIdFor(familyId);
     if (navigator.onLine) {

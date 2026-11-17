@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, AddedItem } from '../types';
 import { formatCurrency, formatNumberDecimal, formatQuantity } from '../utils/formatters';
-import { Plus, Eye, Trash2, ArrowDownCircle, ArrowUpCircle, Check, Search, X } from 'lucide-react';
+import { Star, Plus, Eye, Trash2, ArrowDownCircle, ArrowUpCircle, Check, Search, X } from 'lucide-react';
 
 interface ListaProdutosModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ interface ListaProdutosModalProps {
   onConfirmBaixaAll: () => void;
   onConfirmEntradaAll: () => void;
   onOpenPhoto: (product: Product) => void;
+  onToggleFavorite: (product: Product) => void;
   onQuickBaixaItem: (product: Product, quantity: number) => void;
   onQuickEntradaItem: (product: Product, quantity: number) => void;
 }
@@ -29,6 +30,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
   onConfirmBaixaAll,
   onConfirmEntradaAll,
   onOpenPhoto,
+  onToggleFavorite,
   onQuickBaixaItem,
   onQuickEntradaItem,
 }) => {
@@ -176,6 +178,7 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                 <th className="py-2 px-2.5 border-r border-emerald-900/60 text-right text-emerald-200">PREÇO VAREJO</th>
                 <th className="py-2 px-2.5 border-r border-emerald-900/60 text-right text-sky-200">PREÇO ATACADO</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-right">VALOR PROM</th>
+                <th className="py-2 px-2 border-r border-emerald-900/60 text-center">FAVORITO</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60 text-center">FOTO</th>
                 <th className="py-2 px-2.5 border-r border-emerald-900/60 text-center">ADICIONAR</th>
                 <th className="py-2 px-2 border-r border-emerald-900/60">NCM</th>
@@ -227,6 +230,30 @@ export const ListaProdutosModal: React.FC<ListaProdutosModalProps> = ({
                     <td className="py-1 px-2 text-right font-mono">
                       {formatNumberDecimal(p.valorProm)}
                     </td>
+                    {/* FAVORITO */}
+                    <td className="py-1 px-2 text-center">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(p);
+                        }}
+                        className="p-1 rounded hover:bg-amber-100"
+                        title={p.favorito
+                          ? 'Remover dos favoritos'
+                          : 'Adicionar aos favoritos'}
+                        aria-label={p.favorito
+                          ? 'Remover dos favoritos'
+                          : 'Adicionar aos favoritos'}
+                      >
+                        <Star
+                          size={18}
+                          fill={p.favorito ? '#facc15' : 'none'}
+                          color={p.favorito ? '#ca8a04' : '#94a3b8'}
+                        />
+                      </button>
+                    </td>
+
                     {/* FOTO: Olho button */}
                     <td className="py-1 px-2 text-center">
                       <button

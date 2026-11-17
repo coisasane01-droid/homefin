@@ -5,6 +5,7 @@ import type { InventoryProduct } from '../../types/inventory';
 import type { Product, AddedItem, StockWorkspace } from './types';
 import { toAIStudioProduct, toHomeFinProduct } from './services/homefinAdapter';
 import { ListaProdutosModal } from './components/ListaProdutosModal';
+import { FavoritosModal } from './components/FavoritosModal';
 import { CadastroProdutoModal } from './components/CadastroProdutoModal';
 import { AppHeader } from './components/AppHeader';
 import { CompartilharEstoqueHomeFinModal } from './components/CompartilharEstoqueHomeFinModal';
@@ -20,6 +21,10 @@ export default function HomeFinInventoryView() {
   const [addedItems, setAddedItems] = useState<AddedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isListaModalOpen, setIsListaModalOpen] = useState(false);
+  const [isFavoritosOpen, setIsFavoritosOpen] = useState(false);
+  const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null);
+  const favoriteBusyRef = useRef(false);
+
   const [isCadastroOpen, setIsCadastroOpen] = useState(false);
   const [isCompartilharOpen, setIsCompartilharOpen] = useState(false);
   const [activePhotoProduct, setActivePhotoProduct] = useState<Product | null>(null);
@@ -140,6 +145,68 @@ export default function HomeFinInventoryView() {
       cancelled = true;
     };
   }, [familyId, sourceProducts]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'F11') return;
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+
+      event.preventDefault();
+      setIsFavoritosOpen(true);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const toggleFavorite = async (product: Product) => {
+    if (favoriteBusyRef.current || processingRef.current) return;
+
+    const source = sourceProducts.find(item => item.id === product.id);
+    if (!source) {
+      setMessage('Produto não encontrado no estoque autorizado.');
+      return;
+    }
+
+    favoriteBusyRef.current = true;
+    setFavoriteBusyId(product.id);
+
+    try {
+      const updated = await inventoryService.setFavorite(
+        familyId,
+        source.id,
+        !Boolean(source.favorite),
+        source.updatedAt
+      );
+
+      setSourceProducts(current =>
+        current.map(item => item.id === updated.id ? updated : item)
+      );
+
+      setProducts(current =>
+        current.map(item => item.id === updated.id
+          ? {
+              ...item,
+              favorito: Boolean(updated.favorite),
+            }
+          : item
+        )
+      );
+
+      setMessage(
+        updated.favorite
+          ? 'Produto adicionado aos favoritos.'
+          : 'Produto removido dos favoritos.'
+      );
+    } catch (error) {
+      setMessage(error instanceof Error
+        ? error.message
+        : 'Não foi possível atualizar o favorito.');
+    } finally {
+      favoriteBusyRef.current = false;
+      setFavoriteBusyId(null);
+    }
+  };
 
   const addToQueue = (params: {
     product: Product;
@@ -386,7 +453,7 @@ export default function HomeFinInventoryView() {
       <AppHeader
         onOpenListaProdutos={() => setIsListaModalOpen(true)}
         onOpenCadastro={() => setIsCadastroOpen(true)}
-        onOpenFavoritos={blocked}
+        onOpenFavoritos={() => setIsFavoritosOpen(true)}
         onOpenHistorico={blocked}
         onOpenGerenciarEstoques={() => setIsCompartilharOpen(true)}
         totalProductsCount={products.length}
@@ -424,7 +491,7 @@ export default function HomeFinInventoryView() {
           <TerminalPanel
             products={products}
             onOpenListaProdutos={() => setIsListaModalOpen(true)}
-            onOpenFavoritos={blocked}
+            onOpenFavoritos={() => setIsFavoritosOpen(true)}
             onOpenPhoto={setActivePhotoProduct}
             onAddItemToQueue={addToQueue}
             onQuickBaixa={blocked}
@@ -558,6 +625,16 @@ export default function HomeFinInventoryView() {
         onClose={() => setActivePhotoProduct(null)}
       />
 
+      <FavoritosModal
+        isOpen={isFavoritosOpen}
+        onClose={() => setIsFavoritosOpen(false)}
+        products={products}
+        onSelectProduct={product => {
+          addProductFromTable(product);
+        }}
+        onOpenPhoto={setActivePhotoProduct}
+      />
+
       <ListaProdutosModal
         isOpen={isListaModalOpen}
         onClose={() => setIsListaModalOpen(false)}
@@ -577,6 +654,7 @@ export default function HomeFinInventoryView() {
         onConfirmBaixaAll={confirmBaixaAll}
         onConfirmEntradaAll={blocked}
         onOpenPhoto={setActivePhotoProduct}
+        onToggleFavorite={toggleFavorite}
         onQuickBaixaItem={blocked}
         onQuickEntradaItem={blocked}
       />

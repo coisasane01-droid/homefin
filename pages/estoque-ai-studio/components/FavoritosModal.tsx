@@ -1,6 +1,6 @@
 import React from 'react';
 import { Product } from '../types';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, formatQuantity } from '../utils/formatters';
 import { Star, X, Eye, Plus } from 'lucide-react';
 
 interface FavoritosModalProps {
@@ -68,7 +68,7 @@ export const FavoritosModal: React.FC<FavoritosModalProps> = ({
                       <span>Cód: <strong>{p.codigoInterno}</strong></span>
                       <span>Medida: <strong className="text-slate-800">{p.medida}</strong></span>
                       <span>Estoque: <strong className={p.estoqueAtual > 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {p.estoqueAtual.toFixed(0)} {p.unidade}
+                        {formatQuantity(p.estoqueAtual)} {p.unidade}
                       </strong></span>
                     </div>
                   </div>
