@@ -28,6 +28,7 @@ export interface InventoryProduct {
 export interface InventoryMovement {
   id: string;
   productId: string;
+  productNameSnapshot?: string;
   type: InventoryMovementType;
   quantity: number;
   note: string;

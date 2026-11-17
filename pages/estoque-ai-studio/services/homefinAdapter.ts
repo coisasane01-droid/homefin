@@ -93,7 +93,7 @@ export function toAIStudioMovement(
     timestamp: new Date(movement.createdAt).toLocaleString('pt-BR'),
     productId: movement.productId,
     codigoInterno: product?.sku || '',
-    descricao: product?.name || 'Produto',
+    descricao: product?.name || movement.productNameSnapshot || 'Produto excluído',
     tipo: movement.type === 'entry' ? 'entrada' : 'baixa',
     quantidade: Number(movement.quantity || 0),
     estoqueAnterior: 0,

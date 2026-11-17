@@ -64,7 +64,9 @@ function productFromDb(row) {
 
 function movementFromDb(row) {
   return {
-    id: row.id, productId: row.product_id, type: row.movement_type,
+    id: row.id, productId: row.product_id,
+    productNameSnapshot: row.product_name_snapshot || '',
+    type: row.movement_type,
     quantity: Number(row.quantity), note: row.note || '', createdAt: row.created_at,
   };
 }
