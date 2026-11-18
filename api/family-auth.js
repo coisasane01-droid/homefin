@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import passkeyHandler from './_passkey-handler.js';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
@@ -113,6 +114,7 @@ async function savePinAndBumpVersion(familyId, sessionVersion, pin) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   if ((req.query?.mode === 'passkey' || req.url?.split('?')[0] === '/api/passkey')) {
     return passkeyHandler(req, res);
   }
