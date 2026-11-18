@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import { verifyAdminSession } from './admin-auth.js';
 import { validateFamilySession } from './_family-session.js';
 
@@ -53,6 +54,7 @@ function publicData(data) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
