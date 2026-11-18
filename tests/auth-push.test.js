@@ -722,6 +722,128 @@ test('family support messages notify only admin Push subscriptions and remove ex
   assert.ok(cleanup.url.includes(encodeURIComponent(expiredEndpoint)));
 });
 
+
+test('admin support replies notify all family devices and remove expired family endpoints', async () => {
+  const login = responseCapture();
+
+  await adminAuthHandler({
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'login',
+      password: process.env.HOMEFIN_ADMIN_SECRET,
+    },
+  }, login);
+
+  assert.equal(login.statusCode, 200);
+  assert.ok(login.body.token);
+
+  const endpoints = [
+    'https://fcm.googleapis.com/fcm/send/family-device-one',
+    'https://fcm.googleapis.com/fcm/send/family-device-two',
+    'https://fcm.googleapis.com/fcm/send/family-device-expired',
+  ];
+
+  const delivered = [];
+  const deleted = [];
+  const requests = [];
+
+  webpush.setVapidDetails = () => {};
+
+  webpush.sendNotification = async (subscription, payload) => {
+    const endpoint = subscription.endpoint;
+    const notification = JSON.parse(payload);
+
+    assert.equal(notification.title, 'Nova resposta do HomeFin');
+    assert.equal(notification.url, '/#/support');
+
+    if (endpoint === endpoints[2]) {
+      throw Object.assign(new Error('gone'), { statusCode: 410 });
+    }
+
+    delivered.push(endpoint);
+  };
+
+  global.fetch = async (url, options = {}) => {
+    const target = String(url);
+    const method = options.method || 'GET';
+
+    requests.push({ target, method });
+
+    if (target.includes('homefin_support_messages') && method === 'POST') {
+      const message = JSON.parse(options.body);
+
+      assert.equal(message.family_id, 'family-one');
+      assert.equal(message.sender_type, 'admin');
+      assert.equal(message.message, 'Resposta do suporte');
+
+      return apiResponse(201, [{
+        id: 'admin-reply-one',
+        ...message,
+      }]);
+    }
+
+    if (target.includes('homefin_push_subscriptions') && method === 'GET') {
+      const query = new URL(target).searchParams;
+
+      assert.equal(query.get('family_id'), 'eq.family-one');
+      assert.equal(query.get('user_type'), 'eq.family');
+      assert.equal(query.get('select'), 'subscription,endpoint');
+
+      return apiResponse(200, endpoints.map(endpoint => ({
+        endpoint,
+        subscription: { endpoint },
+      })));
+    }
+
+    if (target.includes('homefin_push_subscriptions') && method === 'DELETE') {
+      const query = new URL(target).searchParams;
+
+      assert.equal(query.get('family_id'), 'eq.family-one');
+      assert.equal(query.get('user_type'), 'eq.family');
+
+      deleted.push(query.get('endpoint'));
+      return new Response(null, { status: 204 });
+    }
+
+    throw new Error(`Unexpected API request: ${method} ${target}`);
+  };
+
+  const res = responseCapture();
+
+  await supportHandler({
+    method: 'POST',
+    headers: authRequest(login.body.token),
+    body: {
+      action: 'send-message',
+      familyId: 'family-one',
+      message: 'Resposta do suporte',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.message.id, 'admin-reply-one');
+
+  assert.deepEqual(
+    delivered.sort(),
+    endpoints.slice(0, 2).sort(),
+    'Os dois aparelhos ativos devem receber a notificação.'
+  );
+
+  assert.deepEqual(
+    deleted,
+    [`eq.${endpoints[2]}`],
+    'Somente a inscrição expirada da família deve ser removida.'
+  );
+
+  const subscriptionRequest = requests.find(
+    item => item.target.includes('homefin_push_subscriptions')
+      && item.method === 'GET'
+  );
+
+  assert.ok(subscriptionRequest);
+});
+
 test('family login rejects an incorrect PIN and issues a token only after server validation', async () => {
   const salt = 'a'.repeat(32);
   const correctHash = (await scrypt('1234', salt, 64)).toString('hex');

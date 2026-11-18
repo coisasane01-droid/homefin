@@ -1443,20 +1443,20 @@ const handleSave = async () => {
                     setSyncError('');
                   }
                 }}
-                className={`rounded-xl border p-4 text-left transition hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-900/10 ${
+                className={`min-w-0 overflow-hidden rounded-xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
                   selected?.id === record.id
-                    ? 'border-primary-400 bg-primary-50 dark:border-primary-500 dark:bg-primary-900/20'
-                    : 'border-gray-200 dark:border-gray-700'
+                    ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200 dark:border-blue-500 dark:bg-blue-950/50 dark:ring-blue-800'
+                    : 'border-gray-200 bg-gray-50 hover:border-blue-200 hover:bg-blue-50/70 dark:border-gray-700 dark:bg-gray-900/70 dark:hover:border-blue-800 dark:hover:bg-gray-800'
                 }`}
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-gray-900 dark:text-white">{record.name || 'Sem nome'}</p>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                       {monthNames[record.referenceMonth - 1]} {record.referenceYear}
                     </p>
                   </div>
-                  <span className="shrink-0 rounded-lg bg-emerald-50 px-2.5 py-1 text-sm font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  <span className="inline-flex max-w-full min-w-0 self-start break-words rounded-lg border border-emerald-200 bg-emerald-100/80 px-3 py-2 text-sm font-bold leading-snug tabular-nums text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 sm:self-auto sm:text-right">
                     {formatSpreadsheetTotal(calculateSpreadsheetTotal(record))}
                   </span>
                 </div>
@@ -1545,10 +1545,10 @@ const handleSave = async () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 px-4 py-3 dark:bg-emerald-900/20">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-4 shadow-sm dark:border-emerald-900 dark:from-emerald-950/50 dark:to-teal-950/30">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Total geral</p>
-              <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">{formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}</p>
+              <p className="mt-1 max-w-full break-words text-2xl font-extrabold tabular-nums leading-tight text-emerald-800 dark:text-emerald-200">{formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}</p>
               {selected.commissionEnabled && (
                 <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
                   COMISSÃO ({selected.commissionPercentage ?? 0}%): {formatCurrency(calculateSpreadsheetCommission(selected))}
@@ -1568,7 +1568,7 @@ const handleSave = async () => {
             </div>
           </div>
 
-          <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+          <section className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/20">
             <label className="flex items-start gap-3">
               <input
                 type="checkbox"
@@ -1770,7 +1770,7 @@ const handleSave = async () => {
             </div>
           </div>
 
-          <section className="space-y-3 rounded-xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900 dark:bg-primary-950/20">
+          <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm dark:border-violet-900/70 dark:bg-violet-950/20">
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">Preenchimento rápido</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">

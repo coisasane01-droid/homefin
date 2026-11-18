@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 import type {
   InventoryData,
   InventoryProduct,
@@ -269,7 +271,34 @@ async function recoverPendingInventoryOperation(
       productsById.delete(id);
     }
 
+    // O arquivamento remoto prevalece também na recuperação offline.
+    const archivedRemoteIds = new Set<string>(
+      refreshed.products
+        .filter((product: InventoryProduct) => Boolean(product.archivedAt))
+        .map((product: InventoryProduct) => product.id)
+    );
+
+    const conflictProductsById = new Map<string, InventoryProduct>(
+      cache.conflictProducts.map(product => [product.id, product])
+    );
+    const conflictIds = new Set<string>(cache.conflictIds);
+
+    for (const id of archivedRemoteIds) {
+      if (!cache.pendingIds.includes(id) && !conflictIds.has(id)) continue;
+
+      const localProduct =
+        cache.products.find(item => item.id === id) ||
+        conflictProductsById.get(id);
+
+      if (localProduct) {
+        conflictProductsById.set(id, localProduct);
+        conflictIds.add(id);
+      }
+    }
+
     for (const id of [...cache.pendingIds, ...cache.conflictIds]) {
+      if (archivedRemoteIds.has(id)) continue;
+
       const localProduct = cache.products.find(item => item.id === id);
       if (localProduct) productsById.set(id, localProduct);
     }
@@ -287,6 +316,11 @@ async function recoverPendingInventoryOperation(
     const updated: InventoryCache = {
       ...cache,
       products: [...productsById.values()],
+      pendingIds: cache.pendingIds.filter(
+        id => !archivedRemoteIds.has(id)
+      ),
+      conflictIds: [...conflictIds],
+      conflictProducts: [...conflictProductsById.values()],
       movements: refreshed.movements,
     };
 
@@ -308,14 +342,14 @@ async function recoverPendingInventoryOperation(
 }
 
 async function request(familyId: string, body: Record<string, unknown>) {
-  const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-  const expiry = Number(
-    localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0
-  );
-  if (!familyId || familyId === 'v1' || !token || expiry <= Date.now()) {
+  if (!familyId || familyId === 'v1') {
     throw new Error('Sessão familiar ausente ou expirada. Entre novamente.');
   }
-  const response = await fetch('/api/inventory', {
+  const token = await getFamilySessionToken(familyId);
+  if (!token) {
+    throw new Error('Sessão familiar ausente ou expirada. Entre novamente.');
+  }
+  const response = await fetch(homefinApiUrl('/api/inventory'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -668,29 +702,60 @@ export const inventoryService = {
       ...legacyConflictProducts,
     ];
 
+    const remoteProducts: InventoryProduct[] = result.products || [];
+
     const productsById = new Map<string, InventoryProduct>(
-      (result.products || []).map(
+      remoteProducts.map(
         (product: InventoryProduct): [string, InventoryProduct] =>
           [product.id, product]
       )
     );
-    for (const id of local.deletedIds) productsById.delete(id);
-    // Pendências normais continuam visíveis durante a sincronização.
-    for (const id of local.pendingIds) {
+
+    const archivedRemoteIds = new Set(
+      remoteProducts
+        .filter(product => Boolean(product.archivedAt))
+        .map(product => product.id)
+    );
+
+    const conflictProductsById = new Map(
+      local.conflictProducts.map(product => [product.id, product])
+    );
+
+    const conflictIds = new Set(local.conflictIds);
+
+    // Arquivamento confirmado no servidor prevalece sobre cache antigo.
+    for (const id of archivedRemoteIds) {
+      if (!local.pendingIds.includes(id)) continue;
+
+      const oldLocal = local.products.find(product => product.id === id);
+
+      if (oldLocal) {
+        conflictProductsById.set(id, oldLocal);
+        conflictIds.add(id);
+      }
+    }
+
+    for (const id of local.deletedIds) {
+      productsById.delete(id);
+    }
+
+    // Pendências normais continuam visíveis.
+    // Produtos arquivados remotamente não podem ser ressuscitados.
+    const pendingIds = local.pendingIds.filter(
+      id => !archivedRemoteIds.has(id)
+    );
+
+    for (const id of pendingIds) {
       const pending = local.products.find(product => product.id === id);
       if (pending) productsById.set(id, pending);
     }
 
-    // Produtos em conflito preservam a versão local no cache,
-    // mas não substituem a versão confirmada pelo servidor.
-    // Preserva conflitos antigos em armazenamento separado.
-    // Compatibilidade com caches criados antes desta alteração.
-    const conflictProducts = [...local.conflictProducts];
-
     local = {
       ...local,
       products: [...productsById.values()],
-      conflictProducts,
+      pendingIds,
+      conflictIds: [...conflictIds],
+      conflictProducts: [...conflictProductsById.values()],
       movements: result.movements || [],
     };
     writeCache(cacheId, local);

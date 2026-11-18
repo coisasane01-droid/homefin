@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import webpush from 'web-push';
 import { validateFamilySession } from './_family-session.js';
 import { isSupportedPushEndpoint } from './_push-endpoint.js';
@@ -106,6 +107,94 @@ async function notifyAdminPushSubscribers() {
   }
 }
 
+
+async function notifyFamilyPushSubscribers(familyId) {
+  try {
+    const publicKey = process.env.VAPID_PUBLIC_KEY;
+    const privateKey = process.env.VAPID_PRIVATE_KEY;
+
+    if (!publicKey || !privateKey) {
+      throw new Error('Chaves VAPID não configuradas.');
+    }
+
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'https://homefinapp.vercel.app',
+      publicKey,
+      privateKey
+    );
+
+    const query = new URLSearchParams({
+      family_id: `eq.${familyId}`,
+      user_type: 'eq.family',
+      select: 'subscription,endpoint',
+    });
+
+    const subscriptions =
+      await request(`homefin_push_subscriptions?${query}`) || [];
+
+    const results = await Promise.allSettled(
+      subscriptions.map(async row => {
+        if (!isSupportedPushEndpoint(row.endpoint)) {
+          return { expired: false };
+        }
+
+        try {
+          await webpush.sendNotification(
+            row.subscription,
+            JSON.stringify({
+              title: 'Nova resposta do HomeFin',
+              body: 'Você recebeu uma resposta da equipe de suporte.',
+              url: '/#/support',
+            })
+          );
+
+          return { sent: true };
+        } catch (error) {
+          const statusCode = Number(error?.statusCode || 0);
+
+          if (statusCode !== 404 && statusCode !== 410) {
+            console.error(
+              'Falha no Push para família:',
+              familyId,
+              statusCode
+            );
+          }
+
+          return {
+            expired: statusCode === 404 || statusCode === 410,
+            endpoint: row.endpoint,
+          };
+        }
+      })
+    );
+
+    const expiredEndpoints = results
+      .filter(result =>
+        result.status === 'fulfilled' && result.value.expired
+      )
+      .map(result => result.value.endpoint)
+      .filter(Boolean);
+
+    await Promise.allSettled(expiredEndpoints.map(endpoint => {
+      const params = new URLSearchParams({
+        endpoint: `eq.${endpoint}`,
+        family_id: `eq.${familyId}`,
+        user_type: 'eq.family',
+      });
+
+      return request(`homefin_push_subscriptions?${params}`, {
+        method: 'DELETE',
+        headers: { Prefer: 'return=minimal' },
+      });
+    }));
+  } catch (error) {
+    console.error(
+      'Não foi possível notificar a família:',
+      error instanceof Error ? error.message : 'erro desconhecido'
+    );
+  }
+}
+
 async function authorize(req, familyId) {
   if (verifyAdminSession(req)) return { valid: true, admin: true, familyId };
   if (!FAMILY_ID_PATTERN.test(familyId)) {
@@ -123,6 +212,7 @@ async function authorize(req, familyId) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -185,7 +275,11 @@ export default async function handler(req, res) {
       if (!Array.isArray(rows) || !rows[0]) {
         return res.status(502).json({ error: 'O servidor não confirmou o envio da mensagem.' });
       }
-      if (!identity.admin) await notifyAdminPushSubscribers();
+      if (identity.admin) {
+        await notifyFamilyPushSubscribers(identity.familyId);
+      } else {
+        await notifyAdminPushSubscribers();
+      }
       return res.status(200).json({ message: rows[0] });
     }
 

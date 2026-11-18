@@ -198,7 +198,7 @@ const Dashboard: React.FC = () => {
       <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Dashboard do Mês</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Total Previsto</h3>
@@ -210,7 +210,7 @@ const Dashboard: React.FC = () => {
           <p className="text-sm text-gray-400 mt-1">{stats.count} lançamentos</p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Pago</h3>
@@ -227,7 +227,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Pendente</h3>
@@ -241,7 +241,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Saldo Atual</h3>
@@ -282,7 +282,7 @@ const Dashboard: React.FC = () => {
           <p className="text-sm text-gray-400 mt-1">Dinheiro disponível hoje</p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Saldo Previsto</h3>
@@ -296,7 +296,7 @@ const Dashboard: React.FC = () => {
           <p className="text-sm text-gray-400 mt-1">Fim do mês (Saldo Atual - Pendente)</p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h3 className="text-gray-500 dark:text-gray-400 font-medium">Score Financeiro</h3>
@@ -359,7 +359,7 @@ const Dashboard: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 min-h-[300px]">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300 min-h-[300px]">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Status de Pagamento</h3>
             <button onClick={() => setActiveInfoModal('status')} className="text-gray-400 hover:text-primary-500 transition-colors"><Info size={16} /></button>
@@ -392,7 +392,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Próximos Vencimentos</h3>
             <button onClick={() => setActiveInfoModal('vencimentos')} className="text-gray-400 hover:text-primary-500 transition-colors"><Info size={16} /></button>
@@ -403,7 +403,7 @@ const Dashboard: React.FC = () => {
               .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
               .slice(0, 5)
               .map(bill => (
-                <div key={bill.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div key={bill.id} className="flex items-center justify-between p-3 bg-white/45 dark:bg-gray-900/40 backdrop-blur-md border border-white/60 dark:border-white/5 rounded-xl">
                   <div className="flex flex-col">
                     <span className="font-medium text-gray-900 dark:text-gray-100">{bill.description}</span>
                     <span className="text-xs text-gray-500">{new Date(bill.dueDate).toLocaleDateString('pt-BR')}</span>
@@ -427,7 +427,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
               <Gem className="text-primary-500" size={20} /> Patrimônio Total
@@ -441,7 +441,7 @@ const Dashboard: React.FC = () => {
           
           <div className="mt-6 space-y-3">
             {assets.slice(0, 3).map(asset => (
-              <div key={asset.id} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <div key={asset.id} className="flex justify-between items-center p-3 bg-white/45 dark:bg-gray-900/40 backdrop-blur-md border border-white/60 dark:border-white/5 rounded-xl">
                 <span className="font-medium text-gray-900 dark:text-gray-100">{asset.name}</span>
                 <span className="font-bold text-gray-800 dark:text-gray-200">{formatCurrency(asset.purchaseValue)}</span>
               </div>
@@ -452,7 +452,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
               <Target className="text-primary-500" size={20} /> Metas e Sonhos
@@ -464,7 +464,7 @@ const Dashboard: React.FC = () => {
             {goals.length > 0 ? goals.slice(0, 3).map(goal => {
               const progress = Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100));
               return (
-                <div key={goal.id} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div key={goal.id} className="p-3 bg-white/45 dark:bg-gray-900/40 backdrop-blur-md border border-white/60 dark:border-white/5 rounded-xl">
                   <div className="flex justify-between items-center mb-2">
                     <span className="font-medium text-gray-900 dark:text-gray-100">{goal.title}</span>
                     <span className="text-sm font-bold text-primary-600">{progress}%</span>
@@ -488,7 +488,7 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="bg-white/65 dark:bg-gray-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg shadow-gray-900/5 dark:shadow-black/20 border border-white/80 dark:border-white/10 transition-all duration-300">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
             <Target className="text-primary-500" size={20} /> Progresso das Metas
