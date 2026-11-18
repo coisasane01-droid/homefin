@@ -1,3 +1,4 @@
+import { homefinApiUrl } from '../services/nativeApi';
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import SuperAdmin from '../pages/SuperAdmin';
@@ -24,7 +25,7 @@ const AdminPanelGuard: React.FC = () => {
       }
 
       try {
-        const response = await fetch('/api/admin-auth', {
+        const response = await fetch(homefinApiUrl('/api/admin-auth'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

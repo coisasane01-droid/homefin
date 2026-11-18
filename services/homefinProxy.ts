@@ -1,4 +1,6 @@
+import { homefinApiUrl } from './nativeApi';
 import type { AppData } from '../types';
+import { getFamilySessionToken } from './familyAuth';
 
 type FamilyAction = 'get' | 'save' | 'exists';
 
@@ -19,16 +21,13 @@ async function requestFamilyData(
     throw new Error('Esta família precisa concluir a migração de segurança para sincronizar online.');
   }
 
-  const tokenKey = `homefin_family_session_token_${familyId}`;
-  const expiryKey = `homefin_family_session_expires_at_${familyId}`;
-  const token = localStorage.getItem(tokenKey);
-  const expiresAt = Number(localStorage.getItem(expiryKey) || 0);
+  const token = await getFamilySessionToken(familyId);
 
-  if (!token || !expiresAt || expiresAt <= Date.now()) {
+  if (!token) {
     throw new Error('Sua sessão familiar expirou ou não está autenticada. Entre novamente com seu código.');
   }
 
-  const response = await fetch('/api/family-data', {
+  const response = await fetch(homefinApiUrl('/api/family-data'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

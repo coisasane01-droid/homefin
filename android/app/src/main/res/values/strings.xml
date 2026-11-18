@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HomeFin</string>
+    <string name="title_activity_main">HomeFin</string>
+    <string name="package_name">app.homefin.mobile</string>
+    <string name="custom_url_scheme">app.homefin.mobile</string>
+</resources>

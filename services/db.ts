@@ -1,5 +1,6 @@
+import { isNativeHomeFin } from './secureSession';
 import { AppData, Bill, ShoppingItem, Goal, Asset, UserSettings, KnownProduct, CalendarEvent, Debt } from '../types';
-import { supabase } from './supabaseService';
+
 import { FamilyDataConflictError, homefinProxy } from './homefinProxy';
 import { sendFamilyPushNotification } from './pushNotifications';
 /*
@@ -391,13 +392,73 @@ export const db = {
       currentFamilyId = familyId;
       localStorage.setItem('homefin_current_family_id', familyId);
       loadLocalCache();
+
+      // Android: primeira carga deve conhecer a versão remota antes de enviar.
+      if (
+        isNativeHomeFin() &&
+        (
+          !localStorage.getItem(getRemoteUpdatedAtKey(familyId)) ||
+          !!localStorage.getItem(getSyncConflictKey(familyId))
+        )
+      ) {
+        try {
+          const remote = await homefinProxy.getFamilyData(familyId);
+
+          if (currentFamilyId !== familyId) return;
+
+          if (remote.data && remote.updatedAt) {
+            const remoteSnapshot = normalizeData(remote.data);
+            const localSnapshot = localStorage.getItem(getStorageKey());
+
+            if (localSnapshot) {
+              let differs = true;
+              try {
+                differs =
+                  stableSerialize(normalizeData(JSON.parse(localSnapshot))) !==
+                  stableSerialize(remoteSnapshot);
+              } catch {}
+
+              // Preserva uma cópia recuperável antes de priorizar a nuvem.
+              if (differs) {
+                const recoveryKey =
+                  `homefin_recovery_before_cloud_${familyId}_${Date.now()}`;
+                localStorage.setItem(recoveryKey, localSnapshot);
+                console.warn(
+                  'HomeFin: cache local divergente preservado em:',
+                  recoveryKey
+                );
+              }
+            }
+
+            cachedData = remoteSnapshot;
+            localStorage.setItem(
+              getStorageKey(),
+              JSON.stringify(remoteSnapshot)
+            );
+            localStorage.setItem(
+              getRemoteUpdatedAtKey(familyId),
+              remote.updatedAt
+            );
+            localStorage.removeItem(getPendingSyncKey(familyId));
+            localStorage.removeItem(getSyncConflictKey(familyId));
+            publishSyncStatus(familyId, 'synced');
+          }
+        } catch (error) {
+          console.error(
+            'HomeFin: primeira consulta à nuvem falhou; cache local preservado:',
+            error
+          );
+          publishSyncStatus(familyId, 'pending');
+          return;
+        }
+      }
+
       console.log(`DB Initialized for family: ${familyId}`);
       await db.sync();
     }
   },
 
   sync: async () => {
-    if (!supabase) { console.warn('HomeFin: Supabase não configurado.'); return; }
     if (!navigator.onLine) { console.log('Offline: usando cache local.'); return; }
 
     const familyIdToSync = currentFamilyId;

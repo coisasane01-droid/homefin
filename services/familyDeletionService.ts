@@ -1,4 +1,5 @@
-import { clearFamilySession } from './familyAuth';
+import { homefinApiUrl } from './nativeApi';
+import { clearFamilySession, getFamilySessionToken } from './familyAuth';
 
 export const familyDeletionService = {
   async deleteFamilyCompletely(
@@ -8,13 +9,12 @@ export const familyDeletionService = {
       throw new Error('Família inválida para exclusão.');
     }
 
-    const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-    const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
-    if (!token || expiresAt <= Date.now()) {
+    const token = await getFamilySessionToken(familyId);
+    if (!token) {
       throw new Error('Sua sessão expirou. Entre novamente antes de excluir a família.');
     }
 
-    const response = await fetch('/api/family-delete', {
+    const response = await fetch(homefinApiUrl('/api/family-delete'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -32,7 +32,7 @@ export const familyDeletionService = {
     localStorage.removeItem(`homefin_pending_sync_${familyId}`);
     localStorage.removeItem(`homefin_user_pin_${familyId}`);
     localStorage.removeItem(`homefin_user_keyword_${familyId}`);
-    clearFamilySession(familyId);
+    await clearFamilySession(familyId);
 
     try {
       const cachedSaasData = localStorage.getItem('homefin_saas_data_v1');

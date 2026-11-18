@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 export interface MercadoPagoPaymentResponse {
   id: number;
   status: string;
@@ -13,16 +15,15 @@ export interface MercadoPagoPaymentResponse {
 
 async function requestPayment(payload: Record<string, unknown>): Promise<MercadoPagoPaymentResponse> {
   const familyId = localStorage.getItem('homefin_current_family_id') || '';
-  const tokenKey = `homefin_family_session_token_${familyId}`;
-  const expiryKey = `homefin_family_session_expires_at_${familyId}`;
-  const sessionToken = localStorage.getItem(tokenKey) || '';
-  const expiresAt = Number(localStorage.getItem(expiryKey) || 0);
+  const sessionToken = familyId && familyId !== 'v1'
+    ? await getFamilySessionToken(familyId)
+    : null;
 
-  if (!familyId || familyId === 'v1' || !sessionToken || !expiresAt || expiresAt <= Date.now()) {
+  if (!familyId || familyId === 'v1' || !sessionToken) {
     throw new Error('Sua sessão expirou. Entre novamente na família para continuar.');
   }
 
-  const response = await fetch('/api/payment', {
+  const response = await fetch(homefinApiUrl('/api/payment'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

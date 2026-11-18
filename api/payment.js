@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import crypto from 'crypto';
 import { validateFamilySession } from './_family-session.js';
 
@@ -45,6 +46,7 @@ function jsonError(res, status, message) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return jsonError(res, 405, 'Método não permitido.');

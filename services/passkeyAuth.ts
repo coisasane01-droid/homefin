@@ -1,3 +1,4 @@
+import { homefinApiUrl } from './nativeApi';
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { getFamilySessionToken, storeFamilySession, type FamilyAuthResponse } from './familyAuth';
 
@@ -6,11 +7,11 @@ type PasskeyResponse = FamilyAuthResponse & { options?: any };
 async function passkeyRequest(familyId: string, action: string, response?: unknown, authenticated = false, pin?: string): Promise<PasskeyResponse> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authenticated) {
-    const token = getFamilySessionToken(familyId);
+    const token = await getFamilySessionToken(familyId);
     if (!token) throw new Error('Entre com seu PIN antes de cadastrar a biometria.');
     headers.Authorization = `Bearer ${token}`;
   }
-  const result = await fetch('/api/passkey', {
+  const result = await fetch(homefinApiUrl('/api/passkey'), {
     method: 'POST', headers, cache: 'no-store',
     body: JSON.stringify({ familyId, action, ...(response ? { response } : {}), ...(pin ? { pin } : {}) }),
   });
@@ -38,6 +39,6 @@ export async function loginFamilyPasskey(familyId: string): Promise<void> {
   if (!initial.options) throw new Error('Servidor não retornou opções de autenticação.');
   const response = await startAuthentication({ optionsJSON: initial.options });
   const session = await passkeyRequest(familyId, 'authenticate-verify', response);
-  storeFamilySession(familyId, session);
+  await storeFamilySession(familyId, session);
   localStorage.setItem(`homefin_passkey_enabled_${familyId}`, '1');
 }

@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Home, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
 import { saasDb, LandingConfig } from '../services/saasDb';
+import LanguageSelector from '../components/LanguageSelector';
 
 const LandingHomeFin: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginFamilyName, setLoginFamilyName] = useState('');
@@ -74,9 +77,18 @@ const LandingHomeFin: React.FC = () => {
     navigate('/plans', { state: { flow: 'signup' } });
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+
+    try {
+      // Atualiza a lista de famílias antes de pesquisar.
+      // Se estiver offline, syncFromSupabase preserva o cache local.
+      await saasDb.syncFromSupabase();
+      window.dispatchEvent(new Event('homefin-saas-synced'));
+    } catch (error) {
+      console.error('Erro ao atualizar famílias:', error);
+    }
     
     const normalizeFamilySearch = (value: string) =>
       value
@@ -124,7 +136,7 @@ const LandingHomeFin: React.FC = () => {
 
       {/* Header */}
       <header className="container mx-auto px-6 pt-6 pb-2 flex justify-end items-center shrink-0 relative z-10">
-        {/* Logo moved to Hero section */}
+        <LanguageSelector />
       </header>
 
       {/* Hero Section */}
@@ -205,15 +217,15 @@ const LandingHomeFin: React.FC = () => {
             <div className="bg-white/20 w-12 h-12 rounded-lg flex items-center justify-center mb-4 text-white">
               <Lock />
             </div>
-            <h3 className="text-xl font-bold mb-2">Segurança Máxima</h3>
-            <p style={{ color: config.textColor ? `${config.textColor}cc` : '#c7d2fe' }}>Seus dados são protegidos com criptografia de ponta a ponta e acesso via PIN.</p>
+            <h3 className="text-xl font-bold mb-2">{t('landing.securityTitle')}</h3>
+            <p style={{ color: config.textColor ? `${config.textColor}cc` : '#c7d2fe' }}>{t('landing.securityText')}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-md p-8 rounded-2xl border border-white/10 hover:border-white/30 transition-colors">
             <div className="bg-white/20 w-12 h-12 rounded-lg flex items-center justify-center mb-4 text-white">
               <Home />
             </div>
-            <h3 className="text-xl font-bold mb-2">Multi-Família</h3>
-            <p style={{ color: config.textColor ? `${config.textColor}cc` : '#c7d2fe' }}>Gerencie as finanças de toda a casa com perfis personalizados para cada membro.</p>
+            <h3 className="text-xl font-bold mb-2">{t('landing.familyTitle')}</h3>
+            <p style={{ color: config.textColor ? `${config.textColor}cc` : '#c7d2fe' }}>{t('landing.familyText')}</p>
           </div>
         </div>
       </main>
@@ -239,12 +251,12 @@ const LandingHomeFin: React.FC = () => {
               ✕
             </button>
             
-            <h2 className="text-2xl font-bold mb-2 text-indigo-900">Bem-vindo!</h2>
-            <p className="text-gray-600 mb-6">Para começar, você possui um código de convite?</p>
+            <h2 className="text-2xl font-bold mb-2 text-indigo-900">{t('landing.welcome')}</h2>
+            <p className="text-gray-600 mb-6">{t('landing.inviteQuestion')}</p>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Código de Acesso</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('landing.accessCode')}</label>
                 <input 
                   type="text" 
                   value={accessCode}
@@ -262,12 +274,12 @@ const LandingHomeFin: React.FC = () => {
                 onClick={handleValidateCode}
                 className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30"
               >
-                Sim, tenho um código
+                {t('landing.yesCode')}
               </button>
 
               <div className="relative flex py-2 items-center">
                 <div className="flex-grow border-t border-gray-200"></div>
-                <span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase">Ou</span>
+                <span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase">{t('landing.or')}</span>
                 <div className="flex-grow border-t border-gray-200"></div>
               </div>
 
@@ -275,7 +287,7 @@ const LandingHomeFin: React.FC = () => {
                 onClick={handleNoCode}
                 className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors"
               >
-                Não tenho código (Ver Planos)
+                {t('landing.noCode')}
               </button>
             </div>
           </div>
@@ -293,12 +305,12 @@ const LandingHomeFin: React.FC = () => {
               ✕
             </button>
             
-            <h2 className="text-2xl font-bold mb-2 text-indigo-900">Acessar Família</h2>
-            <p className="text-gray-600 mb-6">Digite o nome da sua família para entrar.</p>
+            <h2 className="text-2xl font-bold mb-2 text-indigo-900">{t('landing.accessFamily')}</h2>
+            <p className="text-gray-600 mb-6">{t('landing.familyQuestion')}</p>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Família</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('landing.familyName')}</label>
                 <input 
                   type="text" 
                   value={loginFamilyName}
@@ -317,7 +329,7 @@ const LandingHomeFin: React.FC = () => {
                 type="submit"
                 className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30"
               >
-                Continuar
+                {t('landing.continue')}
               </button>
             </form>
           </div>

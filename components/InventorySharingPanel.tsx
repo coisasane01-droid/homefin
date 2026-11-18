@@ -1,3 +1,5 @@
+import { homefinApiUrl } from '../services/nativeApi';
+import { getFamilySessionToken } from '../services/familyAuth';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Share2, UserPlus, Trash2, RefreshCw, ShieldCheck } from 'lucide-react';
 
@@ -25,10 +27,9 @@ export default function InventorySharingPanel({
   }, [onAccessChange]);
 
   const call = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
-    const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-    const expiry = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
-    if (!token || expiry <= Date.now()) throw new Error('Sessão expirada. Entre novamente.');
-    const response = await fetch('/api/inventory', {
+    const token = await getFamilySessionToken(familyId);
+    if (!token) throw new Error('Sessão expirada. Entre novamente.');
+    const response = await fetch(homefinApiUrl('/api/inventory'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       cache: 'no-store',

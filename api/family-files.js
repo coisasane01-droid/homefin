@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import attachmentsHandler from '../server/api-handlers/family-attachments.js';
 import deleteHandler from '../server/api-handlers/family-delete.js';
 import cleanupHandler from '../server/api-handlers/family-storage-cleanup.js';
@@ -47,6 +48,7 @@ async function readJsonBody(req) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
   const mode = getMode(req, 'attachments');

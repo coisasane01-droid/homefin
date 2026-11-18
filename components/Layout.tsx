@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, 
@@ -16,6 +17,7 @@ import QuickMenu from './QuickMenu';
 import { DEFAULT_QUICK_MENU, normalizeQuickMenu } from './quickMenuConfig';
 import { SIDEBAR_MENU_ITEMS } from './navigationConfig';
 import PageAdvertisement from './PageAdvertisement';
+import LanguageSelector from './LanguageSelector';
 
 const colors = {
   slate: '#64748b',
@@ -46,6 +48,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const { t } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,7 +62,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
     if (!familyId) return null;
     if (localStorage.getItem(`homefin_sync_conflict_${familyId}`)) return 'conflict';
-    return localStorage.getItem(`homefin_pending_sync_${familyId}`) ? 'pending' : null;
+    if (localStorage.getItem(`homefin_pending_sync_${familyId}`)) return 'pending';
+    return localStorage.getItem(`homefin_remote_updated_at_${familyId}`)
+      ? 'synced'
+      : null;
   });
 
   useEffect(() => {
@@ -138,7 +144,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           'warning'
         );
       } finally {
-        clearFamilySession(familyId);
+        await clearFamilySession(familyId);
       }
       window.location.hash = `/login?family=${encodeURIComponent(familyId)}`;
     } else {
@@ -158,9 +164,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
            )}
            <span className="truncate">{houseName}</span>
         </div>
-        <button onClick={toggleSidebar} className="p-2 text-gray-600 dark:text-gray-300">
-          {isSidebarOpen ? <X /> : <Menu />}
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSelector />
+          <button onClick={toggleSidebar} className="p-2 text-gray-600 dark:text-gray-300">
+            {isSidebarOpen ? <X /> : <Menu />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
@@ -177,6 +186,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                <Home className="w-8 h-8" />
              )}
              <span className="break-words max-w-full">{houseName}</span>
+             <LanguageSelector />
           </div>
           
           <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1 mt-14 md:mt-0">
@@ -194,7 +204,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   }`}
                 >
                   <item.icon size={20} />
-                  {item.label}
+                  {t(({'Contas do Mês': 'bills', 'Dashboard': 'dashboard', 'Contas & Cofrinhos': 'wallets', 'Agenda Família': 'calendar', 'Lista de Compras': 'shopping', 'Dívidas': 'debts', 'Metas e Sonhos': 'goals', 'Bens e Patrimônio': 'assets', 'Relatórios': 'reports', 'Estoque': 'inventory', 'Planilhas': 'spreadsheets', 'Ranking Familiar': 'ranking', 'Compartilhar / Indicar': 'share', 'Suporte': 'support', 'Configurações': 'settings', 'Meu Plano': 'plans'} as Record<string, string>)[item.label] || item.label)}
                 </Link>
               );
             })}
@@ -205,7 +215,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             className="flex-shrink-0 flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors mt-auto"
           >
             <LogOut size={20} />
-            Sair da família
+            {t('logout')}
           </button>
         </div>
       </aside>

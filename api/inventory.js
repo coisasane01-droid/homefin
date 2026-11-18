@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import { validateFamilySession } from './_family-session.js';
 import inventoryPhotoHandler from './_inventory-photo-handler.js';
 
@@ -156,6 +157,7 @@ async function listSharedFamilies(ownerFamilyId) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');

@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import crypto from 'node:crypto';
 
 function safeEqual(a, b) {
@@ -60,6 +61,7 @@ export function getAdminSessionReference(req) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method !== 'POST') {

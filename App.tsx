@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
@@ -41,7 +42,8 @@ const App: React.FC = () => {
   if (
     familyId &&
     familyId !== 'v1' &&
-    (hashPath === '#' || hashPath === '#/')
+    Capacitor.isNativePlatform() &&
+    (hashPath === '' || hashPath === '#' || hashPath === '#/')
   ) {
     window.location.hash = `/login?family=${familyId}`;
   }

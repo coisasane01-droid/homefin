@@ -483,7 +483,7 @@ const Settings: React.FC = () => {
         currentPin: pinForm.current,
         newPin: pinForm.new,
       }, true);
-      storeFamilySession(familyId, result);
+      await storeFamilySession(familyId, result);
       setPinError('');
       setPinSuccess('PIN alterado com sucesso.');
       setPinForm({ current: '', new: '', confirm: '' });

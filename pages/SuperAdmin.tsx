@@ -1,3 +1,4 @@
+import { homefinApiUrl } from '../services/nativeApi';
 import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -99,7 +100,7 @@ const SuperAdmin: React.FC = () => {
 
     setBroadcastLoading(true);
     try {
-      const response = await fetch('/api/push-broadcast', {
+      const response = await fetch(homefinApiUrl('/api/push-broadcast'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -451,7 +452,7 @@ const SuperAdmin: React.FC = () => {
 
     setEnrollmentLoading(true);
     try {
-      const response = await fetch('/api/family-enrollment', {
+      const response = await fetch(homefinApiUrl('/api/family-auth'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

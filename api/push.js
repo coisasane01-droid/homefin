@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import pushSendHandler from '../server/api-handlers/push-send.js';
 import pushSubscribeHandler from '../server/api-handlers/push-subscribe.js';
 import pushBroadcastHandler from '../server/api-handlers/push-broadcast.js';
@@ -47,6 +48,7 @@ async function readJsonBody(req) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
   const mode = getMode(req, 'send');

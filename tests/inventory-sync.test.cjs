@@ -20,6 +20,20 @@ function createEnvironment() {
   };
 
   const context = {
+    require: (id) => {
+      if (id === './nativeApi') {
+        return { homefinApiUrl: path => path };
+      }
+      if (id === './familyAuth') {
+        return {
+          getFamilySessionToken: async familyId =>
+            localStorage.getItem(
+              `homefin_family_session_token_${familyId}`
+            ),
+        };
+      }
+      throw new Error(`Módulo não simulado: ${id}`);
+    },
     localStorage,
     navigator: { onLine: true },
     crypto: require('node:crypto').webcrypto,

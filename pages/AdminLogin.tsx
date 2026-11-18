@@ -1,3 +1,4 @@
+import { homefinApiUrl } from '../services/nativeApi';
 import React, { useEffect, useState } from 'react';
 import { Lock, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -31,7 +32,7 @@ const AdminLogin: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/admin-auth', {
+      const response = await fetch(homefinApiUrl('/api/admin-auth'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', password }),

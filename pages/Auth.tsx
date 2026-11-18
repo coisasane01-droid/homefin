@@ -1,7 +1,10 @@
+import { useTranslation } from 'react-i18next';
+import LanguageSelector from '../components/LanguageSelector';
 import React, { useState, useEffect } from 'react';
 import { Home, Delete, KeyRound, AlertCircle, AlertTriangle } from 'lucide-react';
 import { UserSettings } from '../types';
 import { familyAuthRequest, storeFamilySession } from '../services/familyAuth';
+import { db } from '../services/db';
 import { loginFamilyPasskey, passkeyAvailable } from '../services/passkeyAuth';
 
 const PIN_LENGTH = 4;
@@ -62,6 +65,7 @@ const getInitialFamilySettings = (): UserSettings | null => {
 };
 
 const Auth: React.FC = () => {
+  const { t } = useTranslation();
   const [pin, setPin] = useState('');
   const [mode, setMode] = useState<'login' | 'recovery' | 'enroll' | 'reset_warning'>('login');
   const [error, setError] = useState('');
@@ -87,7 +91,7 @@ const Auth: React.FC = () => {
 
     if (familyId === 'v1') {
       setMode('reset_warning');
-      setMessage('Selecione uma família para entrar');
+      setMessage(t('auth.selectFamily'));
       setAuthStatusReady(true);
       return;
     }
@@ -99,13 +103,13 @@ const Auth: React.FC = () => {
         setHasRecovery(result.hasRecovery === true);
         setFamilyEnrolled(result.enrolled === true);
         setMode(result.enrolled ? 'login' : 'reset_warning');
-        setMessage(result.enrolled ? 'Digite seu código de acesso' : 'Acesso familiar ainda não configurado no servidor');
+        setMessage(result.enrolled ? t('auth.enterCode') : t('auth.serverNotConfigured'));
         setAuthStatusReady(true);
       })
       .catch((statusError) => {
         if (!active) return;
         setError(statusError instanceof Error ? statusError.message : 'Não foi possível consultar o servidor.');
-        setMessage('Não foi possível verificar o acesso no servidor.');
+        setMessage(t('auth.serverUnavailable'));
         setAuthStatusReady(true);
       });
 
@@ -153,7 +157,8 @@ const Auth: React.FC = () => {
     const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
     try {
       const result = await familyAuthRequest(familyId, { action: 'login', pin: inputPin });
-      storeFamilySession(familyId, result);
+      await storeFamilySession(familyId, result);
+      await db.init(familyId);
       window.location.hash = getPostLoginPath(familyId);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Não foi possível validar o acesso.');
@@ -169,6 +174,7 @@ const Auth: React.FC = () => {
     setError('');
     try {
       await loginFamilyPasskey(familyId);
+      await db.init(familyId);
       window.location.hash = getPostLoginPath(familyId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível entrar com biometria.');
@@ -206,6 +212,7 @@ const Auth: React.FC = () => {
       setPasskeyBusy(true);
       try {
         await loginFamilyPasskey(familyId);
+      await db.init(familyId);
         if (!cancelled) {
           window.location.hash = getPostLoginPath(familyId);
         }
@@ -231,14 +238,14 @@ const Auth: React.FC = () => {
     setRecoveryInput('');
     setRecoveryPin('');
     setError('');
-    setMessage(hasRecovery ? 'Recupere seu acesso' : 'Recuperação indisponível');
+    setMessage(hasRecovery ? t('auth.recoverMessage') : t('auth.recoveryUnavailableMessage'));
   };
 
   const checkRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     const familyId = localStorage.getItem('homefin_current_family_id') || 'v1';
     if (!/^\d{4}$/.test(recoveryPin)) {
-      setError('O novo PIN deve conter exatamente 4 dígitos.');
+      setError(t('auth.pinLength'));
       return;
     }
     try {
@@ -247,7 +254,8 @@ const Auth: React.FC = () => {
         keyword: recoveryInput,
         newPin: recoveryPin,
       });
-      storeFamilySession(familyId, result);
+      await storeFamilySession(familyId, result);
+      await db.init(familyId);
       window.location.hash = getPostLoginPath(familyId);
     } catch (recoveryError) {
       setError(recoveryError instanceof Error ? recoveryError.message : 'Não foi possível recuperar o acesso.');
@@ -261,7 +269,7 @@ const Auth: React.FC = () => {
     setEnrollmentPin('');
     setEnrollmentPinConfirm('');
     setError('');
-    setMessage('Regularize seu acesso com a autorização temporária do administrador');
+    setMessage(t('auth.regularizeMessage'));
   };
 
   const submitEnrollment = async (e: React.FormEvent) => {
@@ -271,15 +279,15 @@ const Auth: React.FC = () => {
     const code = enrollmentCode.trim();
 
     if (!/^[A-Za-z0-9_-]{43}$/.test(code)) {
-      setError('Informe o código temporário completo recebido pelo canal verificado.');
+      setError(t('auth.codeRequired'));
       return;
     }
     if (!/^\d{4}$/.test(enrollmentPin)) {
-      setError('O novo PIN deve conter exatamente 4 dígitos.');
+      setError(t('auth.pinLength'));
       return;
     }
     if (enrollmentPin !== enrollmentPinConfirm) {
-      setError('A confirmação do PIN não corresponde.');
+      setError(t('auth.pinMismatch'));
       return;
     }
     setEnrollmentBusy(true);
@@ -292,13 +300,14 @@ const Auth: React.FC = () => {
       setFamilyEnrolled(true);
       setHasRecovery(result.hasRecovery === true);
       try {
-        storeFamilySession(familyId, result);
+        await storeFamilySession(familyId, result);
+      await db.init(familyId);
         window.location.hash = getPostLoginPath(familyId);
       } catch {
         setMode('login');
         setPin('');
-        setMessage('O novo PIN foi confirmado pelo servidor. Entre para continuar.');
-        setError('Não foi possível guardar a sessão neste dispositivo; a credencial já foi criada e não foi substituída.');
+        setMessage(t('auth.pinConfirmed'));
+        setError(t('auth.sessionWarning'));
       }
     } catch (enrollmentError) {
       setError(enrollmentError instanceof Error ? enrollmentError.message : 'Não foi possível regularizar o acesso.');
@@ -319,6 +328,9 @@ const Auth: React.FC = () => {
 
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center px-4 transition-all duration-500 relative overflow-hidden ${hasBackground ? 'bg-gray-900' : 'bg-gray-50 dark:bg-gray-900'}`}>
+      <div className="absolute top-4 right-4 z-50">
+        <LanguageSelector />
+      </div>
       
       {/* Background Image Layer */}
       {hasBackground && (
@@ -386,7 +398,7 @@ const Auth: React.FC = () => {
         {mode === 'enroll' ? (
            <form onSubmit={submitEnrollment} className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
               <div className={`text-center text-sm p-3 rounded-lg ${hasBackground ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300'}`}>
-                Use somente a autorização de uso único recebida do administrador pelo canal previamente verificado. Escolha um novo PIN; o PIN antigo não é solicitado nem recuperado.
+                {t('auth.authorization')}
               </div>
               <input
                 type="text"
@@ -395,8 +407,8 @@ const Auth: React.FC = () => {
                 value={enrollmentCode}
                 onChange={event => setEnrollmentCode(event.target.value.trim())}
                 className={`w-full text-center font-mono p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
-                placeholder="Código temporário"
-                aria-label="Código temporário de uso único"
+                placeholder={t('auth.temporaryCode')}
+                aria-label={t('auth.temporaryCodeAria')}
                 required
               />
               <input
@@ -407,7 +419,7 @@ const Auth: React.FC = () => {
                 value={enrollmentPin}
                 onChange={event => setEnrollmentPin(event.target.value.replace(/\D/g, ''))}
                 className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
-                placeholder="Novo PIN de 4 dígitos"
+                placeholder={t('auth.newPin')}
                 required
               />
               <input
@@ -418,7 +430,7 @@ const Auth: React.FC = () => {
                 value={enrollmentPinConfirm}
                 onChange={event => setEnrollmentPinConfirm(event.target.value.replace(/\D/g, ''))}
                 className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
-                placeholder="Confirme o novo PIN"
+                placeholder={t('auth.confirmPin')}
                 required
               />
               <button
@@ -426,7 +438,7 @@ const Auth: React.FC = () => {
                 disabled={enrollmentBusy || !authStatusReady}
                 className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 disabled:opacity-60"
               >
-                {enrollmentBusy ? 'Validando autorização…' : 'Regularizar acesso'}
+                {enrollmentBusy ? t('auth.validating') : t('auth.regularize')}
               </button>
               <button
                 type="button"
@@ -442,14 +454,14 @@ const Auth: React.FC = () => {
         ) : mode === 'recovery' ? (
            <form onSubmit={checkRecovery} className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
               <div className={`text-center text-sm mb-4 p-3 rounded-lg ${hasBackground ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/20 text-gray-500'}`}>
-                  Confirme a palavra-chave cadastrada no servidor e escolha um novo PIN de 4 dígitos.
+                  {t('auth.recoveryInstruction')}
               </div>
               <input 
                 type="text" 
                 value={recoveryInput}
                 onChange={e => setRecoveryInput(e.target.value)}
                 className={`w-full text-center text-xl font-bold p-4 border rounded-xl outline-none lowercase focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
-                placeholder="Palavra-chave..."
+                placeholder={t('auth.keyword')}
                 autoFocus
               />
               <input
@@ -460,13 +472,13 @@ const Auth: React.FC = () => {
                 value={recoveryPin}
                 onChange={e => setRecoveryPin(e.target.value.replace(/\D/g, ''))}
                 className={`w-full text-center text-xl font-bold tracking-[0.5em] p-4 border rounded-xl outline-none focus:ring-2 focus:ring-primary-500 ${hasBackground ? 'bg-white/20 border-white/30 text-white placeholder:text-white/50' : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'}`}
-                placeholder="Novo PIN"
+                placeholder={t('auth.newPin')}
               />
               <button 
                 type="submit" 
                 className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 transition-transform active:scale-95"
               >
-                Recuperar acesso
+                {t('auth.recover')}
               </button>
               <button 
                 type="button" 
@@ -493,13 +505,13 @@ const Auth: React.FC = () => {
                   <p className="text-xs text-amber-600 dark:text-amber-400">
                     Seus dados locais foram preservados. Não crie outra família nem apague este dispositivo. A autenticação antiga não pode ser comprovada apenas pelo navegador: contate o administrador pelo canal oficial para confirmar a titularidade e solicitar o provisionamento controlado. Não envie seu PIN antigo ou dados financeiros.
                   </p>
-                  {familyEnrolled !== null && localStorage.getItem('homefin_current_family_id') !== 'v1' && (
+                  {localStorage.getItem('homefin_current_family_id') !== 'v1' && (
                     <button
                       type="button"
                       onClick={beginEnrollment}
                       className="w-full rounded-xl border border-amber-400 bg-white px-4 py-3 font-bold text-amber-900 hover:bg-amber-100"
                     >
-                      Tenho um código temporário do administrador
+                      {t('auth.temporaryAdmin')}
                     </button>
                   )}
               </div>
@@ -508,14 +520,14 @@ const Auth: React.FC = () => {
                 onClick={() => { window.location.hash = '/'; }}
                 className="w-full bg-primary-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-primary-700 transition-transform active:scale-95 flex items-center justify-center gap-2"
               >
-                <Home size={18} /> Voltar ao início
+                <Home size={18} /> {t('auth.home')}
               </button>
               <button 
                 type="button" 
                 onClick={cancelRecovery}
                 className={`w-full py-2 hover:opacity-80 ${hasBackground ? 'text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
               >
-                Cancelar
+                {t('auth.cancel')}
               </button>
            </div>
         ) : (
@@ -544,7 +556,7 @@ const Auth: React.FC = () => {
                         }}
                         className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors flex items-center gap-2 touch-manipulation select-none active:scale-95"
                     >
-                        <KeyRound size={16} /> Recuperar com Palavra-Chave
+                        <KeyRound size={16} /> {t('auth.recoverKeyword')}
                     </button>
                 </div>
             )}
@@ -552,7 +564,7 @@ const Auth: React.FC = () => {
             {authStatusReady && mode === 'login' && passkeyAvailable() && (
               <button type="button" disabled={passkeyBusy} onClick={handlePasskeyLogin}
                 className={`w-full mb-5 rounded-xl border px-4 py-3 font-semibold disabled:opacity-60 ${hasBackground ? 'border-white/40 bg-white/20 text-white' : 'border-primary-300 text-primary-700 dark:text-primary-300'}`}>
-                {passkeyBusy ? 'Validando biometria…' : 'Entrar com biometria'}
+                {passkeyBusy ? t('auth.validatingBiometric') : t('auth.biometric')}
               </button>
             )}
             {/* Keypad */}
@@ -588,7 +600,7 @@ const Auth: React.FC = () => {
                       className={`flex flex-col items-center justify-center transition-colors p-2 group h-16 w-16 md:h-20 md:w-20 touch-manipulation select-none active:scale-90 duration-75 ${hasBackground ? 'text-white/70 hover:text-white' : 'text-gray-400 hover:text-primary-600'}`}
                     >
                       <KeyRound size={24} className="mb-1 group-hover:scale-110 transition-transform" />
-                      <span className="text-[9px] font-bold uppercase tracking-tight">Palavra<br/>Chave</span>
+                      <span className="text-[9px] font-bold uppercase tracking-tight">{t('auth.keywordLabel')}</span>
                     </button>
                 )}
               </div>
@@ -624,7 +636,7 @@ const Auth: React.FC = () => {
             </div>
             
             {/* Extra help text for clarity */}
-            {mode === 'login' && !error && (
+            {mode === 'login' && (
               <div className="mt-8 text-center">
                 <button 
                   onClick={startRecovery}
@@ -637,7 +649,7 @@ const Auth: React.FC = () => {
                   onClick={beginEnrollment}
                   className={`mt-3 block w-full text-sm underline underline-offset-4 font-medium opacity-80 hover:opacity-100 ${hasBackground ? 'text-white' : 'text-amber-700 dark:text-amber-300'}`}
                 >
-                  Tenho um código temporário do administrador
+                  {t('auth.temporaryAdmin')}
                 </button>
               </div>
             )}

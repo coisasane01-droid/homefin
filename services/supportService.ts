@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 export interface SupportMessage {
   id: string;
   family_id: string;
@@ -35,12 +37,13 @@ async function request(
   if (adminToken && adminExpiry > Date.now()) {
     headers.Authorization = `Bearer ${adminToken}`;
   } else {
-    const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-    const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
-    if (token && expiresAt > Date.now()) headers.Authorization = `Bearer ${token}`;
+    const token = familyId
+      ? await getFamilySessionToken(familyId)
+      : null;
+    if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch('/api/support', {
+  const response = await fetch(homefinApiUrl('/api/support'), {
     method: 'POST',
     headers,
     cache: 'no-store',

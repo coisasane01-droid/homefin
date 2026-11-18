@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AppData } from '../types';
 
@@ -33,17 +35,22 @@ export interface HomeFinSaasRow {
 // VALIDAÇÃO
 // ============================================================
 
-function getAttachmentSession(familyId?: string): { familyId: string; token: string } {
-  const currentFamilyId = familyId || localStorage.getItem('homefin_current_family_id') || '';
-  const token = currentFamilyId
-    ? localStorage.getItem(`homefin_family_session_token_${currentFamilyId}`)
-    : null;
-  const expiresAt = currentFamilyId
-    ? Number(localStorage.getItem(`homefin_family_session_expires_at_${currentFamilyId}`) || 0)
-    : 0;
-  if (!currentFamilyId || currentFamilyId === 'v1' || !token || expiresAt <= Date.now()) {
+async function getAttachmentSession(
+  familyId?: string
+): Promise<{ familyId: string; token: string }> {
+  const currentFamilyId =
+    familyId || localStorage.getItem('homefin_current_family_id') || '';
+
+  if (!currentFamilyId || currentFamilyId === 'v1') {
     throw new Error('Sessão familiar expirada. Entre novamente para acessar anexos.');
   }
+
+  const token = await getFamilySessionToken(currentFamilyId);
+
+  if (!token) {
+    throw new Error('Sessão familiar expirada. Entre novamente para acessar anexos.');
+  }
+
   return { familyId: currentFamilyId, token };
 }
 
@@ -51,8 +58,8 @@ async function requestAttachment(
   familyId: string | undefined,
   payload: Record<string, unknown>
 ): Promise<any> {
-  const session = getAttachmentSession(familyId);
-  const response = await fetch('/api/family-attachments', {
+  const session = await getAttachmentSession(familyId);
+  const response = await fetch(homefinApiUrl('/api/family-attachments'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -86,17 +93,15 @@ async function requestSaasData(action: 'get' | 'save', saasData?: any): Promise<
   } else {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
     const familyToken = familyId
-      ? localStorage.getItem(`homefin_family_session_token_${familyId}`)
+      ? await getFamilySessionToken(familyId)
       : null;
-    const familyExpiry = familyId
-      ? Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0)
-      : 0;
-    if (familyToken && familyExpiry > Date.now()) {
+
+    if (familyToken) {
       headers.Authorization = `Bearer ${familyToken}`;
     }
   }
 
-  const response = await fetch('/api/saas-data', {
+  const response = await fetch(homefinApiUrl('/api/saas-data'), {
     method: 'POST',
     headers,
     cache: 'no-store',
@@ -121,12 +126,11 @@ async function requestFamilyData(
   appData?: AppData,
   expectedUpdatedAt?: string | null
 ): Promise<any> {
-  const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-  const expiresAt = Number(localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0);
-  if (!token || expiresAt <= Date.now()) {
+  const token = await getFamilySessionToken(familyId);
+  if (!token) {
     throw new Error('Sessão familiar expirada. Entre novamente para acessar os dados.');
   }
-  const response = await fetch('/api/family-data', {
+  const response = await fetch(homefinApiUrl('/api/family-data'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

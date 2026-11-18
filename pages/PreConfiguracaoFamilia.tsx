@@ -1,3 +1,7 @@
+import { useTranslation } from 'react-i18next';
+import LanguageSelector from '../components/LanguageSelector';
+import { storeFamilySession } from '../services/familyAuth';
+import { homefinApiUrl } from '../services/nativeApi';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { saasDb } from '../services/saasDb';
@@ -118,6 +122,7 @@ const colors = {
 };
 
 const PreConfiguracaoFamilia: React.FC = () => {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const code = location.state?.code;
@@ -225,13 +230,13 @@ const PreConfiguracaoFamilia: React.FC = () => {
 
     if (saveInProgressRef.current) return;
     if (!file.type.startsWith('image/')) {
-      setError('Selecione um arquivo de imagem válido.');
+      setError(t('signup.imageError'));
       e.target.value = '';
       return;
     }
 
     if (file.size > MAX_IMAGE_FILE_BYTES) {
-      setError('O arquivo original ultrapassa o limite de 40 MB. Escolha uma imagem menor.');
+      setError(t('signup.imageSize'));
       e.target.value = '';
       return;
     }
@@ -244,7 +249,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
       MAX_IMAGES_TOTAL_CHARS - otherImageLength
     );
     if (availableChars < 1000) {
-      setError('Não há espaço suficiente para outra imagem. Remova ou substitua a imagem atual.');
+      setError(t('signup.imageSpace'));
       e.target.value = '';
       return;
     }
@@ -273,16 +278,16 @@ const PreConfiguracaoFamilia: React.FC = () => {
     e.preventDefault();
     if (saveInProgressRef.current || isCompressing || creationCompleted) return;
     if (!formData.familyName || !formData.pin || !formData.keyword) {
-      setError('Preencha todos os campos obrigatórios.');
+      setError(t('signup.required'));
       return;
     }
 
     if (!/^\d{4}$/.test(formData.pin)) {
-      setError('O PIN deve ter 4 dígitos.');
+      setError(t('signup.pinError'));
       return;
     }
     if (formData.keyword.trim().length < 8 || formData.keyword.trim().length > 256) {
-      setError('A palavra-chave de recuperação deve ter entre 8 e 256 caracteres.');
+      setError(t('signup.keywordError'));
       return;
     }
 
@@ -320,7 +325,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
     };
 
     // O servidor grava a família e o hash do PIN na mesma transação.
-    const enrollmentResponse = await fetch('/api/family-auth', {
+    const enrollmentResponse = await fetch(homefinApiUrl('/api/family-auth'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -360,14 +365,10 @@ const PreConfiguracaoFamilia: React.FC = () => {
       return;
     }
 
-    localStorage.setItem(
-      `homefin_family_session_token_${newFamily.id}`,
-      enrollmentData.token
-    );
-    localStorage.setItem(
-      `homefin_family_session_expires_at_${newFamily.id}`,
-      String(Date.now() + (Number(enrollmentData.expiresIn) || 43200) * 1000)
-    );
+    await storeFamilySession(newFamily.id, {
+      token: enrollmentData.token,
+      expiresIn: Number(enrollmentData.expiresIn) || 43200,
+    });
     // Atualizar o contexto local da família sem gravar uma cópia SaaS antiga.
     try {
       const remoteSaasData = await (await import('../services/supabaseService')).supabaseService.getSaasData();
@@ -444,6 +445,9 @@ const PreConfiguracaoFamilia: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 animate-in zoom-in duration-300 relative">
+        <div className="absolute top-5 right-5 z-50">
+          <LanguageSelector />
+        </div>
         <button 
           disabled={isCompressing || isSubmitting}
           onClick={() => {
@@ -454,13 +458,13 @@ const PreConfiguracaoFamilia: React.FC = () => {
             }
           }} 
           className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          title="Voltar"
+          title={t("signup.back")}
         >
           <ArrowLeft size={24} />
         </button>
 
-        <h2 className="text-2xl font-bold text-gray-900 mb-2 mt-6 text-center">Configuração Inicial</h2>
-        <p className="text-gray-500 mb-6 text-center">Vamos preparar o ambiente para sua família.</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2 mt-6 text-center">{t("signup.title")}</h2>
+        <p className="text-gray-500 mb-6 text-center">{t("signup.subtitle")}</p>
 
         <form onSubmit={handleSave}>
           <fieldset disabled={isCompressing || isSubmitting || creationCompleted} className="space-y-4 border-0 p-0 m-0 min-w-0">
@@ -468,7 +472,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
             <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm" role="alert">
               {error}
               {creationCompleted && createdFamilyId && (
-                <p className="mt-2 font-semibold">Código da família: {createdFamilyId}</p>
+                <p className="mt-2 font-semibold">{t("signup.familyCode")} {createdFamilyId}</p>
               )}
               {creationCompleted && generatedLink && (
                 <a href={generatedLink} className="mt-2 block font-semibold underline">
@@ -480,24 +484,24 @@ const PreConfiguracaoFamilia: React.FC = () => {
           {(isCompressing || isSubmitting) && (
             <div className="flex items-center justify-center gap-2 rounded-lg bg-indigo-50 p-3 text-sm font-medium text-indigo-700" role="status" aria-live="polite">
               <Loader2 size={18} className="animate-spin" />
-              {isCompressing ? 'Redimensionando e comprimindo a imagem…' : 'Salvando a família no servidor…'}
+              {isCompressing ? t('signup.resizing') : t('signup.saving')}
             </div>
           )}
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Família / Casa</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("signup.familyName")}</label>
             <input 
               type="text" 
               value={formData.familyName}
               onChange={e => setFormData({...formData, familyName: e.target.value})}
               className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              placeholder="Ex: Família Silva"
+              placeholder={t("signup.familyExample")}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">PIN de Acesso (4 dígitos)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("signup.pinAccess")}</label>
               <input 
                 type="password" minLength={4} maxLength={4} pattern="[0-9]{4}" required inputMode="numeric"
                 value={formData.pin}
@@ -507,41 +511,41 @@ const PreConfiguracaoFamilia: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Palavra-chave (Recuperação)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("signup.keyword")}</label>
               <input 
                 type="text" minLength={8} maxLength={256} required
                 value={formData.keyword}
                 onChange={e => setFormData({...formData, keyword: e.target.value})}
                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none lowercase"
-                placeholder="Ex: lua-azul-2026"
+                placeholder={t("signup.keywordExample")}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Logo da Família</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("signup.logo")}</label>
                 <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors relative overflow-hidden">
                   {formData.logoImage ? (
                     <img src={formData.logoImage} alt="Logo" className="w-full h-full object-contain p-2" />
                   ) : (
                     <div className="flex flex-col items-center text-gray-400">
                       <Upload size={20} />
-                      <span className="text-xs mt-1">Upload</span>
+                      <span className="text-xs mt-1">{t("signup.upload")}</span>
                     </div>
                   )}
                   <input type="file" accept="image/*" className="hidden" onChange={e => void handleImageUpload(e, 'logo')} />
                 </label>
              </div>
              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Imagem de Fundo</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("signup.background")}</label>
                 <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors relative overflow-hidden">
                   {formData.backgroundImage ? (
                     <img src={formData.backgroundImage} alt="Background" className="w-full h-full object-cover" />
                   ) : (
                     <div className="flex flex-col items-center text-gray-400">
                       <Upload size={20} />
-                      <span className="text-xs mt-1">Upload</span>
+                      <span className="text-xs mt-1">{t("signup.upload")}</span>
                     </div>
                   )}
                   <input type="file" accept="image/*" className="hidden" onChange={e => void handleImageUpload(e, 'background')} />
@@ -550,7 +554,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
           </div>
 
           <div>
-             <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wide">Estilo do Logo</label>
+             <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wide">{t("signup.logoStyle")}</label>
              <div className="flex bg-gray-100 p-1 rounded-lg">
                <button
                  type="button"
@@ -578,7 +582,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Cor do Tema</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">{t("signup.theme")}</label>
             <div className="flex flex-wrap gap-2 justify-center max-h-32 overflow-y-auto p-2 border rounded-lg">
               {Object.entries(colors).map(([name, hex]) => (
                 <button
@@ -602,7 +606,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
             disabled={isCompressing || isSubmitting || creationCompleted}
             className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30 mt-4 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? 'Salvando…' : creationCompleted ? 'Cadastro realizado' : 'Finalizar Configuração'}
+            {isSubmitting ? t('signup.submitting') : creationCompleted ? t('signup.completed') : t('signup.finish')}
           </button>
           </fieldset>
         </form>
@@ -617,9 +621,9 @@ const PreConfiguracaoFamilia: React.FC = () => {
                 <Check size={32} strokeWidth={3} />
               </div>
               
-              <h2 className="text-2xl font-bold text-gray-900">Parabéns!</h2>
+              <h2 className="text-2xl font-bold text-gray-900">{t("signup.congratulations")}</h2>
               <p className="text-gray-600">
-                Seu login foi criado com sucesso.<br/>
+                {t("signup.created")}<br/>
                 <span className="font-medium text-gray-900">Seja bem-vindo à família {formData.familyName}!</span>
               </p>
 
@@ -643,15 +647,15 @@ const PreConfiguracaoFamilia: React.FC = () => {
                   : <CloudOff size={18} className="mt-0.5 shrink-0" />}
                 <span>
                   {familySyncStatus === 'synced'
-                    ? 'Dados financeiros confirmados na nuvem.'
+                    ? t('signup.synced')
                     : familySyncStatus === 'conflict'
-                      ? 'Cadastro confirmado. Os dados financeiros estão neste dispositivo; a sincronização foi bloqueada para proteger uma versão mais recente na nuvem. Contate o suporte para reconciliar.'
-                      : 'Cadastro confirmado no servidor. Os dados financeiros estão salvos neste dispositivo e aguardam confirmação da nuvem.'}
+                      ? t('signup.conflict')
+                      : t('signup.pending')}
                 </span>
               </div>
 
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mt-4">
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2 text-left">Link de Acesso</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2 text-left">{t("signup.accessLink")}</label>
                 <div className="flex gap-2">
                   <input 
                     readOnly 
@@ -661,7 +665,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
                   <button 
                     onClick={copyLink}
                     className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors"
-                    title="Copiar Link"
+                    title={t("signup.copyLink")}
                   >
                     {copied ? <Check size={18} /> : <Copy size={18} />}
                   </button>
@@ -678,15 +682,15 @@ const PreConfiguracaoFamilia: React.FC = () => {
 
               {!isInstalled && (
                 <div className="space-y-3 pt-4 border-t">
-                  <h3 className="font-bold text-gray-900 text-sm">Adicione o HomeFin à Tela de Início</h3>
+                  <h3 className="font-bold text-gray-900 text-sm">{t("signup.installTitle")}</h3>
                   {isIOS ? (
                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700">
                       <strong className="mb-1 flex items-center gap-1 text-blue-900">
-                        <Smartphone size={15} /> iPhone / iPad
+                        <Smartphone size={15} /> {t("signup.iphone")}
                       </strong>
                       {isSafari
-                        ? 'No Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”. A instalação é feita por esse menu; não pode ser iniciada automaticamente pelo site.'
-                        : 'Abra este link no Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”. A instalação é feita por esse menu; não pode ser iniciada automaticamente pelo site.'}
+                        ? t('signup.safari')
+                        : t('signup.openSafari')}
                     </div>
                   ) : (
                     <>
@@ -696,22 +700,22 @@ const PreConfiguracaoFamilia: React.FC = () => {
                         className="w-full bg-green-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
                       >
                         {installPrompt ? (
-                          <><Download size={20} /> Instalar aplicativo</>
+                          <><Download size={20} /> {t("signup.install")}</>
                         ) : (
-                          <><PlusSquare size={20} /> Ver instruções de instalação</>
+                          <><PlusSquare size={20} /> {t("signup.instructions")}</>
                         )}
                       </button>
 
                       {showInstallHelp && (
                         <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left text-sm text-gray-700 space-y-3">
-                          <p className="font-bold text-blue-900">A instalação nativa não está disponível agora</p>
+                          <p className="font-bold text-blue-900">{t("signup.nativeUnavailable")}</p>
                           <div>
-                            <strong className="flex items-center gap-1"><PlusSquare size={15} /> Android</strong>
-                            No Chrome, abra o menu ⋮ e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”, se a opção estiver disponível.
+                            <strong className="flex items-center gap-1"><PlusSquare size={15} /> {t("signup.android")}</strong>
+                            {t("signup.androidHelp")}
                           </div>
                           <div>
-                            <strong className="flex items-center gap-1"><Download size={15} /> Computador</strong>
-                            No Chrome ou Edge, procure “Instalar HomeFin” no menu do navegador ou o ícone de instalação na barra de endereço.
+                            <strong className="flex items-center gap-1"><Download size={15} /> {t("signup.computer")}</strong>
+                            {t("signup.computerHelp")}
                           </div>
                         </div>
                       )}

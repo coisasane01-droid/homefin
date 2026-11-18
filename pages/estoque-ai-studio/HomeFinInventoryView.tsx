@@ -1,5 +1,7 @@
+import { homefinApiUrl } from '../../services/nativeApi';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { inventoryService } from '../../services/inventory';
+import { getFamilySessionToken } from '../../services/familyAuth';
 import { InventoryConflictsPanel } from './components/InventoryConflictsPanel';
 import type { InventoryProduct } from '../../types/inventory';
 import type { Product, AddedItem, StockWorkspace } from './types';
@@ -89,15 +91,13 @@ export default function HomeFinInventoryView() {
     let cancelled = false;
 
     async function loadPhotos() {
-      const token = localStorage.getItem(
-        `homefin_family_session_token_${familyId}`
-      );
+      const token = await getFamilySessionToken(familyId);
 
       if (!token) return;
 
       const results = await Promise.allSettled(
         photoProducts.map(async product => {
-          const response = await fetch('/api/inventory-photo', {
+          const response = await fetch(homefinApiUrl('/api/inventory-photo'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -569,9 +569,7 @@ export default function HomeFinInventoryView() {
                   `homefin_inventory_owner_${familyId}`
                 ) || familyId;
 
-                const token = localStorage.getItem(
-                  `homefin_family_session_token_${familyId}`
-                );
+                const token = await getFamilySessionToken(familyId);
 
                 if (!token) {
                   throw new Error(
@@ -579,7 +577,7 @@ export default function HomeFinInventoryView() {
                   );
                 }
 
-                const photoResponse = await fetch('/api/inventory-photo', {
+                const photoResponse = await fetch(homefinApiUrl('/api/inventory-photo'), {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',

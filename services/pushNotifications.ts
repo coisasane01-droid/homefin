@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 export type PushUserType = 'family' | 'admin';
@@ -18,21 +20,18 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
 }
 
-function getSessionToken(
+async function getSessionToken(
   familyId: string,
   userType: PushUserType,
   suppliedToken?: string
-): string {
+): Promise<string> {
   if (userType === 'admin') {
     if (!suppliedToken) throw new Error('Sessão administrativa indisponível.');
     return suppliedToken;
   }
 
-  const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-  const expiresAt = Number(
-    localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0
-  );
-  if (!token || !expiresAt || expiresAt <= Date.now()) {
+  const token = await getFamilySessionToken(familyId);
+  if (!token) {
     throw new Error('Sua sessão familiar expirou. Entre novamente para gerenciar notificações.');
   }
   return token;
@@ -61,7 +60,7 @@ async function authorizedFetch(
   method: 'POST' | 'DELETE',
   body: Record<string, unknown>
 ): Promise<{ success: boolean; removed?: boolean }> {
-  const response = await fetch('/api/push-subscribe', {
+  const response = await fetch(homefinApiUrl('/api/push-subscribe'), {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -93,7 +92,7 @@ export async function subscribeToPush(
     throw new Error('VITE_VAPID_PUBLIC_KEY não está configurada no build do aplicativo.');
   }
 
-  const token = getSessionToken(familyId, userType, adminToken);
+  const token = await getSessionToken(familyId, userType, adminToken);
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('Permissão para notificações não foi concedida.');
@@ -168,7 +167,7 @@ export async function unsubscribeFromPush(
     throw new Error('Identificação familiar inválida para notificações.');
   }
 
-  const token = getSessionToken(familyId, userType, adminToken);
+  const token = await getSessionToken(familyId, userType, adminToken);
   const registration = await getPushRegistration(userType);
   const subscription = await registration.pushManager.getSubscription();
   if (!subscription) return;
@@ -188,8 +187,8 @@ export async function sendFamilyPushNotification(
   body: string,
   url = `/#/login?family=${encodeURIComponent(familyId)}`
 ): Promise<PushResponse> {
-  const token = getSessionToken(familyId, 'family');
-  const response = await fetch('/api/push', {
+  const token = await getSessionToken(familyId, 'family');
+  const response = await fetch(homefinApiUrl('/api/push'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

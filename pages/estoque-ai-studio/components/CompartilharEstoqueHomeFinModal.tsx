@@ -1,3 +1,5 @@
+import { homefinApiUrl } from '../../../services/nativeApi';
+import { getFamilySessionToken } from '../../../services/familyAuth';
 import React, { useEffect, useState } from 'react';
 import { X, Users, UserPlus, Trash2 } from 'lucide-react';
 
@@ -29,20 +31,13 @@ export function CompartilharEstoqueHomeFinModal({
       throw new Error('Conecte-se à internet para gerenciar o compartilhamento.');
     }
 
-    const token = localStorage.getItem(
-      `homefin_family_session_token_${familyId}`
-    );
-    const expiry = Number(
-      localStorage.getItem(
-        `homefin_family_session_expires_at_${familyId}`
-      ) || 0
-    );
+    const token = await getFamilySessionToken(familyId);
 
-    if (!token || expiry <= Date.now()) {
+    if (!token) {
       throw new Error('Sua sessão expirou. Entre novamente no HomeFin.');
     }
 
-    const response = await fetch('/api/inventory', {
+    const response = await fetch(homefinApiUrl('/api/inventory'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

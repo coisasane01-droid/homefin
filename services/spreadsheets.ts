@@ -1,3 +1,5 @@
+import { homefinApiUrl } from './nativeApi';
+import { getFamilySessionToken } from './familyAuth';
 import type { HomeFinSpreadsheet } from '../types/spreadsheets';
 
 type SpreadsheetAction = 'list' | 'upsert' | 'delete';
@@ -43,16 +45,15 @@ async function request(
   spreadsheet?: HomeFinSpreadsheet,
   id?: string
 ): Promise<HomeFinSpreadsheet[]> {
-  const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
-  const expiresAt = Number(
-    localStorage.getItem(`homefin_family_session_expires_at_${familyId}`) || 0
-  );
+  const token = familyId && familyId !== 'v1'
+    ? await getFamilySessionToken(familyId)
+    : null;
 
-  if (!familyId || familyId === 'v1' || !token || expiresAt <= Date.now()) {
+  if (!familyId || familyId === 'v1' || !token) {
     throw new Error('Sua sessão familiar expirou ou não está autenticada. Entre novamente com seu código.');
   }
 
-  const response = await fetch('/api/spreadsheets', {
+  const response = await fetch(homefinApiUrl('/api/spreadsheets'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

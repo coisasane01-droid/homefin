@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import { validateFamilySession } from './_family-session.js';
 
 const TOTAL_COMMISSION_BASE_ID = '__total_general__';
@@ -251,6 +252,7 @@ function isMissingCommissionColumns(error) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method !== 'POST') {
