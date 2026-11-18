@@ -1,3 +1,4 @@
+import { handleCors } from './_cors.js';
 import { validateFamilySession } from './_family-session.js';
 
 const json = (res, status, body) => res.status(status).json(body);
@@ -33,6 +34,7 @@ async function supabaseRequest(path, init = {}) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return;
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return json(res, 405, { error: 'Método não permitido.' });
