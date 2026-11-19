@@ -327,7 +327,7 @@ const Auth: React.FC = () => {
   const hasBackground = !!settings?.backgroundImage;
 
   return (
-    <div className={`min-h-screen flex flex-col items-center justify-center px-4 transition-all duration-500 relative overflow-hidden ${hasBackground ? 'bg-gray-900' : 'bg-gray-50 dark:bg-gray-900'}`}>
+    <div className={`min-h-screen flex flex-col items-center justify-center px-4 py-6 transition-all duration-500 relative overflow-hidden ${hasBackground ? 'bg-gray-900' : 'bg-gray-50 dark:bg-gray-900'}`}>
       <div className="absolute top-4 right-4 z-50">
         <LanguageSelector />
       </div>
@@ -335,7 +335,7 @@ const Auth: React.FC = () => {
       {/* Background Image Layer */}
       {hasBackground && (
         <div 
-            className="absolute inset-0 bg-no-repeat transition-all duration-500 ease-out z-0"
+            className="absolute inset-0 bg-no-repeat transition-all duration-500 ease-out z-0 scale-[1.03]"
             style={{
                 backgroundImage: `url(${settings?.backgroundImage})`,
                 backgroundPosition: settings?.backgroundPosition || 'center',
@@ -346,13 +346,13 @@ const Auth: React.FC = () => {
       )}
 
       {/* Overlay for better contrast if background exists */}
-      {hasBackground && <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] z-0" />}
+      {hasBackground && <div className="absolute inset-0 bg-gradient-to-br from-slate-950/45 via-slate-900/25 to-black/50 backdrop-blur-[4px] z-0" />}
 
       <div 
-        className={`w-full relative z-10 transition-all duration-500 ${
+        className={`w-full relative z-10 transition-all duration-500 relative overflow-hidden ${
             settings?.cardFullScreen 
                 ? 'min-h-screen flex flex-col items-center justify-center p-8' 
-                : 'max-w-sm bg-white/10 backdrop-blur-md border border-white/20 p-8 rounded-3xl shadow-2xl'
+                : 'max-w-[430px] bg-white/20 backdrop-blur-2xl backdrop-saturate-150 border border-white/35 p-7 sm:p-8 rounded-[2.25rem] shadow-[0_24px_80px_rgba(0,0,0,0.28)] ring-1 ring-white/15'
         } ${!hasBackground ? 'max-w-sm' : ''}`}
         style={{
             backgroundColor: hasBackground 
@@ -364,11 +364,11 @@ const Auth: React.FC = () => {
         <div className="flex flex-col items-center mb-6">
           {settings?.logoImage ? (
               <div 
-                  className="mb-6 relative flex items-center justify-center overflow-hidden drop-shadow-lg"
+                  className="mb-7 relative flex items-center justify-center overflow-hidden drop-shadow-[0_12px_28px_rgba(0,0,0,0.28)] ring-2 ring-white/45 shadow-[0_0_0_8px_rgba(255,255,255,0.10)]"
                   style={{ 
-                      width: `${96 * ((settings.logoSize || 100) / 100)}px`,
-                      height: `${96 * ((settings.logoSize || 100) / 100)}px`,
-                      borderRadius: settings.logoShape === 'circle' ? '50%' : '12px' 
+                      width: `${104 * ((settings.logoSize || 100) / 100)}px`,
+                      height: `${104 * ((settings.logoSize || 100) / 100)}px`,
+                      borderRadius: settings.logoShape === 'circle' ? '50%' : '18px' 
                   }}
               >
                   <img 
@@ -386,10 +386,10 @@ const Auth: React.FC = () => {
                 <Home className="w-8 h-8" />
               </div>
           )}
-          <h1 className={`text-2xl font-bold mb-2 ${hasBackground ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+          <h1 className={`text-[1.8rem] sm:text-3xl font-extrabold tracking-tight mb-2 drop-shadow-sm ${hasBackground ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
             {settings?.houseName || localStorage.getItem('homefin_current_family_name') || 'HomeFin'}
           </h1>
-          <p className={`text-lg font-medium transition-colors text-center ${error ? 'text-red-500 flex items-center gap-2' : (hasBackground ? 'text-white/80' : 'text-gray-600 dark:text-gray-300')}`}>
+          <p className={`text-base sm:text-lg font-medium transition-colors text-center leading-relaxed ${error ? 'text-red-200 flex items-center gap-2' : (hasBackground ? 'text-white/90 drop-shadow-sm' : 'text-gray-600 dark:text-gray-300')}`}>
             {error && <AlertCircle size={20} />}
             {error || message}
           </p>
@@ -537,9 +537,9 @@ const Auth: React.FC = () => {
                 {[...Array(PIN_LENGTH)].map((_, i) => (
                 <div
                     key={i}
-                    className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                    className={`w-3.5 h-3.5 rounded-full border border-white/35 transition-all duration-300 ${
                     i < pin.length
-                        ? 'bg-primary-600 scale-110 shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]'
+                        ? (hasBackground ? 'bg-white scale-110 shadow-[0_0_18px_rgba(255,255,255,0.85)] border-white' : 'bg-primary-600 scale-110 shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]')
                         : (hasBackground ? 'bg-white/30' : 'bg-gray-300 dark:bg-gray-700')
                     } ${error ? 'animate-bounce bg-red-500' : ''}`}
                 />
@@ -563,12 +563,12 @@ const Auth: React.FC = () => {
 
             {authStatusReady && mode === 'login' && passkeyAvailable() && (
               <button type="button" disabled={passkeyBusy} onClick={handlePasskeyLogin}
-                className={`w-full mb-5 rounded-xl border px-4 py-3 font-semibold disabled:opacity-60 ${hasBackground ? 'border-white/40 bg-white/20 text-white' : 'border-primary-300 text-primary-700 dark:text-primary-300'}`}>
+                className={`w-full mb-5 rounded-xl border px-4 py-3 font-semibold disabled:opacity-60 ${hasBackground ? 'border-white/50 bg-gradient-to-b from-white/35 to-white/15 text-white shadow-[0_8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl' : 'border-primary-300 text-primary-700 dark:text-primary-300'}`}>
                 {passkeyBusy ? t('auth.validatingBiometric') : t('auth.biometric')}
               </button>
             )}
             {/* Keypad */}
-            <div className="grid grid-cols-3 gap-4 md:gap-6 px-4">
+            <div className="grid grid-cols-3 gap-4 sm:gap-5 md:gap-6 px-2 sm:px-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                 <button
                   key={num}
@@ -578,9 +578,9 @@ const Auth: React.FC = () => {
                     e.preventDefault();
                     handleNumberClick(num);
                   }}
-                  className={`h-16 w-16 md:h-20 md:w-20 rounded-full text-2xl font-semibold shadow-sm active:scale-90 transition-all duration-75 mx-auto flex items-center justify-center touch-manipulation select-none ${
+                  className={`h-[76px] w-[76px] md:h-[86px] md:w-[86px] rounded-full text-[1.7rem] font-semibold shadow-[0_8px_24px_rgba(0,0,0,0.12)] active:scale-90 transition-all duration-150 mx-auto flex items-center justify-center touch-manipulation select-none ${
                       hasBackground 
-                        ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30 backdrop-blur-sm' 
+                        ? 'bg-gradient-to-br from-white/35 to-white/15 text-white hover:from-white/45 hover:to-white/25 border border-white/45 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.55),0_8px_24px_rgba(0,0,0,0.12)]' 
                         : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-100 dark:border-gray-700'
                   }`}
                 >
@@ -597,7 +597,7 @@ const Auth: React.FC = () => {
                           e.preventDefault();
                           startRecovery();
                       }}
-                      className={`flex flex-col items-center justify-center transition-colors p-2 group h-16 w-16 md:h-20 md:w-20 touch-manipulation select-none active:scale-90 duration-75 ${hasBackground ? 'text-white/70 hover:text-white' : 'text-gray-400 hover:text-primary-600'}`}
+                      className={`flex flex-col items-center justify-center transition-colors p-2 group h-16 w-16 md:h-20 md:w-20 touch-manipulation select-none active:scale-90 duration-75 ${hasBackground ? 'text-white/85 hover:text-white' : 'text-gray-400 hover:text-primary-600'}`}
                     >
                       <KeyRound size={24} className="mb-1 group-hover:scale-110 transition-transform" />
                       <span className="text-[9px] font-bold uppercase tracking-tight">{t('auth.keywordLabel')}</span>
@@ -625,7 +625,7 @@ const Auth: React.FC = () => {
                     e.preventDefault();
                     handleDelete();
                 }}
-                className={`h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center active:scale-90 transition-all duration-75 mx-auto touch-manipulation select-none ${
+                className={`h-[76px] w-[76px] md:h-[86px] md:w-[86px] rounded-full flex items-center justify-center active:scale-90 transition-all duration-150 mx-auto touch-manipulation select-none ${
                     hasBackground 
                         ? 'text-white/70 hover:text-white' 
                         : 'text-gray-500 dark:text-gray-400 hover:text-red-500'
@@ -637,7 +637,7 @@ const Auth: React.FC = () => {
             
             {/* Extra help text for clarity */}
             {mode === 'login' && (
-              <div className="mt-8 text-center">
+              <div className="mt-7 text-center">
                 <button 
                   onClick={startRecovery}
                   className={`text-sm hover:underline font-medium opacity-80 hover:opacity-100 ${hasBackground ? 'text-white' : 'text-primary-600 dark:text-primary-400'}`}
