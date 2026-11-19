@@ -91,8 +91,9 @@ async function checkLoginRateLimit(familyId, ipHash) {
 
   const familyCount = familyAttempts.length;
   if (familyCount > 0) {
-    const cooldown = LOGIN_LOCKOUT_SECONDS[Math.min(familyCount, LOGIN_LOCKOUT_SECONDS.length - 1)] ||
-      60 * 60;
+    const cooldown = familyCount >= 6
+      ? 60 * 60
+      : LOGIN_LOCKOUT_SECONDS[familyCount];
     const lastFailureAt = Date.parse(familyAttempts[0].attempted_at);
     if (Number.isFinite(lastFailureAt)) {
       const remaining = cooldown - Math.floor((Date.now() - lastFailureAt) / 1000);
