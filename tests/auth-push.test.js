@@ -877,6 +877,36 @@ test('family login rejects an incorrect PIN and issues a token only after server
   assert.equal(verifyFamilySession({ headers: authRequest(valid.body.token) }, 'family-one').valid, true);
 });
 
+test('family PIN lockout escalates from seconds to one hour', async () => {
+  const expectedSeconds = [15, 30, 60, 300, 900, 3600];
+
+  for (let count = 1; count <= expectedSeconds.length; count += 1) {
+    const attempts = Array.from({ length: count }, (_, index) => ({
+      id: `attempt-${index}`,
+      attempted_at: new Date(Date.now() - 1000).toISOString(),
+    }));
+    global.fetch = async (url) => {
+      const target = String(url);
+      if (target.includes('homefin_auth_attempts')) {
+        return apiResponse(200, target.includes('family_id=') ? attempts : []);
+      }
+      throw new Error(`Unexpected API request: ${target}`);
+    };
+
+    const res = responseCapture();
+    await familyAuthHandler({
+      method: 'POST',
+      headers: { 'x-real-ip': '192.0.2.77' },
+      socket: {},
+      body: { action: 'login', familyId: 'family-one', pin: '1111' },
+    }, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.ok(res.body.retryAfter >= expectedSeconds[count - 1] - 1);
+    assert.ok(res.body.retryAfter <= expectedSeconds[count - 1]);
+  }
+});
+
 test('family signup rejects oversized or invalid images before calling Supabase', async () => {
   const image = `data:image/webp;base64,${'A'.repeat(850_001)}`;
   global.fetch = async () => {
