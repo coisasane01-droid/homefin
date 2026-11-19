@@ -67,6 +67,12 @@ const getInitialFamilySettings = (): UserSettings | null => {
 const Auth: React.FC = () => {
   const { t } = useTranslation();
   const [pin, setPin] = useState('');
+  const [keyGlow, setKeyGlow] = useState(false);
+
+  const triggerKeyGlow = () => {
+    setKeyGlow(true);
+    window.setTimeout(() => setKeyGlow(false), 240);
+  };
   const [mode, setMode] = useState<'login' | 'recovery' | 'enroll' | 'reset_warning'>('login');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -328,10 +334,6 @@ const Auth: React.FC = () => {
 
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center px-4 py-6 transition-all duration-500 relative overflow-hidden ${hasBackground ? 'bg-gray-900' : 'bg-gray-50 dark:bg-gray-900'}`}>
-      <div className="absolute top-4 right-4 z-50">
-        <LanguageSelector />
-      </div>
-      
       {/* Background Image Layer */}
       {hasBackground && (
         <div 
@@ -360,8 +362,21 @@ const Auth: React.FC = () => {
                 : undefined
         }}
       >
+        <div className="absolute top-5 right-5 z-50">
+          <LanguageSelector />
+        </div>
+
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 transition-opacity duration-200"
+          style={{
+            opacity: keyGlow && hasBackground ? 1 : 0,
+            background: 'radial-gradient(circle at 50% 58%, rgba(255,255,255,0.24) 0%, rgba(190,220,255,0.10) 24%, transparent 48%)',
+          }}
+        />
+
         {/* Header */}
-        <div className="flex flex-col items-center mb-6">
+        <div className="relative z-10 flex flex-col items-center mb-6">
           {settings?.logoImage ? (
               <div 
                   className="mb-7 relative flex items-center justify-center overflow-hidden drop-shadow-[0_12px_28px_rgba(0,0,0,0.28)] ring-2 ring-white/45 shadow-[0_0_0_8px_rgba(255,255,255,0.10)]"
@@ -576,11 +591,12 @@ const Auth: React.FC = () => {
                   disabled={!authStatusReady}
                   onPointerDown={(e) => {
                     e.preventDefault();
+                    triggerKeyGlow();
                     handleNumberClick(num);
                   }}
                   className={`h-[76px] w-[76px] md:h-[86px] md:w-[86px] rounded-full text-[1.7rem] font-semibold shadow-[0_8px_24px_rgba(0,0,0,0.12)] active:scale-90 transition-all duration-150 mx-auto flex items-center justify-center touch-manipulation select-none ${
                       hasBackground 
-                        ? 'bg-gradient-to-br from-white/35 to-white/15 text-white hover:from-white/45 hover:to-white/25 border border-white/45 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.55),0_8px_24px_rgba(0,0,0,0.12)]' 
+                        ? 'bg-gradient-to-br from-white/30 via-white/14 to-white/8 text-white hover:from-white/42 hover:via-white/20 hover:to-white/12 border border-white/50 backdrop-blur-2xl backdrop-saturate-150 shadow-[inset_0_1.5px_2px_rgba(255,255,255,0.62),inset_0_-1px_2px_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.16)] active:bg-white/40 active:shadow-[inset_0_1px_3px_rgba(255,255,255,0.8),0_0_28px_rgba(255,255,255,0.28)]' 
                         : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-100 dark:border-gray-700'
                   }`}
                 >
@@ -609,11 +625,12 @@ const Auth: React.FC = () => {
                 disabled={!authStatusReady}
                 onPointerDown={(e) => {
                     e.preventDefault();
+                    triggerKeyGlow();
                     handleNumberClick(0);
                 }}
                 className={`h-16 w-16 md:h-20 md:w-20 rounded-full text-2xl font-semibold shadow-sm active:scale-90 transition-all duration-75 mx-auto flex items-center justify-center touch-manipulation select-none ${
                     hasBackground 
-                      ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30 backdrop-blur-sm' 
+                      ? 'bg-gradient-to-br from-white/28 via-white/14 to-white/8 text-white hover:bg-white/30 border border-white/40 backdrop-blur-2xl backdrop-saturate-150 shadow-[inset_0_1.5px_2px_rgba(255,255,255,0.55),0_8px_24px_rgba(0,0,0,0.14)] active:bg-white/40 active:shadow-[0_0_24px_rgba(255,255,255,0.25)]' 
                       : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-100 dark:border-gray-700'
                 }`}
               >
