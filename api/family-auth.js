@@ -54,25 +54,72 @@ function getIpHash(req) {
   return crypto.createHmac('sha256', secret).update(address).digest('hex');
 }
 
+const LOGIN_LOCKOUT_SECONDS = [0, 15, 30, 60, 5 * 60, 15 * 60];
+
+function formatLockoutMessage(seconds) {
+  const safeSeconds = Math.max(1, Math.ceil(seconds));
+  if (safeSeconds < 60) {
+    return `Muitas tentativas. Aguarde ${safeSeconds} ${safeSeconds === 1 ? 'segundo' : 'segundos'} antes de tentar novamente.`;
+  }
+  const minutes = Math.ceil(safeSeconds / 60);
+  if (minutes < 60) {
+    return `Muitas tentativas. Aguarde ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'} antes de tentar novamente.`;
+  }
+  return 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.';
+}
+
 async function checkLoginRateLimit(familyId, ipHash) {
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const familyQuery = new URLSearchParams({
     family_id: `eq.${familyId}`,
     attempted_at: `gte.${since}`,
-    select: 'id',
-    limit: '5',
+    select: 'id,attempted_at',
+    order: 'attempted_at.desc',
+    limit: '20',
   });
   const ipQuery = new URLSearchParams({
     ip_hash: `eq.${ipHash}`,
     attempted_at: `gte.${since}`,
-    select: 'id',
+    select: 'id,attempted_at',
+    order: 'attempted_at.asc',
     limit: '20',
   });
   const [familyAttempts, ipAttempts] = await Promise.all([
     db(`homefin_auth_attempts?${familyQuery}`),
     db(`homefin_auth_attempts?${ipQuery}`),
   ]);
-  return familyAttempts.length >= 5 || ipAttempts.length >= 20;
+
+  const familyCount = familyAttempts.length;
+  if (familyCount > 0) {
+    const cooldown = LOGIN_LOCKOUT_SECONDS[Math.min(familyCount, LOGIN_LOCKOUT_SECONDS.length - 1)] ||
+      60 * 60;
+    const lastFailureAt = Date.parse(familyAttempts[0].attempted_at);
+    if (Number.isFinite(lastFailureAt)) {
+      const remaining = cooldown - Math.floor((Date.now() - lastFailureAt) / 1000);
+      if (remaining > 0) return remaining;
+    }
+  }
+
+  // Limite adicional por IP: no máximo 20 falhas em uma hora.
+  if (ipAttempts.length >= 20) {
+    const firstAttemptAt = Date.parse(ipAttempts[0].attempted_at);
+    if (Number.isFinite(firstAttemptAt)) {
+      return Math.max(1, 60 * 60 - Math.floor((Date.now() - firstAttemptAt) / 1000));
+    }
+    return 60 * 60;
+  }
+
+  return 0;
+}
+
+async function clearLoginFailures(familyId) {
+  try {
+    const query = new URLSearchParams({ family_id: `eq.${familyId}` });
+    await db(`homefin_auth_attempts?${query}`, { method: 'DELETE' });
+  } catch (error) {
+    // A limpeza não deve impedir um login válido.
+    console.warn('Não foi possível limpar o histórico de tentativas:', error instanceof Error ? error.message : 'erro desconhecido');
+  }
 }
 
 async function recordLoginFailure(familyId, ipHash) {
@@ -427,8 +474,9 @@ export default async function handler(req, res) {
       }
 
       const ipHash = getIpHash(req);
-      if (await checkLoginRateLimit(targetFamilyId, ipHash)) {
-        return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+      const recoveryLockout = await checkLoginRateLimit(targetFamilyId, ipHash);
+      if (recoveryLockout > 0) {
+        return res.status(429).json({ error: formatLockoutMessage(recoveryLockout), retryAfter: recoveryLockout });
       }
       const rows = await db(
         `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=recovery_salt,recovery_hash,session_version`
@@ -442,7 +490,7 @@ export default async function handler(req, res) {
       const recoveryHash = await makeHash(recoveryKeyword, rows[0].recovery_salt);
       if (!safeEqual(recoveryHash, rows[0].recovery_hash)) {
         if (!await recordLoginFailure(targetFamilyId, ipHash)) {
-          return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+          return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.', retryAfter: 60 * 60 });
         }
         return res.status(401).json({ error: 'Palavra-chave incorreta.' });
       }
@@ -452,6 +500,7 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'Não foi possível atualizar o PIN. Tente novamente.' });
       }
       const newSessionVersion = sessionVersion + 1;
+      await clearLoginFailures(targetFamilyId);
       return res.status(200).json({
         success: true,
         token: createFamilySessionToken(targetFamilyId, newSessionVersion),
@@ -468,8 +517,9 @@ export default async function handler(req, res) {
     }
 
     const ipHash = getIpHash(req);
-    if (await checkLoginRateLimit(targetFamilyId, ipHash)) {
-      return res.status(429).json({ error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.' });
+    const loginLockout = await checkLoginRateLimit(targetFamilyId, ipHash);
+    if (loginLockout > 0) {
+      return res.status(429).json({ error: formatLockoutMessage(loginLockout), retryAfter: loginLockout });
     }
     const rows = await db(
       `homefin_family_credentials?family_id=eq.${encodeURIComponent(targetFamilyId)}&select=pin_salt,pin_hash,session_version`
@@ -489,12 +539,14 @@ export default async function handler(req, res) {
       if (allowed !== true) {
         return res.status(429).json({
           error: 'Muitas tentativas. Aguarde uma hora antes de tentar novamente.',
+          retryAfter: 60 * 60,
         });
       }
 
       return res.status(401).json({ error: 'Código incorreto.' });
     }
 
+    await clearLoginFailures(targetFamilyId);
     return res.status(200).json({
       success: true,
       token: createFamilySessionToken(
