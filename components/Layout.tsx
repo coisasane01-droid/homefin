@@ -185,7 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
+    <div className="min-h-screen w-full min-w-0 max-w-full overflow-x-hidden bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
       {/* Mobile Header (z-40) */}
       <div className="md:hidden fixed w-full z-40 border-b border-white/60 bg-white/70 p-4 shadow-[0_8px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl flex justify-between items-center h-[72px] dark:border-white/10 dark:bg-slate-950/65 print:hidden">
         <div className="flex items-center gap-2 text-primary-600 font-bold text-xl min-w-0">
@@ -262,8 +262,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content - Padded top to account for fixed header */}
-      <main className="flex-1 p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
-        <div className="max-w-6xl mx-auto print:max-w-none print:w-full">
+      <main className="flex-1 min-w-0 w-full max-w-full p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-x-hidden overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
+        <div className="w-full min-w-0 max-w-6xl mx-auto print:max-w-none print:w-full">
           {syncStatus && (
             <div
               role="status"
