@@ -1,19 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Product } from '../types';
 import { X, Upload, Save, AlertCircle, Camera, Check } from 'lucide-react';
+import { homefinApiUrl } from '../../../services/nativeApi';
+import { getFamilySessionToken } from '../../../services/familyAuth';
 
 interface CadastroProdutoModalProps {
   onClose: () => void;
   onSaveProduct: (product: Product) => Promise<void>;
   productToEdit?: Product | null;
   nextCodigoInterno: string;
+  familyId: string;
+  existingProducts: Product[];
 }
 
 export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
   onClose,
   onSaveProduct,
   productToEdit,
-  nextCodigoInterno
+  nextCodigoInterno,
+  familyId,
+  existingProducts,
 }) => {
   const [codigoInterno, setCodigoInterno] = useState(productToEdit?.codigoInterno || nextCodigoInterno);
   const [codigoBarras, setCodigoBarras] = useState(productToEdit?.codigoBarras || '');
@@ -57,6 +63,82 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
   ];
 
   const [processingPhoto, setProcessingPhoto] = useState(false);
+  const [duplicateMessage, setDuplicateMessage] = useState('');
+  const [duplicateChecking, setDuplicateChecking] = useState(false);
+
+  const normalizeDuplicateValue = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .trim()
+    .replace(/\\s+/g, ' ')
+    .toLocaleLowerCase('pt-BR');
+
+  const findLocalDuplicate = () => {
+    const name = normalizeDuplicateValue(descricao);
+    const sku = normalizeDuplicateValue(codigoInterno);
+    const barcode = normalizeDuplicateValue(codigoBarras);
+    return existingProducts.find(item => {
+      if (item.id === productToEdit?.id) return false;
+      return (name && normalizeDuplicateValue(item.descricao) === name) ||
+        (sku && normalizeDuplicateValue(item.codigoInterno) === sku) ||
+        (barcode && normalizeDuplicateValue(item.codigoBarras) === barcode);
+    });
+  };
+
+  const checkRemoteDuplicate = async () => {
+    if (!familyId || familyId === 'v1' || !descricao.trim()) return [];
+    const token = await getFamilySessionToken(familyId);
+    if (!token) throw new Error('Sua sessão expirou. Entre novamente para conferir duplicidade.');
+    const response = await fetch(homefinApiUrl('/api/inventory'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        action: 'duplicate-check',
+        familyId,
+        product: {
+          id: productToEdit?.id || '',
+          name: descricao.trim(),
+          sku: codigoInterno.trim(),
+          barcode: codigoBarras.trim(),
+        },
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Não foi possível conferir produtos duplicados.');
+    return Array.isArray(data.duplicates) ? data.duplicates : [];
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const localMatch = findLocalDuplicate();
+    if (localMatch) {
+      setDuplicateMessage(`ITEM JÁ CADASTRADO: ${localMatch.descricao} (código ${localMatch.codigoInterno}).`);
+      setDuplicateChecking(false);
+      return;
+    }
+    setDuplicateMessage('');
+    if (descricao.trim().length < 3 && !codigoBarras.trim()) {
+      setDuplicateChecking(false);
+      return;
+    }
+    setDuplicateChecking(true);
+    const timer = setTimeout(async () => {
+      try {
+        const duplicates = await checkRemoteDuplicate();
+        if (cancelled) return;
+        const match = duplicates[0];
+        setDuplicateMessage(match
+          ? `ITEM JÁ CADASTRADO: ${match.name} (código ${match.sku || 'não informado'}).`
+          : '');
+      } catch (error) {
+        if (!cancelled) setDuplicateMessage(error instanceof Error ? error.message : 'Falha ao conferir duplicidade.');
+      } finally {
+        if (!cancelled) setDuplicateChecking(false);
+      }
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [descricao, codigoInterno, codigoBarras, existingProducts, productToEdit?.id, familyId]);
+
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -93,6 +175,36 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
         if (!result) throw new Error('Não foi possível reduzir a foto para menos de 2 MB.');
         setFotoUrl(result);
         setPhotoSelectedType('upload');
+
+        const imageMatch = result.match(/^data:(image\\/jpeg);base64,([A-Za-z0-9+/=]+)$/);
+        if (!imageMatch) throw new Error('Não foi possível preparar a foto para reconhecimento.');
+        const token = await getFamilySessionToken(familyId);
+        if (!token) throw new Error('Sua sessão expirou. Entre novamente para usar o reconhecimento por foto.');
+        const recognitionResponse = await fetch(homefinApiUrl('/api/inventory-recognize'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            familyId,
+            imageBase64: imageMatch[2],
+            mimeType: imageMatch[1],
+          }),
+        });
+        const recognition = await recognitionResponse.json();
+        if (!recognitionResponse.ok) {
+          throw new Error(recognition.error || 'Não foi possível reconhecer os dados da foto.');
+        }
+        const identified = recognition.product || {};
+        if (identified.name) setDescricao(identified.name);
+        if (identified.sku) setCodigoInterno(current => current === nextCodigoInterno ? identified.sku : current);
+        if (identified.barcode) setCodigoBarras(identified.barcode);
+        if (identified.measure) setMedida(identified.measure);
+        if (identified.supplier) setMarcaRefer(identified.supplier);
+        if (identified.unit) setUnidade(identified.unit.toUpperCase());
+        if (identified.ncm) setNcm(identified.ncm);
+        if (identified.notes) setObservacao(identified.notes);
       } finally {
         image.close();
       }
@@ -134,6 +246,25 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
     }
     if (!codigoInterno.trim()) {
       setErrorMsg('Informe o código interno.');
+      return;
+    }
+
+    const localDuplicate = findLocalDuplicate();
+    if (localDuplicate) {
+      setDuplicateMessage(`ITEM JÁ CADASTRADO: ${localDuplicate.descricao} (código ${localDuplicate.codigoInterno}).`);
+      setErrorMsg('Este produto já está cadastrado. Confira o item existente antes de salvar.');
+      return;
+    }
+    try {
+      const duplicates = await checkRemoteDuplicate();
+      if (duplicates.length) {
+        const duplicate = duplicates[0];
+        setDuplicateMessage(`ITEM JÁ CADASTRADO: ${duplicate.name} (código ${duplicate.sku || 'não informado'}).`);
+        setErrorMsg('Este produto já está cadastrado neste estoque. O cadastro foi bloqueado.');
+        return;
+      }
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Não foi possível validar duplicidade. Tente novamente.');
       return;
     }
 
@@ -219,6 +350,13 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
             <div className="bg-red-100 border border-red-400 text-red-800 px-4 py-2.5 rounded text-sm flex items-center gap-2">
               <AlertCircle size={18} />
               <span>{errorMsg}</span>
+            </div>
+          )}
+          {duplicateChecking && <div className="text-xs text-slate-500">Conferindo se o produto já está cadastrado...</div>}
+          {duplicateMessage && (
+            <div className="bg-amber-100 border border-amber-400 text-amber-900 px-3 py-2 rounded text-xs font-semibold flex items-center gap-2">
+              <AlertCircle size={16} />
+              <span>{duplicateMessage}</span>
             </div>
           )}
 
@@ -491,7 +629,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
                         className="hidden"
                       />
                     </label>
-                    <span className="text-xs text-slate-500">Fotos do celular são reduzidas automaticamente para até 2 MB</span>
+                    <span className="text-xs text-slate-500">Fotos são reduzidas automaticamente e analisadas pela IA para preencher os dados visíveis</span>
                   </div>
                 </div>
 
@@ -528,6 +666,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
 
             <button
               type="submit"
+              disabled={saving || processingPhoto || duplicateChecking || Boolean(duplicateMessage)}
               className="bg-[#003816] hover:bg-[#004d20] text-white font-bold py-2.5 px-6 rounded text-sm flex items-center gap-2 transition-colors shadow uppercase font-condensed tracking-wide text-base"
             >
               <Save size={18} />
