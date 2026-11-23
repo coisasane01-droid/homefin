@@ -36,9 +36,9 @@ async function db(path, options = {}) {
 function normalizeDuplicateKey(value) {
   return String(value || '')
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .trim()
-    .replace(/\\s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .toLocaleLowerCase('pt-BR');
 }
 
