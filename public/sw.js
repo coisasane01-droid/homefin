@@ -1,4 +1,4 @@
-const CACHE_NAME = 'homefin-v1';
+const CACHE_NAME = 'homefin-v2';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
