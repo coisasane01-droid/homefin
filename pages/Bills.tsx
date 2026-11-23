@@ -401,50 +401,44 @@ const Bills: React.FC = () => {
                     attachments: [...(prev.attachments || []), newAttachment]
                 }));
 
-                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-                const base64Data = base64String.split(',')[1];
-                const mimeType = file.type;
+                const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
+                if (!token) throw new Error('Sessão familiar não encontrada. Entre novamente.');
 
-                const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: {
-                        parts: [
-                            {
-                                inlineData: {
-                                    data: base64Data,
-                                    mimeType: mimeType
-                                }
-                            },
-                            {
-                                text: 'Extraia os dados deste comprovante ou conta. Retorne APENAS um JSON válido com os seguintes campos: "description" (nome do estabelecimento ou serviço), "amount" (valor total como número, ex: 150.50), "dueDate" (data de vencimento ou da compra no formato YYYY-MM-DD). Se não encontrar algum campo, retorne null para ele.'
-                            }
-                        ]
+                // A análise ocorre no servidor para não expor a chave da IA no navegador.
+                const scanResponse = await fetch('/api/bill-scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`
                     },
-                    config: {
-                        responseMimeType: 'application/json',
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: {
-                                description: { type: Type.STRING },
-                                amount: { type: Type.NUMBER },
-                                dueDate: { type: Type.STRING }
-                            }
-                        }
-                    }
+                    body: JSON.stringify({
+                        familyId,
+                        mimeType: file.type,
+                        imageBase64: base64String.split(',')[1]
+                    })
                 });
-
-                if (response.text) {
-                    const data = JSON.parse(response.text);
-                    setEditingBill(prev => ({
-                        ...prev,
-                        description: prev.description || data.description || '',
-                        amount: prev.amount || data.amount || '',
-                        dueDate: prev.dueDate || data.dueDate || prev.dueDate
-                    }));
+                const scanResult = await scanResponse.json();
+                if (!scanResponse.ok || !scanResult.success) {
+                    throw new Error(scanResult.error || 'Não foi possível interpretar a imagem.');
                 }
+
+                const extracted = scanResult.data || {};
+                setEditingBill(prev => ({
+                    ...prev,
+                    description: prev.description || extracted.description || '',
+                    amount: prev.amount || (Number.isFinite(extracted.amount) ? extracted.amount : ''),
+                    dueDate: prev.dueDate || extracted.dueDate || prev.dueDate,
+                    category: prev.category || extracted.category || prev.category,
+                    subCategory: prev.subCategory || extracted.subCategory || '',
+                    subCategoryAmount: prev.subCategoryAmount || (Number.isFinite(extracted.subCategoryAmount) ? extracted.subCategoryAmount : 0),
+                    paidAmount: prev.paidAmount || (Number.isFinite(extracted.paidAmount) ? extracted.paidAmount : 0),
+                    paidBy: prev.paidBy || extracted.paidBy || '',
+                    notes: prev.notes || extracted.notes || ''
+                }));
+                showNotification('Imagem lida! Confira os dados antes de salvar.', 'success');
             } catch (error) {
                 console.error("Erro ao ler comprovante:", error);
-                showNotification('Não foi possível ler os dados...', 'error');
+                showNotification(error instanceof Error ? error.message : 'Não foi possível ler os dados do comprovante.', 'error');
             } finally {
                 setIsScanning(false);
                 setIsUploadingAttachment(false);
