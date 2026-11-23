@@ -359,6 +359,6 @@ export function startGlobalDomTranslation() {
       if (record.type === 'attributes' && record.target instanceof Element) translateAttributes(record.target, language);
     }
   });
-  observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'title', 'aria-label'] });
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'title', 'aria-label', 'alt'] });
   i18n.on('languageChanged', apply);
 }
