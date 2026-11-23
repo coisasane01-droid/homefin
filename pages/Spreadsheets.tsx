@@ -1615,7 +1615,7 @@ const handleSave = async () => {
           <div className="flex min-w-0 flex-col gap-4">
             <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_minmax(170px,1.3fr)_minmax(110px,0.8fr)_minmax(150px,1.1fr)]">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Nome
+                Nome da planilha
                 <input
                   value={selected.name}
                   onChange={(event) => updateSelected({ name: event.target.value })}
