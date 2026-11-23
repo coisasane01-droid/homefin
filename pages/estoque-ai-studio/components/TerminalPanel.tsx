@@ -180,7 +180,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   };
 
   return (
-    <div className="bg-[#e5e9ec] p-3 sm:p-5 border-2 border-slate-300 rounded shadow-md relative select-none">
+    <div className="w-full min-w-0 max-w-full box-border bg-[#e5e9ec] p-3 sm:p-5 border-2 border-slate-300 rounded shadow-md relative select-none">
 
       {/* Top Banner inside Terminal - NO LOGO */}
       <div className="bg-[#003816] px-4 py-2.5 rounded-t -mt-3 -mx-3 sm:-mt-5 sm:-mx-5 mb-4 flex items-center justify-between border-b border-[#00240e]">
