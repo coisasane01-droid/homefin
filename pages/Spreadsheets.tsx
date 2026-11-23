@@ -540,7 +540,7 @@ const handleSave = async () => {
         column.id,
         column.formulaConfig || column.formulaExpression || column.formula
           ? ''
-          : (quickEntry[column.id] || '').trim(),
+          : (quickEntry[column.id] ?? (isSpreadsheetDateColumn(column) ? getTodaySpreadsheetDate() : '')).trim(),
       ])
     );
 
@@ -1849,7 +1849,7 @@ const handleSave = async () => {
                     </div>
                   ) : (
                     <input
-                      value={quickEntry[column.id] || ''}
+                      value={quickEntry[column.id] ?? (isSpreadsheetDateColumn(column) ? getTodaySpreadsheetDate() : '')}
                       onChange={(event) =>
                         setQuickEntry((current) => ({
                           ...current,
