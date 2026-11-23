@@ -1017,21 +1017,6 @@ const handleSave = async () => {
     const actualPageHeight = doc.internal.pageSize.getHeight();
     const actualPageWidth = doc.internal.pageSize.getWidth();
 
-    const writeContinuationHeader = (title: string) => {
-      doc.setTextColor(55, 48, 163);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('HomeFin | Planilhas', 14, 14);
-      doc.setTextColor(31, 41, 55);
-      doc.setFontSize(9);
-      doc.text(
-        `${selected.name || 'Planilha sem nome'} - ${title}`,
-        14,
-        21
-      );
-      return 30;
-    };
-
     const commissions: Array<{
       title: string;
       detail: string;
