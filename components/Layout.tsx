@@ -206,15 +206,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
       <aside
-        className={`relative isolate fixed md:sticky top-0 h-screen w-64 border-r border-blue-200/70 bg-white/55 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-blue-300/15 dark:bg-slate-950/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.30),inset_-1px_0_0_rgba(96,165,250,0.12)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
+        className={`relative isolate fixed md:sticky top-0 h-screen w-64 border-r border-white/70 bg-white/70 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.24),inset_-1px_0_0_rgba(255,255,255,0.10)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
         style={{
-          WebkitBackdropFilter: 'blur(28px) saturate(175%)',
-          backdropFilter: 'blur(28px) saturate(175%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          backdropFilter: 'blur(24px) saturate(180%)',
           backgroundImage: isDark
-            ? 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.20), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.13), transparent 48%), linear-gradient(145deg, rgba(15,23,42,0.18), rgba(30,58,138,0.12))'
-            : 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
+            ? 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.08), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.06), transparent 48%), linear-gradient(145deg, rgba(15,23,42,0.04), rgba(30,58,138,0.04))'
+            : 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.06), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.04), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.12), rgba(219,234,254,0.08))',
         }}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-blue-400/80 to-transparent shadow-[0_0_14px_rgba(59,130,246,0.55)]" />
