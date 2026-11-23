@@ -1996,7 +1996,7 @@ const handleSave = async () => {
                         >
                           <DragHandleIcon />
                         </button>
-                        <button type="button" disabled={rowIndex === 0} onClick={() => moveRowBy(row.id, -1)} title="Mover linha para cima" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronUp size={15} /></button><button type="button" disabled={rowIndex === selected.rows.length - 1} onClick={() => moveRowBy(row.id, 1)} title="Mover linha para baixo" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronDown size={15} /></button>
+                        <button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === 0} onClick={() => moveRowBy(row.id, -1)} title="Mover linha para cima" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronUp size={15} /></button><button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === selected.rows.length - 1} onClick={() => moveRowBy(row.id, 1)} title="Mover linha para baixo" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronDown size={15} /></button>
                         {rowIndex + 1}
                       </div>
                     </td>
