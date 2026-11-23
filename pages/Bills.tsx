@@ -427,7 +427,7 @@ const Bills: React.FC = () => {
                 }
 
                 // A análise ocorre no servidor para não expor a chave da IA no navegador.
-                const scanResponse = await fetch('/api/bill-scan', {
+                const scanResponse = await fetch('/api/family-data?mode=bill-scan', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
