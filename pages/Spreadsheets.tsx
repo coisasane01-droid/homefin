@@ -1492,6 +1492,7 @@ const handleSave = async () => {
                   if (saving) return;
                   if (canLeaveCurrent()) {
                     setSelected(record);
+                    setHistoryOpen(false);
                     setDirty(false);
                     setSavedInCloud(cloudAvailable);
                     setSyncError('');
