@@ -21,6 +21,8 @@ const Bills: React.FC = () => {
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [historyBill, setHistoryBill] = useState<Bill | null>(null);
+  const [overdueOccurrences, setOverdueOccurrences] = useState<Bill[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -325,6 +327,20 @@ const Bills: React.FC = () => {
     
     setDuplicateConfirmation(false);
     changeMonth(1);
+  };
+
+  const openOverdueHistory = async (bill: Bill) => {
+    const allBills = await db.getAllBills();
+    const today = new Date().toISOString().slice(0, 10);
+    const related = allBills
+      .filter(item => bill.recurringId
+        ? item.recurringId === bill.recurringId
+        : item.id === bill.id)
+      .filter(item => item.status !== 'paid' && item.dueDate < today)
+      .sort((a, b) => a.month.localeCompare(b.month) || a.dueDate.localeCompare(b.dueDate));
+
+    setHistoryBill(bill);
+    setOverdueOccurrences(related);
   };
 
   const openModal = (bill?: Bill) => {
@@ -684,7 +700,7 @@ const Bills: React.FC = () => {
                                 <Check size={12} strokeWidth={4} />
                             </div>
                             
-                            <div className="flex-1 cursor-pointer" onClick={() => openModal(bill)}>
+                            <div className="flex-1 cursor-pointer" onClick={() => void openOverdueHistory(bill)} title="Ver meses em atraso">
                                 <div className={`flex flex-col md:flex-row md:items-center gap-1 md:gap-2`}>
                                     <span className={`${bill.isBold ? 'font-black text-gray-900 dark:text-white' : 'font-medium text-gray-700 dark:text-gray-200'} text-base leading-tight`}>
                                         {bill.description}
@@ -777,6 +793,70 @@ const Bills: React.FC = () => {
             </div>
         )}
       </div>
+
+      {/* Histórico de atrasos da conta */}
+      {historyBill && (
+        <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setHistoryBill(null)}>
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 p-5 dark:border-gray-700">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Meses em atraso</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{historyBill.description}</p>
+              </div>
+              <button onClick={() => setHistoryBill(null)} className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Fechar">
+                <X size={20} />
+              </button>
+            </div>
+            {overdueOccurrences.length ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 p-5">
+                  <div className="rounded-xl bg-red-50 p-3 dark:bg-red-900/20">
+                    <div className="text-xs font-medium text-red-700 dark:text-red-300">Meses em atraso</div>
+                    <div className="mt-1 text-xl font-bold text-red-700 dark:text-red-300">{overdueOccurrences.length}</div>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-700/50">
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-300">Valor em aberto</div>
+                    <div className="mt-1 text-xl font-bold text-gray-900 dark:text-white">
+                      {formatCurrency(overdueOccurrences.reduce((sum, item) =>
+                        sum + Math.max(0, item.amount + (item.subCategoryAmount || 0) - (item.paidAmount || 0)), 0))}
+                    </div>
+                  </div>
+                </div>
+                <div className="max-h-[48vh] overflow-y-auto px-5 pb-5">
+                  <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-3 bg-gray-50 px-4 py-3 text-xs font-bold uppercase text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                      <span>Mês / Ano</span><span>Vencimento</span><span className="text-right">Em aberto</span>
+                    </div>
+                    {overdueOccurrences.map(item => {
+                      const [year, month] = item.month.split('-').map(Number);
+                      const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                      const outstanding = Math.max(0, item.amount + (item.subCategoryAmount || 0) - (item.paidAmount || 0));
+                      return (
+                        <div key={item.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-t border-gray-100 px-4 py-3 text-sm dark:border-gray-700">
+                          <span className="font-semibold capitalize text-gray-800 dark:text-gray-100">{monthLabel}</span>
+                          <span className="text-gray-500 dark:text-gray-400">{new Date(item.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                          <span className="text-right font-bold text-red-600">{formatCurrency(outstanding)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-8 text-center">
+                <Check className="mx-auto mb-2 text-emerald-500" size={32} />
+                <p className="font-semibold text-gray-800 dark:text-gray-100">Nenhum mês em atraso</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Não há vencimentos pendentes anteriores a hoje para esta conta.</p>
+              </div>
+            )}
+            <div className="flex justify-end border-t border-gray-200 p-4 dark:border-gray-700">
+              <button onClick={() => setHistoryBill(null)} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Edit/Create (z-[100] - Above all) */}
       {isModalOpen && (
