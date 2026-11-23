@@ -1,7 +1,7 @@
 import { handleCors } from './_cors.js';
 import { validateFamilySession } from './_family-session.js';
 
-const MAX_IMAGE_BASE64_CHARS = 8_000_000;
+const MAX_IMAGE_BASE64_CHARS = 4_000_000;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 function cleanText(value, max = 180) {
