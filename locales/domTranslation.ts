@@ -274,6 +274,23 @@ const dictionary: Record<string, Translation> = {
   "Bem-vindo!": { en: "Welcome!", es: "¡Bienvenido!" },
   "Para começar, você possui um código de convite?": { en: "To get started, do you have an invitation code?", es: "Para comenzar, ¿tiene un código de invitación?" },
   "Digite o nome da sua família para entrar.": { en: "Enter your family name to sign in.", es: "Escriba el nombre de su familia para entrar." },
+  "Suas Finanças,": { en: "Your Finances,", es: "Tus Finanzas," },
+  "Simplificadas.": { en: "Simplified.", es: "Simplificadas." },
+  "Gerencie contas, metas e sonhos da sua família em um só lugar. Simples, seguro e feito para você.": { en: "Manage your family's bills, goals, and dreams in one place. Simple, secure, and made for you.", es: "Gestione las cuentas, metas y sueños de su familia en un solo lugar. Sencillo, seguro y hecho para usted." },
+  "Criar Conta Grátis": { en: "Create Free Account", es: "Crear Cuenta Gratis" },
+  "Básico": { en: "Basic", es: "Básico" },
+  "Família Pro": { en: "Family Pro", es: "Familia Pro" },
+  "/mês": { en: "/month", es: "/mes" },
+  "Gestão de Contas": { en: "Bill Management", es: "Gestión de Cuentas" },
+  "1 Usuário": { en: "1 User", es: "1 Usuario" },
+  "Relatórios Simples": { en: "Basic Reports", es: "Informes Básicos" },
+  "Começar Grátis": { en: "Start for Free", es: "Empezar Gratis" },
+  "Tudo do Básico": { en: "Everything in Basic", es: "Todo lo del Básico" },
+  "Patrimônio": { en: "Assets", es: "Patrimonio" },
+  "Multi-usuários": { en: "Multiple Users", es: "Multiusuarios" },
+  "Relatórios Avançados": { en: "Advanced Reports", es: "Informes Avanzados" },
+  "Suporte Prioritário": { en: "Priority Support", es: "Soporte Prioritario" },
+  "Assinar Agora": { en: "Subscribe Now", es: "Suscribirse Ahora" },
 };
 
 const originalText = new WeakMap<Text, string>();
