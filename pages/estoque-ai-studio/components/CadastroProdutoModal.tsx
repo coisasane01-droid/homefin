@@ -65,6 +65,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [duplicateMessage, setDuplicateMessage] = useState('');
   const [duplicateChecking, setDuplicateChecking] = useState(false);
+  const [modalFeedback, setModalFeedback] = useState<{ type: 'duplicate' | 'success'; message: string } | null>(null);
 
   const normalizeDuplicateValue = (value: string) => value
     .normalize('NFD')
@@ -85,8 +86,11 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
     });
   };
 
-  const checkRemoteDuplicate = async () => {
-    if (!navigator.onLine || !familyId || familyId === 'v1' || !descricao.trim()) return [];
+  const checkRemoteDuplicate = async (values?: { name?: string; sku?: string; barcode?: string }) => {
+    const name = values?.name ?? descricao.trim();
+    const sku = values?.sku ?? codigoInterno.trim();
+    const barcode = values?.barcode ?? codigoBarras.trim();
+    if (!navigator.onLine || !familyId || familyId === 'v1' || !name) return [];
     const token = await getFamilySessionToken(familyId);
     if (!token) throw new Error('Sua sessão expirou. Entre novamente para conferir duplicidade.');
     const response = await fetch(homefinApiUrl('/api/inventory'), {
@@ -97,9 +101,9 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
         familyId,
         product: {
           id: productToEdit?.id || '',
-          name: descricao.trim(),
-          sku: codigoInterno.trim(),
-          barcode: codigoBarras.trim(),
+          name,
+          sku,
+          barcode,
         },
       }),
     });
@@ -205,6 +209,36 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
         if (identified.unit) setUnidade(identified.unit.toUpperCase());
         if (identified.ncm) setNcm(identified.ncm);
         if (identified.notes) setObservacao(identified.notes);
+
+        // Confere o produto reconhecido pela foto antes de liberar o cadastro.
+        if (identified.name) {
+          const normalize = (value: string) => value.normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+          const recognizedName = normalize(identified.name);
+          const recognizedSku = normalize(identified.sku || '');
+          const recognizedBarcode = normalize(identified.barcode || '');
+          const localMatch = existingProducts.find(item => item.id !== productToEdit?.id && (
+            normalize(item.descricao) === recognizedName ||
+            (recognizedSku && normalize(item.codigoInterno) === recognizedSku) ||
+            (recognizedBarcode && normalize(item.codigoBarras) === recognizedBarcode)
+          ));
+          let duplicate = localMatch
+            ? { name: localMatch.descricao, sku: localMatch.codigoInterno }
+            : null;
+          if (!duplicate) {
+            const remoteMatches = await checkRemoteDuplicate({
+              name: identified.name,
+              sku: identified.sku || '',
+              barcode: identified.barcode || '',
+            });
+            if (remoteMatches.length) duplicate = remoteMatches[0];
+          }
+          if (duplicate) {
+            const message = `ITEM JÁ CADASTRADO: ${duplicate.name} (código ${duplicate.sku || 'não informado'}). Confira o produto existente antes de cadastrar.`;
+            setDuplicateMessage(message);
+            setModalFeedback({ type: 'duplicate', message });
+          }
+        }
       } finally {
         image.close();
       }
@@ -251,7 +285,9 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
 
     const localDuplicate = findLocalDuplicate();
     if (localDuplicate) {
-      setDuplicateMessage(`ITEM JÁ CADASTRADO: ${localDuplicate.descricao} (código ${localDuplicate.codigoInterno}).`);
+      const message = `ITEM JÁ CADASTRADO: ${localDuplicate.descricao} (código ${localDuplicate.codigoInterno}).`;
+      setDuplicateMessage(message);
+      setModalFeedback({ type: 'duplicate', message });
       setErrorMsg('Este produto já está cadastrado. Confira o item existente antes de salvar.');
       return;
     }
@@ -259,7 +295,9 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
       const duplicates = await checkRemoteDuplicate();
       if (duplicates.length) {
         const duplicate = duplicates[0];
-        setDuplicateMessage(`ITEM JÁ CADASTRADO: ${duplicate.name} (código ${duplicate.sku || 'não informado'}).`);
+        const message = `ITEM JÁ CADASTRADO: ${duplicate.name} (código ${duplicate.sku || 'não informado'}).`;
+        setDuplicateMessage(message);
+        setModalFeedback({ type: 'duplicate', message });
         setErrorMsg('Este produto já está cadastrado neste estoque. O cadastro foi bloqueado.');
         return;
       }
@@ -311,7 +349,10 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
 
     try {
       await onSaveProduct(newProduct);
-      onClose();
+      setModalFeedback({
+        type: 'success',
+        message: productToEdit ? 'PRODUTO ATUALIZADO COM SUCESSO!' : 'PRODUTO CADASTRADO COM SUCESSO!',
+      });
     } catch (error) {
       setErrorMsg(
         error instanceof Error
@@ -676,6 +717,30 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
         </form>
 
       </div>
+      {modalFeedback && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4" role="alertdialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border border-slate-300 bg-white p-5 text-slate-800 shadow-2xl">
+            <div className={`mb-3 flex items-center gap-2 text-base font-bold ${modalFeedback.type === 'success' ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {modalFeedback.type === 'success' ? <Check size={21} /> : <AlertCircle size={21} />}
+              {modalFeedback.type === 'success' ? 'OPERAÇÃO CONCLUÍDA' : 'ATENÇÃO — POSSÍVEL DUPLICIDADE'}
+            </div>
+            <p className="text-sm leading-relaxed">{modalFeedback.message}</p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  const wasSuccessful = modalFeedback.type === 'success';
+                  setModalFeedback(null);
+                  if (wasSuccessful) onClose();
+                }}
+                className={`rounded px-5 py-2 text-sm font-bold text-white ${modalFeedback.type === 'success' ? 'bg-[#003816] hover:bg-emerald-900' : 'bg-amber-700 hover:bg-amber-800'}`}
+              >
+                {modalFeedback.type === 'success' ? 'FECHAR' : 'ENTENDI'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
