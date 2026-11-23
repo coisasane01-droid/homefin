@@ -185,7 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen w-full min-w-0 max-w-full overflow-x-hidden bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
+    <div className="min-h-screen w-screen min-w-0 max-w-[100vw] overflow-x-clip bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
       {/* Mobile Header (z-40) */}
       <div className="md:hidden fixed w-full z-40 border-b border-white/60 bg-white/70 p-4 shadow-[0_8px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl flex justify-between items-center h-[72px] dark:border-white/10 dark:bg-slate-950/65 print:hidden">
         <div className="flex items-center gap-2 text-primary-600 font-bold text-xl min-w-0">
@@ -206,7 +206,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
       <aside
-        className={`relative isolate fixed md:sticky top-0 h-screen w-64 border-r border-white/70 bg-white/70 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.24),inset_-1px_0_0_rgba(255,255,255,0.10)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
+        className={`relative isolate fixed top-0 left-0 h-screen w-64 shrink-0 border-r border-white/70 bg-white/70 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.24),inset_-1px_0_0_rgba(255,255,255,0.10)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
         style={{
@@ -262,7 +262,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content - Padded top to account for fixed header */}
-      <main className="flex-1 min-w-0 w-full max-w-full p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-x-hidden overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
+      <main className="relative flex-[1_1_0%] basis-0 min-w-0 w-0 max-w-full p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-x-hidden overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
         <div className="w-full min-w-0 max-w-6xl mx-auto print:max-w-none print:w-full">
           {syncStatus && (
             <div
