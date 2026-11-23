@@ -788,6 +788,8 @@ export const saasDb = {
     const banner = getSaasData().appBannerConfig;
     const saved = banner.pages?.[pageKey];
 
+    // Uma configuração específica da página sempre tem prioridade,
+    // inclusive quando enabled=false para ocultar o anúncio nela.
     if (saved) {
       return {
         enabled: false,
@@ -799,45 +801,42 @@ export const saasDb = {
       };
     }
 
-    // Compatibilidade com as campanhas antigas na página Contas do Mês.
-    if (pageKey === 'bills') {
-      const mediaType = banner.partnerMediaType || 'image';
+    // Configuração global legada: aparece em todas as páginas sem
+    // configuração própria. Assim o anúncio não fica restrito a Contas.
+    const partnerMediaType = banner.partnerMediaType || 'image';
+    if (banner.enabled && banner.partnerEnabled) {
+      const partnerUrl = partnerMediaType === 'image'
+        ? banner.partnerImageUrl
+        : banner.partnerVideoUrl;
 
-      if (banner.enabled && banner.partnerEnabled) {
-        const mediaUrl = mediaType === 'image'
-          ? banner.partnerImageUrl
-          : banner.partnerVideoUrl;
-
-        if (mediaUrl?.trim()) {
-          return {
-            enabled: true,
-            mediaType,
-            imageUrl: mediaType === 'image' ? mediaUrl : '',
-            videoUrl: mediaType !== 'image' ? mediaUrl : '',
-            linkUrl: banner.partnerLinkUrl || '',
-            altText: banner.partnerAltText || 'Publicidade de parceiro',
-            imagePositionX: banner.partnerImagePositionX ?? 50,
-            imagePositionY: banner.partnerImagePositionY ?? 50,
-            videoFit: banner.partnerVideoFit || 'cover',
-          };
-        }
-      }
-
-      const legacyImage = banner.imageUrl?.trim() || '';
-      const isDemoImage = legacyImage === 'https://picsum.photos/seed/ads/800/100';
-
-      if (banner.enabled && legacyImage && !isDemoImage) {
+      if (partnerUrl?.trim()) {
         return {
           enabled: true,
-          mediaType: 'image',
-          imageUrl: legacyImage,
-          linkUrl: banner.linkUrl || '',
-          altText: banner.altText || 'Publicidade',
-          imagePositionX: banner.imagePositionX ?? 50,
-          imagePositionY: banner.imagePositionY ?? 50,
-          videoFit: 'cover',
+          mediaType: partnerMediaType,
+          imageUrl: partnerMediaType === 'image' ? partnerUrl : '',
+          videoUrl: partnerMediaType !== 'image' ? partnerUrl : '',
+          linkUrl: banner.partnerLinkUrl || '',
+          altText: banner.partnerAltText || 'Publicidade de parceiro',
+          imagePositionX: banner.partnerImagePositionX ?? 50,
+          imagePositionY: banner.partnerImagePositionY ?? 50,
+          videoFit: banner.partnerVideoFit || 'cover',
         };
       }
+    }
+
+    const globalImage = banner.imageUrl?.trim() || '';
+    const isDemoImage = globalImage === 'https://picsum.photos/seed/ads/800/100';
+    if (banner.enabled && globalImage && !isDemoImage) {
+      return {
+        enabled: true,
+        mediaType: 'image',
+        imageUrl: globalImage,
+        linkUrl: banner.linkUrl || '',
+        altText: banner.altText || 'Publicidade',
+        imagePositionX: banner.imagePositionX ?? 50,
+        imagePositionY: banner.imagePositionY ?? 50,
+        videoFit: 'cover',
+      };
     }
 
     return {
