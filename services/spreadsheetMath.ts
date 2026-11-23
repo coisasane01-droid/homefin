@@ -214,9 +214,7 @@ export const calculateSpreadsheetCommissionBase = (
 ): number => {
   if (!columnId) return 0;
   if (columnId === SPREADSHEET_TOTAL_COMMISSION_BASE) {
-    return spreadsheet.columns
-      .filter((column) => column.type === 'currency')
-      .reduce((total, column) => total + calculateSpreadsheetColumnTotal(spreadsheet, column.id), 0);
+    return calculateSpreadsheetTotal(spreadsheet as HomeFinSpreadsheet) ?? 0;
   }
 
   return calculateSpreadsheetColumnTotal(spreadsheet, columnId);
