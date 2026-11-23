@@ -82,6 +82,18 @@ const stableSerialize = (value: any): string => {
   return JSON.stringify(value) ?? 'undefined';
 };
 
+// O tema é uma preferência individual do aparelho, não um dado compartilhado da família.
+const stableSerializeFamilyData = (value: AppData): string => {
+  const comparable = normalizeData(value);
+  comparable.settings = { ...comparable.settings, theme: '__DEVICE_LOCAL_THEME__' };
+  return stableSerialize(comparable);
+};
+
+const preserveDeviceTheme = (remote: AppData, local: AppData): AppData => ({
+  ...remote,
+  settings: { ...remote.settings, theme: local.settings.theme }
+});
+
 
 const enqueueRemoteSave = (
   familyId: string,
@@ -114,8 +126,8 @@ const enqueueRemoteSave = (
 
         if (
           currentRaw !== latestSerializedSnapshot ||
-          stableSerialize(latestSnapshot) !==
-            stableSerialize(normalizeData(remote.data))
+          stableSerializeFamilyData(latestSnapshot) !==
+            stableSerializeFamilyData(normalizeData(remote.data))
         ) {
           throw new FamilyDataConflictError(
             'Os dados locais e remotos continuam diferentes ou foram alterados durante a comparação. Os dois lados foram preservados.'
@@ -180,7 +192,7 @@ const enqueueRemoteSave = (
           }
 
           if (
-            stableSerialize(latestSnapshot) !== stableSerialize(remoteSnapshot)
+            stableSerializeFamilyData(latestSnapshot) !== stableSerializeFamilyData(remoteSnapshot)
           ) {
             localStorage.setItem(getSyncConflictKey(familyId), '1');
             publishSyncStatus(familyId, 'conflict');
@@ -313,7 +325,10 @@ const loadFromSupabase = async (familyIdToLoad: string) => {
 
   if (data?.data) {
     const localBeforeSync = getLocalData();
-    const normalizedRemote = normalizeData(data.data);
+    const normalizedRemote = preserveDeviceTheme(
+      normalizeData(data.data),
+      localBeforeSync
+    );
     let hasUnpersistedLocalImages = false;
 
     if (
@@ -407,15 +422,19 @@ export const db = {
           if (currentFamilyId !== familyId) return;
 
           if (remote.data && remote.updatedAt) {
-            const remoteSnapshot = normalizeData(remote.data);
+            const localBeforeRemote = getLocalData();
+            const remoteSnapshot = preserveDeviceTheme(
+              normalizeData(remote.data),
+              localBeforeRemote
+            );
             const localSnapshot = localStorage.getItem(getStorageKey());
 
             if (localSnapshot) {
               let differs = true;
               try {
                 differs =
-                  stableSerialize(normalizeData(JSON.parse(localSnapshot))) !==
-                  stableSerialize(remoteSnapshot);
+                  stableSerializeFamilyData(normalizeData(JSON.parse(localSnapshot))) !==
+                  stableSerializeFamilyData(remoteSnapshot);
               } catch {}
 
               // Preserva uma cópia recuperável antes de priorizar a nuvem.
