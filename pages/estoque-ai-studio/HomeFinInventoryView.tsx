@@ -552,8 +552,6 @@ export default function HomeFinInventoryView() {
                 result.error ||
                 'Produto salvo localmente e aguardando sincronização.'
               );
-            } else {
-              setMessage('Produto cadastrado com sucesso.');
             }
 
             const photoMatch = product.fotoUrl.match(
@@ -603,7 +601,6 @@ export default function HomeFinInventoryView() {
                   );
                 }
 
-                setMessage('Produto e foto cadastrados com sucesso.');
               }
             }
           }}
