@@ -1193,6 +1193,10 @@ const handleSave = async () => {
       setSyncError(error instanceof Error ? `Não foi possível gerar o PDF: ${error.message}` : 'Não foi possível gerar o PDF.');
     }
 
+
+
+  };
+
   // Exporta os dados em CSV UTF-8 com BOM e separador ;, compatível com Excel.
   // O arquivo inclui valores calculados, totais por coluna e resumo das comissões.
   const handleExportExcel = () => {
@@ -1272,8 +1276,6 @@ const handleSave = async () => {
     anchor.remove();
     URL.revokeObjectURL(url);
     setSyncError('');
-  };
-
   };
 
   return (
