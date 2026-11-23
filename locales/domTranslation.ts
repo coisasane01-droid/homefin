@@ -296,6 +296,7 @@ const dictionary: Record<string, Translation> = {
 const originalText = new WeakMap<Text, string>();
 const lastAppliedText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
+const lastAppliedAttributes = new WeakMap<Element, Map<string, string>>();
 const ignoredTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'CODE', 'PRE']);
 
 function translateTextNode(node: Text, language: string) {
@@ -327,10 +328,18 @@ function translateAttributes(element: Element, language: string) {
       saved = new Map<string, string>();
       originalAttributes.set(element, saved);
     }
-    if (!saved.has(attribute)) saved.set(attribute, current);
+    let applied = lastAppliedAttributes.get(element);
+    if (!applied) {
+      applied = new Map<string, string>();
+      lastAppliedAttributes.set(element, applied);
+    }
+    if (!saved.has(attribute) || (applied.has(attribute) && current !== applied.get(attribute))) {
+      saved.set(attribute, current);
+    }
     const original = saved.get(attribute) || current;
     const translated = language === 'pt' ? original : dictionary[original]?.[language as 'en' | 'es'];
     if (translated !== undefined && current !== translated) element.setAttribute(attribute, translated);
+    if (translated !== undefined) applied.set(attribute, translated);
   }
 }
 
