@@ -64,7 +64,7 @@ const applyStructuredSpreadsheetFormula = (
 };
 
 const normalizeSpreadsheetColumnName = (name: string): string =>
-  name.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 const getPlusPneusSalesColumns = (columns: SpreadsheetColumn[]) => {
   const find = (...names: string[]) => columns.find(column =>
@@ -81,7 +81,7 @@ const getPlusPneusSalesColumns = (columns: SpreadsheetColumn[]) => {
 
 const readSpreadsheetQuantity = (row: SpreadsheetRow, column: SpreadsheetColumn | undefined): number => {
   if (!column) return 0;
-  const raw = String(row.cells[column.id] ?? '').trim().replace(/\\s/g, '').replace(',', '.');
+  const raw = String(row.cells[column.id] ?? '').trim().replace(/\s/g, '').replace(',', '.');
   if (!raw) return 0;
   const quantity = Number(raw);
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
