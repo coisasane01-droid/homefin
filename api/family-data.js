@@ -1,5 +1,6 @@
 import { handleCors } from './_cors.js';
 import { validateFamilySession } from './_family-session.js';
+import billScanHandler from './_bill-scan-handler.js';
 
 const json = (res, status, body) => res.status(status).json(body);
 const FAMILY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
@@ -38,6 +39,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return json(res, 405, { error: 'Método não permitido.' });
+  }
+
+  if (req.query?.mode === 'bill-scan') {
+    return billScanHandler(req, res);
   }
 
   const { action, data, expectedUpdatedAt } = req.body || {};
