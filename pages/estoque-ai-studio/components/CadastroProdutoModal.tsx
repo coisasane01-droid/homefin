@@ -68,9 +68,9 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
 
   const normalizeDuplicateValue = (value: string) => value
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .trim()
-    .replace(/\\s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .toLocaleLowerCase('pt-BR');
 
   const findLocalDuplicate = () => {
@@ -176,7 +176,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
         setFotoUrl(result);
         setPhotoSelectedType('upload');
 
-        const imageMatch = result.match(/^data:(image\\/jpeg);base64,([A-Za-z0-9+/=]+)$/);
+        const imageMatch = result.match(/^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/);
         if (!imageMatch) throw new Error('Não foi possível preparar a foto para reconhecimento.');
         const token = await getFamilySessionToken(familyId);
         if (!token) throw new Error('Sua sessão expirou. Entre novamente para usar o reconhecimento por foto.');
