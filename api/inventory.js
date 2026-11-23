@@ -277,6 +277,31 @@ export default async function handler(req, res) {
     const access = await resolveInventoryAccess(familyId);
     const inventoryFamilyId = access.ownerFamilyId;
 
+    if (action === 'duplicate-check') {
+      const product = req.body.product;
+      if (
+        !product ||
+        typeof product.name !== 'string' ||
+        !product.name.trim() ||
+        product.name.length > 160 ||
+        typeof product.sku !== 'string' ||
+        typeof (product.barcode || '') !== 'string'
+      ) {
+        return res.status(400).json({ error: 'Informe o nome e os códigos do produto.' });
+      }
+      const duplicates = await findDuplicateProducts(inventoryFamilyId, product);
+      return res.status(200).json({
+        duplicates: duplicates.map(row => ({
+          id: row.id,
+          name: row.name,
+          sku: row.sku || '',
+          barcode: row.barcode || '',
+          quantity: Number(row.quantity || 0),
+          unit: row.unit || 'UN',
+        })),
+      });
+    }
+
     if (
       ['save', 'delete', 'move', 'move-batch', 'set-archived'].includes(action) &&
       (
