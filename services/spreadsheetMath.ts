@@ -75,10 +75,8 @@ const getPlusPneusSalesColumns = (columns: SpreadsheetColumn[]) => {
   const tireSalePrice = find('preco vendido peneu', 'preco vendido pneu');
   const valveQuantity = find('valvula bico quantidade');
   const valveUnitPrice = find('valvula bico preco');
-  const itemPrice = find('preco item vendido');
-  const partPrice = find('preco peca vendida');
   if (!tireQuantity || !tireOriginalPrice || !tireSalePrice) return null;
-  return { tireQuantity, tireOriginalPrice, tireSalePrice, valveQuantity, valveUnitPrice, itemPrice, partPrice };
+  return { tireQuantity, tireOriginalPrice, tireSalePrice, valveQuantity, valveUnitPrice };
 };
 
 const readSpreadsheetQuantity = (row: SpreadsheetRow, column: SpreadsheetColumn | undefined): number => {
