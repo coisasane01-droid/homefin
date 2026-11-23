@@ -259,7 +259,7 @@ export default async function handler(req, res) {
         if (!claimed) continue;
 
         const startText = typeof event.start === 'string' ? event.start.slice(11, 16) : '';
-        const hasTime = !event.allDay && /^([01]\\d|2[0-3]):[0-5]\\d$/.test(startText) && startText !== '00:00';
+        const hasTime = !event.allDay && /^([01]\d|2[0-3]):[0-5]\d$/.test(startText) && startText !== '00:00';
         const location = typeof event.location === 'string' && event.location.trim()
           ? ` Local: ${event.location.trim().slice(0, 100)}.`
           : '';
