@@ -263,6 +263,37 @@ const Inventory: React.FC = () => {
       return;
     }
     try {
+      if (navigator.onLine) {
+        const token = await getFamilySessionToken(familyId);
+        if (!token) throw new Error('Sessão familiar ausente ou expirada. Entre novamente.');
+        const duplicateResponse = await fetch(homefinApiUrl('/api/inventory'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          cache: 'no-store',
+          body: JSON.stringify({
+            action: 'duplicate-check',
+            familyId,
+            product: {
+              id: editing.id,
+              name: editing.name,
+              sku: editing.sku,
+              barcode: editing.barcode || '',
+            },
+          }),
+        });
+        const duplicateResult = await duplicateResponse.json().catch(() => ({}));
+        if (!duplicateResponse.ok) {
+          throw new Error(duplicateResult.error || 'Não foi possível validar possíveis duplicidades.');
+        }
+        if (Array.isArray(duplicateResult.duplicates) && duplicateResult.duplicates.length) {
+          const names = duplicateResult.duplicates.map((item: { name?: string }) => item.name || 'Produto existente');
+          setMessage(`Produto já cadastrado: ${names.join(', ')}. Abra o registro existente em vez de criar outro.`);
+          return;
+        }
+      }
       const result = await inventoryService.saveProduct(familyId, {
         ...editing,
         quantity,
