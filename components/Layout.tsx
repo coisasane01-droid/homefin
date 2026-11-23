@@ -281,7 +281,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 : 'Sincronização com a nuvem confirmada.'}
             </div>
           )}
-          <PageAdvertisement pageKey={location.pathname.replace(/^\/+|\/+$/g, '')} />
           <PageAdvertisement pageKey={location.pathname.replace(/^\\/+|\\/+$/g, '')} />
           {currentPageKey !== 'spreadsheets' && (
             <div className="mb-3 flex justify-end print:hidden">
