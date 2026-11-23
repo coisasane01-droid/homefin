@@ -262,7 +262,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content - Padded top to account for fixed header */}
-      <main className="relative flex-[1_1_0%] basis-0 min-w-0 w-0 max-w-full p-4 pb-28 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-x-hidden overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
+      <main className="relative flex-1 min-w-0 w-full max-w-full p-4 pb-28 md:flex-[1_1_0%] md:basis-0 md:w-0 md:p-8 md:pb-24 pt-[88px] md:pt-8 overflow-x-hidden overflow-y-auto print:p-0 print:overflow-visible print:h-auto">
         <div className="w-full min-w-0 max-w-6xl mx-auto print:max-w-none print:w-full">
           {syncStatus && (
             <div
