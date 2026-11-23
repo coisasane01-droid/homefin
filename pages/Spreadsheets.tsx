@@ -1231,7 +1231,7 @@ const handleSave = async () => {
           ? parseSpreadsheetCurrency(row.cells[column.id] || '')
           : (row.cells[column.id] || '');
       });
-      rows.push([...values.map((value) => String(value)), String(calculateSpreadsheetRowTotal(selected, row))]);
+      rows.push([...values.map((value) => String(value)), String(calculateSpreadsheetRowTotal(row, selected.columns) ?? 0)]);
     });
 
     rows.push([
