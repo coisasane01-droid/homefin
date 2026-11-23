@@ -489,10 +489,10 @@ export default function HomeFinInventoryView() {
         }}
       />
 
-      <main className="flex-1 max-w-[1720px] w-full mx-auto
+      <main className="flex-1 min-w-0 max-w-[1720px] w-full mx-auto
                        p-2 sm:p-4 grid grid-cols-1 lg:grid-cols-12
                        gap-3 sm:gap-4 items-start">
-        <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-3">
+        <div className="min-w-0 w-full max-w-full lg:col-span-5 xl:col-span-4 lg:sticky lg:top-3">
           <TerminalPanel
             products={products}
             onOpenListaProdutos={() => setIsListaModalOpen(true)}
@@ -505,7 +505,7 @@ export default function HomeFinInventoryView() {
           />
         </div>
 
-        <div className="hidden lg:flex lg:col-span-7
+        <div className="hidden min-w-0 lg:flex lg:col-span-7
                         xl:col-span-8 flex-col space-y-3">
           {movementSection}
         </div>
