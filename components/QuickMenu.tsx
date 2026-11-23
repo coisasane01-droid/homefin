@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Zap } from 'lucide-react';
-import { QUICK_MENU_ACTIONS, QuickMenuItem } from './quickMenuConfig';
+import { Menu } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { QUICK_MENU_ACTIONS } from './quickMenuConfig';
 
 interface QuickMenuProps {
   enabled: boolean;
-  items: QuickMenuItem[];
+  items: { id: string; display: 'both' | 'label' | 'icon' }[];
   hidden: boolean;
   onOpenMenu: () => void;
   onNewAccount: () => void;
@@ -19,9 +20,9 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
   onNewAccount,
   onNavigate,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
   const [hasBlockingOverlay, setHasBlockingOverlay] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
 
   useEffect(() => {
     const updateBlockingOverlay = () => {
@@ -42,29 +43,7 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (hidden || hasBlockingOverlay) setIsOpen(false);
-  }, [hidden, hasBlockingOverlay]);
-
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
-  if (!enabled || hidden || hasBlockingOverlay || items.length === 0) return null;
+  if (!enabled || hidden || hasBlockingOverlay) return null;
 
   const visibleActions = items
     .map((item) => {
@@ -73,10 +52,13 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-  const activate = (itemId: string) => {
-    setIsOpen(false);
-    const item = QUICK_MENU_ACTIONS.find((option) => option.id === itemId);
-    if (!item) return;
+  // Até quatro atalhos configurados ficam visíveis; com mais itens,
+  // mostramos três e mantemos o acesso ao menu completo.
+  const primaryActions = visibleActions.length > 4
+    ? visibleActions.slice(0, 3)
+    : visibleActions;
+
+  const activate = (item: (typeof primaryActions)[number]) => {
     if (item.action === 'open-menu') onOpenMenu();
     else if (item.action === 'new-account') onNewAccount();
     else if (item.path) onNavigate(item.path);
@@ -85,60 +67,55 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="fixed left-1/2 z-40 -translate-x-1/2 print:hidden"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.25rem)' }}
+      className="fixed bottom-0 left-1/2 z-40 w-[min(94vw,27rem)] -translate-x-1/2 pb-[calc(env(safe-area-inset-bottom,0px)+0.65rem)] md:hidden print:hidden"
     >
-      {isOpen && (
-        <div
-          className="absolute bottom-full left-1/2 mb-3 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 origin-bottom animate-[quickMenuIn_160ms_ease-out] overflow-y-auto rounded-2xl border border-white/50 bg-white/70 p-2 shadow-2xl shadow-slate-900/20 backdrop-blur-2xl dark:border-white/20 dark:bg-gray-900/65"
-          style={{ maxHeight: 'min(60vh, 32rem)' }}
-        >
-          {visibleActions.map(({ id, label, icon: Icon, display }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => activate(id)}
-              aria-label={display === 'icon' ? label : undefined}
-              className={`flex min-h-12 w-full items-center rounded-xl text-sm font-semibold text-gray-800 transition-colors hover:bg-white/50 dark:text-gray-100 dark:hover:bg-white/10 ${
-                display === 'icon' ? 'justify-center px-3' : 'gap-3 px-3'
-              }`}
-            >
-              {display !== 'label' && (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-500/10 text-primary-700 dark:text-primary-300">
-                  <Icon size={19} />
-                </span>
-              )}
-              {display !== 'icon' && <span className="truncate">{label}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-      <button
-        type="button"
-        aria-label={isOpen ? 'Fechar acesso rápido' : 'Abrir acesso rápido'}
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className="relative flex h-[66px] w-[66px] items-center justify-center overflow-hidden rounded-full border border-white/70 text-primary-800 shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),inset_0_-2px_8px_rgba(255,255,255,0.12),0_12px_30px_rgba(15,23,42,0.22)] backdrop-blur-[22px] transition duration-200 hover:scale-105 active:scale-95 dark:border-white/30 dark:text-primary-200"
+      <nav
+        aria-label="Navegação rápida"
+        className="relative flex items-stretch gap-1 overflow-hidden rounded-[1.8rem] border border-white/75 bg-white/70 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.18),inset_0_1px_0_rgba(255,255,255,0.85)] backdrop-blur-2xl backdrop-saturate-150 dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[0_12px_36px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.12)]"
         style={{
-          background: 'rgba(255, 255, 255, 0.22)',
-          backdropFilter: 'blur(22px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(22px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          backdropFilter: 'blur(24px) saturate(180%)',
         }}
       >
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-[1px] rounded-full bg-gradient-to-br from-white/75 via-white/10 to-transparent opacity-70"
+          className="pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent dark:via-white/25"
         />
-        <span className="relative">
-          {isOpen ? <X size={25} /> : <Zap size={25} />}
-        </span>
-      </button>
-      <style>{`
-        @keyframes quickMenuIn {
-          from { opacity: 0; transform: translate(-50%, 6px) scale(0.96); }
-          to { opacity: 1; transform: translate(-50%, 0) scale(1); }
-        }
-      `}</style>
+        {primaryActions.map(({ id, label, icon: Icon, display, ...action }) => {
+          const active = Boolean(action.path && location.pathname === action.path);
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => activate({ id, label, icon: Icon, display, ...action })}
+              aria-label={label}
+              aria-current={active ? 'page' : undefined}
+              className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 transition-all duration-200 active:scale-95 ${
+                active
+                  ? 'bg-primary-500/12 text-primary-700 dark:bg-primary-400/15 dark:text-primary-200'
+                  : 'text-slate-600 hover:bg-white/45 dark:text-slate-200 dark:hover:bg-white/8'
+              }`}
+            >
+              <Icon size={20} strokeWidth={active ? 2.4 : 1.9} />
+              <span className="max-w-full truncate text-[10px] font-semibold leading-tight">
+                {label}
+              </span>
+              {active && (
+                <span className="absolute bottom-1 h-0.5 w-4 rounded-full bg-primary-500 dark:bg-primary-300" />
+              )}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Abrir menu completo"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 text-slate-600 transition-all duration-200 hover:bg-white/45 active:scale-95 dark:text-slate-200 dark:hover:bg-white/8"
+        >
+          <Menu size={20} strokeWidth={1.9} />
+          <span className="text-[10px] font-semibold leading-tight">Mais</span>
+        </button>
+      </nav>
     </div>
   );
 };
