@@ -97,7 +97,7 @@ export default async function billScanHandler(req, res) {
       return res.status(422).json({ success: false, error: 'A leitura da imagem não retornou dados válidos. Tente outra foto.' });
     }
 
-    const dueDate = typeof extracted.dueDate === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(extracted.dueDate)
+    const dueDate = typeof extracted.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(extracted.dueDate)
       ? extracted.dueDate
       : '';
     const category = ['fixed', 'variable', 'card', 'tax'].includes(extracted.category)
