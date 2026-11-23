@@ -6,7 +6,7 @@ import {
 import { inventoryService } from '../services/inventory';
 import InventorySharingPanel from '../components/InventorySharingPanel';
 import type { InventoryProduct, InventoryMovementType, InventoryData } from '../types/inventory';
-import { formatCurrency } from '../utils';
+import { formatCurrency } from '../utils';\nimport { getFamilySessionToken } from '../services/familyAuth';\nimport { homefinApiUrl } from '../services/nativeApi';
 
 type SelectedItem = {
   productId: string;
@@ -29,6 +29,13 @@ const blankProduct = (): InventoryProduct => ({
   wholesalePrice: 0,
   updatedAt: new Date().toISOString(),
 });
+
+const normalizeProductKey = (value: string) => value
+  .normalize('NFD')
+  .replace(/[\\u0300-\\u036f]/g, '')
+  .trim()
+  .replace(/\\s+/g, ' ')
+  .toLocaleLowerCase('pt-BR');
 
 const moneyInput = (value: number) => String(value || 0).replace('.', ',');
 const parseMoney = (value: string) => {
@@ -56,7 +63,7 @@ const Inventory: React.FC = () => {
   const [tableOpen, setTableOpen] = useState(false);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchNote, setBatchNote] = useState('');
+  const [batchNote, setBatchNote] = useState('');\n  const [recognizingPhoto, setRecognizingPhoto] = useState(false);\n  const [photoScanMessage, setPhotoScanMessage] = useState('');
 
   const reload = async () => {
     if (!familyId || familyId === 'v1') {
@@ -124,6 +131,88 @@ const Inventory: React.FC = () => {
       return matchesCode && matchesDescription;
     }).slice(0, 8);
   }, [data.products, codeSearch, descriptionSearch]);
+
+  const duplicateMatches = useMemo(() => {
+    if (!editing) return [];
+    const nameKey = normalizeProductKey(editing.name);
+    const skuKey = normalizeProductKey(editing.sku);
+    const barcodeKey = normalizeProductKey(editing.barcode || '');
+    if (!nameKey && !skuKey && !barcodeKey) return [];
+    return data.products.filter(product => {
+      if (product.id === editing.id) return false;
+      const sameName = Boolean(nameKey) && normalizeProductKey(product.name) === nameKey;
+      const sameSku = Boolean(skuKey) && normalizeProductKey(product.sku) === skuKey;
+      const sameBarcode = Boolean(barcodeKey) &&
+        normalizeProductKey(product.barcode || '') === barcodeKey;
+      return sameName || sameSku || sameBarcode;
+    }).slice(0, 5);
+  }, [data.products, editing?.id, editing?.name, editing?.sku, editing?.barcode]);
+
+  const recognizeProductPhoto = async (file?: File) => {
+    if (!file || !editing) return;
+    if (!file.type.startsWith('image/')) {
+      setPhotoScanMessage('Selecione uma imagem válida.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoScanMessage('A foto deve ter no máximo 5 MB.');
+      return;
+    }
+    setRecognizingPhoto(true);
+    setPhotoScanMessage('Analisando a foto e identificando os dados...');
+    try {
+      const token = await getFamilySessionToken(familyId);
+      if (!token) throw new Error('Sessão familiar ausente ou expirada. Entre novamente.');
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const value = String(reader.result || '');
+          const comma = value.indexOf(',');
+          if (comma < 0) reject(new Error('Não foi possível ler a foto.'));
+          else resolve(value.slice(comma + 1));
+        };
+        reader.onerror = () => reject(new Error('Falha ao ler a foto.'));
+        reader.readAsDataURL(file);
+      });
+      const response = await fetch(homefinApiUrl('/api/inventory-recognize'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        cache: 'no-store',
+        body: JSON.stringify({ familyId, imageBase64: base64, mimeType: file.type }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof result.error === 'string'
+          ? result.error
+          : 'Não foi possível reconhecer o produto.');
+      }
+      const recognized = result.product || {};
+      setEditing(current => current ? ({
+        ...current,
+        name: recognized.name || current.name,
+        sku: recognized.sku || current.sku,
+        barcode: recognized.barcode || current.barcode || '',
+        category: recognized.category || current.category,
+        supplier: recognized.supplier || current.supplier,
+        measure: recognized.measure || current.measure || '',
+        unit: recognized.unit || current.unit || 'UN',
+        ncm: recognized.ncm || current.ncm || '',
+        notes: recognized.notes || current.notes || '',
+      }) : current);
+      setPhotoScanMessage(
+        'Leitura concluída. Confira os campos preenchidos antes de salvar. Preços e quantidades precisam ser informados manualmente.'
+      );
+    } catch (error) {
+      setPhotoScanMessage(error instanceof Error
+        ? error.message
+        : 'Não foi possível analisar a foto.');
+    } finally {
+      setRecognizingPhoto(false);
+    }
+  };
 
   const zeroStock = data.products.filter(p => p.quantity <= 0);
   const lowCount = data.products.filter(p => p.quantity <= p.minimumQuantity).length;
@@ -352,7 +441,7 @@ const Inventory: React.FC = () => {
             className="col-span-2 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-4 text-base font-extrabold text-white shadow hover:bg-emerald-700 sm:col-span-1">
             <ArrowDownToLine size={21}/> ENTRADA NO ESTOQUE
           </button>
-          <button onClick={() => setEditing(blankProduct())}
+          <button onClick={() => { setPhotoScanMessage(''); setEditing(blankProduct()); }}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 font-semibold text-white">
             <Plus size={18}/> Novo produto
           </button>
@@ -652,7 +741,7 @@ const Inventory: React.FC = () => {
                 <td className="p-3"><div className="flex gap-1">
                   <button title="Entrada" onClick={() => openMovement(p, 'entry')} className="rounded-lg p-2 text-emerald-600"><ArrowDownToLine size={17}/></button>
                   <button title="Saída" onClick={() => openMovement(p, 'exit')} className="rounded-lg p-2 text-amber-600"><ArrowUpFromLine size={17}/></button>
-                  <button title="Editar" onClick={() => setEditing({...p, wholesalePrice: Number(p.wholesalePrice ?? 0), costPrice: Number(p.costPrice ?? 0)})} className="rounded-lg p-2"><Pencil size={17}/></button>
+                  <button title="Editar" onClick={() => { setPhotoScanMessage(''); setEditing({...p, wholesalePrice: Number(p.wholesalePrice ?? 0), costPrice: Number(p.costPrice ?? 0)}); }} className="rounded-lg p-2"><Pencil size={17}/></button>
                   <button title="Excluir" onClick={() => void remove(p)} className="rounded-lg p-2 text-red-500"><Trash2 size={17}/></button>
                 </div></td>
               </tr>)}
@@ -679,11 +768,30 @@ const Inventory: React.FC = () => {
       {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
         <form onSubmit={save} className="max-h-[92vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 dark:bg-gray-900">
           <div className="flex items-center justify-between"><h2 className="text-xl font-bold">{data.products.some(p => p.id === editing.id) ? 'Editar produto' : 'Novo produto'}</h2><button type="button" onClick={() => setEditing(null)}><X/></button></div>
+          <div className="rounded-xl border border-dashed border-primary-400 bg-primary-50/60 p-3 dark:bg-primary-950/20">
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-3 font-bold text-white hover:bg-primary-700">
+              {recognizingPhoto ? <Loader2 size={19} className="animate-spin"/> : <Camera size={19}/>}
+              {recognizingPhoto ? 'ANALISANDO FOTO...' : 'FOTOGRAFAR / ESCANEAR PRODUTO'}
+              <input type="file" accept="image/*" capture="environment" className="sr-only"
+                disabled={recognizingPhoto} onChange={event => {
+                  const file = event.target.files?.[0];
+                  void recognizeProductPhoto(file);
+                  event.currentTarget.value = '';
+                }}/>
+            </label>
+            <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+              Fotografe a embalagem ou etiqueta. A leitura tenta identificar nome, marca, código, categoria e unidade.
+            </p>
+            {photoScanMessage && <p className="mt-2 text-xs font-medium text-primary-800 dark:text-primary-200">{photoScanMessage}</p>}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm sm:col-span-2">Nome do produto<input required maxLength={160} value={editing.name} onChange={e => setEditing({...editing,name:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Código / SKU<input value={editing.sku} onChange={e => setEditing({...editing,sku:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+            <label className="text-sm">Código de barras<input value={editing.barcode || ''} maxLength={100} onChange={e => setEditing({...editing,barcode:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Categoria<input value={editing.category} onChange={e => setEditing({...editing,category:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
-            <label className="text-sm sm:col-span-2">Fornecedor<input value={editing.supplier} onChange={e => setEditing({...editing,supplier:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+            <label className="text-sm">Fornecedor / Marca<input value={editing.supplier} onChange={e => setEditing({...editing,supplier:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+            <label className="text-sm">Unidade (UN, KG, L, M)<input value={editing.unit || 'UN'} maxLength={30} onChange={e => setEditing({...editing,unit:e.target.value.toUpperCase()})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
+            <label className="text-sm">Medida / Modelo<input value={editing.measure || ''} maxLength={120} onChange={e => setEditing({...editing,measure:e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Tipo de quantidade
               <select value={editing.quantityMode || 'integer'}
                 onChange={e => setEditing({...editing, quantityMode: e.target.value as 'integer' | 'decimal'})}
@@ -697,8 +805,20 @@ const Inventory: React.FC = () => {
             <label className="text-sm">Preço de varejo (R$)<input inputMode="decimal" value={moneyInput(editing.salePrice)} onChange={e => setEditing({...editing,salePrice:parseMoney(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
             <label className="text-sm">Preço de atacado (R$)<input inputMode="decimal" value={moneyInput(Number(editing.wholesalePrice ?? 0))} onChange={e => setEditing({...editing,wholesalePrice:parseMoney(e.target.value)})} className="mt-1 w-full rounded-lg border p-2 dark:border-gray-700 dark:bg-gray-800"/></label>
           </div>
+          {duplicateMatches.length > 0 && <div className="rounded-xl border border-red-300 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
+            <p className="flex items-center gap-2 font-bold text-red-700 dark:text-red-300">
+              <AlertTriangle size={18}/> Produto possivelmente já cadastrado!
+            </p>
+            <p className="mt-1 text-xs text-red-700 dark:text-red-300">Confira antes de continuar. O cadastro será bloqueado se o nome, SKU ou código de barras já existir.</p>
+            <div className="mt-2 space-y-2">
+              {duplicateMatches.map(product => <div key={product.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2 text-sm dark:bg-gray-900">
+                <div><strong>{product.name}</strong><p className="text-xs text-gray-500">SKU: {product.sku || '—'} · Código: {product.barcode || '—'} · Saldo: {product.quantity} {product.unit || 'UN'}</p></div>
+                <button type="button" onClick={() => setEditing({...product, costPrice:Number(product.costPrice || 0), salePrice:Number(product.salePrice || 0), wholesalePrice:Number(product.wholesalePrice || 0)})} className="shrink-0 rounded-lg border border-red-300 px-2 py-1 text-xs font-bold text-red-700">Abrir existente</button>
+              </div>)}
+            </div>
+          </div>}
           <p className="text-xs text-gray-500">O preço de referência não cria venda nem lançamento financeiro.</p>
-          <div className="flex justify-end gap-2"><button type="button" onClick={() => setEditing(null)} className="rounded-lg border px-4 py-2">Cancelar</button><button className="rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white">Salvar produto</button></div>
+          <div className="flex justify-end gap-2"><button type="button" onClick={() => setEditing(null)} className="rounded-lg border px-4 py-2">Cancelar</button><button disabled={duplicateMatches.length > 0 || recognizingPhoto} className="rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Salvar produto</button></div>
         </form>
       </div>}
 
