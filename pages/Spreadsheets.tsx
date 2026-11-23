@@ -1612,8 +1612,8 @@ const handleSave = async () => {
 
       {selected && (
         <section className="space-y-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="flex min-w-0 flex-col gap-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_minmax(170px,1.3fr)_minmax(110px,0.8fr)_minmax(150px,1.1fr)]">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Nome
                 <input
