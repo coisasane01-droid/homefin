@@ -319,7 +319,7 @@ function translateTextNode(node: Text, language: string) {
 }
 
 function translateAttributes(element: Element, language: string) {
-  for (const attribute of ['placeholder', 'title', 'aria-label']) {
+  for (const attribute of ['placeholder', 'title', 'aria-label', 'alt']) {
     const current = element.getAttribute(attribute);
     if (current === null) continue;
     let saved = originalAttributes.get(element);
