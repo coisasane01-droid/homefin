@@ -184,12 +184,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
-      <aside 
-        className={`fixed md:sticky top-0 h-screen w-64 border-r border-white/70 bg-white/70 shadow-[8px_0_32px_rgba(15,23,42,0.06)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/65 dark:shadow-[8px_0_32px_rgba(0,0,0,0.18)] z-50 transform transition-transform duration-300 ease-in-out print:hidden ${
+      <aside
+        className={`relative isolate fixed md:sticky top-0 h-screen w-64 border-r border-blue-200/70 bg-white/55 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-blue-300/15 dark:bg-slate-950/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.30),inset_-1px_0_0_rgba(96,165,250,0.12)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
+        style={{
+          WebkitBackdropFilter: 'blur(28px) saturate(175%)',
+          backdropFilter: 'blur(28px) saturate(175%)',
+          backgroundImage: 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
+        }}
       >
-        <div className="p-6 h-full min-h-0 flex flex-col overflow-hidden">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-blue-400/80 to-transparent shadow-[0_0_14px_rgba(59,130,246,0.55)]" />
+        <div aria-hidden="true" className="pointer-events-none absolute -left-16 top-20 h-56 w-56 rounded-full bg-blue-400/10 blur-3xl dark:bg-blue-400/15" />
+        <div className="relative z-10 p-6 h-full min-h-0 flex flex-col overflow-hidden">
           <div className="hidden md:flex flex-col items-center text-center text-primary-600 font-bold text-xl mb-8 gap-2">
              {logoImage ? (
                <img src={logoImage} alt="Foto da família" className={`w-20 h-20 object-cover ${logoShape === 'circle' ? 'rounded-full' : 'rounded-md'}`} />
@@ -208,13 +215,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   key={item.path}
                   to={item.path}
                   onClick={() => setIsSidebarOpen(false)}
-                  className={`flex items-center gap-3 border px-4 py-3 rounded-xl transition-all duration-200 ${
+                  className={`group relative flex items-center gap-3 border px-4 py-3 rounded-xl transition-all duration-200 ease-out ${
                     isActive
-                      ? 'border-primary-500/20 bg-primary-500/10 text-primary-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.45),0_4px_14px_rgba(79,70,229,0.08)] dark:border-primary-400/20 dark:bg-primary-400/10 dark:text-primary-200 font-semibold'
-                      : 'border-transparent text-gray-600 hover:border-white/60 hover:bg-white/45 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/5'
+                      ? 'border-blue-400/40 bg-gradient-to-r from-blue-500/18 via-primary-500/12 to-cyan-400/10 text-blue-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_0_0_1px_rgba(59,130,246,0.08),0_0_20px_rgba(59,130,246,0.16)] dark:border-blue-300/30 dark:from-blue-400/20 dark:via-primary-400/15 dark:to-cyan-300/10 dark:text-blue-100 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_0_22px_rgba(59,130,246,0.18)] font-semibold'
+                      : 'border-transparent text-slate-600 hover:border-blue-200/70 hover:bg-gradient-to-r hover:from-white/65 hover:to-blue-50/50 hover:text-blue-700 hover:shadow-[0_4px_18px_rgba(59,130,246,0.10)] dark:text-slate-300 dark:hover:border-blue-300/15 dark:hover:from-blue-400/10 dark:hover:to-cyan-400/5 dark:hover:text-blue-100 dark:hover:shadow-[0_0_18px_rgba(59,130,246,0.12)]'
                   }`}
                 >
-                  <item.icon size={20} />
+                  <item.icon size={20} className={`shrink-0 transition-all duration-200 ${isActive ? 'text-blue-600 drop-shadow-[0_0_7px_rgba(59,130,246,0.35)] dark:text-blue-300 dark:drop-shadow-[0_0_8px_rgba(96,165,250,0.55)]' : 'text-slate-500 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-300'}`} />
                   {t(({'Contas do Mês': 'bills', 'Dashboard': 'dashboard', 'Contas & Cofrinhos': 'wallets', 'Agenda Família': 'calendar', 'Lista de Compras': 'shopping', 'Dívidas': 'debts', 'Metas e Sonhos': 'goals', 'Bens e Patrimônio': 'assets', 'Relatórios': 'reports', 'Estoque': 'inventory', 'Planilhas': 'spreadsheets', 'Ranking Familiar': 'ranking', 'Compartilhar / Indicar': 'share', 'Suporte': 'support', 'Configurações': 'settings', 'Meu Plano': 'plans'} as Record<string, string>)[item.label] || item.label)}
                 </Link>
               );
