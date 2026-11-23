@@ -206,7 +206,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
       <aside
-        className={`relative isolate fixed md:sticky top-0 h-screen w-64 shrink-0 border-r border-white/70 bg-white/70 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.24),inset_-1px_0_0_rgba(255,255,255,0.10)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
+        className={`isolate fixed md:sticky top-0 h-screen w-64 shrink-0 border-r border-white/70 bg-white/70 shadow-[8px_0_38px_rgba(37,99,235,0.10),inset_-1px_0_0_rgba(255,255,255,0.65)] backdrop-blur-2xl dark:border-white/15 dark:bg-slate-900/70 dark:shadow-[8px_0_42px_rgba(0,0,0,0.24),inset_-1px_0_0_rgba(255,255,255,0.10)] z-50 transform transition-all duration-300 ease-in-out print:hidden ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
         style={{
