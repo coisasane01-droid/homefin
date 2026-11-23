@@ -157,8 +157,7 @@ const CalendarPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
-    e.stopPropagation();
+  const openEventDetails = (event: CalendarEvent) => {
     setEditingEvent(event);
     setEventTitle(event.title);
     setEventStart(event.start);
@@ -167,11 +166,16 @@ const CalendarPage: React.FC = () => {
     setEventLocation(event.location || '');
     setEventDescription(event.description || '');
     setEventColor(event.color || 'blue');
-    setRecurrenceType('none'); // Editing existing event defaults to no recurrence change
+    setRecurrenceType('none');
     setRecurrenceEndDate('');
-    setApplyToSeries(false); // Reset series application
+    setApplyToSeries(false);
     setConfirmDeleteSeries(false);
     setIsModalOpen(true);
+  };
+
+  const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
+    e.stopPropagation();
+    openEventDetails(event);
   };
 
   const handleSave = async () => {
@@ -596,7 +600,7 @@ const CalendarPage: React.FC = () => {
 
       <div className="flex flex-1 overflow-hidden print:overflow-visible print:h-auto">
         {/* Sidebar (Mini Calendar) - Hidden on mobile/tablet */}
-        <div className="hidden xl:flex flex-col w-64 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 gap-6 print:hidden">
+        <div className="hidden xl:flex flex-col w-64 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 gap-6 overflow-y-auto print:hidden">
            <div>
              <div className="flex items-center justify-between mb-4">
                <span className="font-bold text-sm">{format(currentDate, 'MMMM yyyy', { locale: ptBR })}</span>
@@ -626,6 +630,59 @@ const CalendarPage: React.FC = () => {
                    {format(day, 'd')}
                  </div>
                ))}
+             </div>
+           </div>
+
+           <div className="min-h-0">
+             <h3 className="font-bold text-sm mb-3 flex items-center justify-between">
+               Eventos do mês
+               <span className="text-xs font-normal text-gray-400">{filteredEvents.filter(event => {
+                 const start = parseISO(event.start);
+                 const end = parseISO(event.end);
+                 return start <= endOfMonth(currentDate) && end >= startOfMonth(currentDate);
+               }).length}</span>
+             </h3>
+             <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+               {filteredEvents
+                 .filter(event => {
+                   const start = parseISO(event.start);
+                   const end = parseISO(event.end);
+                   return start <= endOfMonth(currentDate) && end >= startOfMonth(currentDate);
+                 })
+                 .sort((a, b) => parseISO(a.start).getTime() - parseISO(b.start).getTime())
+                 .map(event => (
+                   <button
+                     key={event.id}
+                     type="button"
+                     onClick={() => {
+                       setCurrentDate(parseISO(event.start));
+                       if (!event.id.startsWith('holiday-')) openEventDetails(event);
+                     }}
+                     className="w-full flex items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                   >
+                     <span className={`mt-1 h-2.5 w-1 rounded-full flex-shrink-0 ${
+                       event.color === 'red' ? 'bg-red-500' :
+                       event.color === 'green' ? 'bg-green-500' :
+                       event.color === 'purple' ? 'bg-purple-500' :
+                       event.color === 'orange' ? 'bg-orange-500' :
+                       event.color === 'gray' ? 'bg-gray-500' : 'bg-blue-500'
+                     }`} />
+                     <span className="min-w-0 flex-1">
+                       <span className="block text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{event.title}</span>
+                       <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                         {format(parseISO(event.start), 'dd/MM')}
+                         {!event.allDay && format(parseISO(event.start), ' HH:mm') !== ' 00:00' ? format(parseISO(event.start), ' • HH:mm') : ''}
+                       </span>
+                     </span>
+                   </button>
+                 ))}
+               {filteredEvents.filter(event => {
+                 const start = parseISO(event.start);
+                 const end = parseISO(event.end);
+                 return start <= endOfMonth(currentDate) && end >= startOfMonth(currentDate);
+               }).length === 0 && (
+                 <p className="text-xs text-gray-400 py-2">Nenhum evento neste mês.</p>
+               )}
              </div>
            </div>
 
