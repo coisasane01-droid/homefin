@@ -121,13 +121,18 @@ const dictionary: Record<string, Translation> = {
 };
 
 const originalText = new WeakMap<Text, string>();
+const lastAppliedText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
 const ignoredTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'CODE', 'PRE']);
 
 function translateTextNode(node: Text, language: string) {
   const parent = node.parentElement;
   if (!parent || ignoredTags.has(parent.tagName) || parent.closest('[data-no-auto-translate="true"]')) return;
-  if (!originalText.has(node)) originalText.set(node, node.nodeValue || '');
+  const currentValue = node.nodeValue || '';
+  const lastApplied = lastAppliedText.get(node);
+  if (!originalText.has(node) || (lastApplied !== undefined && currentValue !== lastApplied)) {
+    originalText.set(node, currentValue);
+  }
   const original = originalText.get(node) || '';
   const trimmed = original.trim();
   if (!trimmed) return;
@@ -137,6 +142,7 @@ function translateTextNode(node: Text, language: string) {
   const trailing = original.match(/\s*$/)?.[0] || '';
   const next = language === 'pt' ? original : leading + translated + trailing;
   if (node.nodeValue !== next) node.nodeValue = next;
+  lastAppliedText.set(node, next);
 }
 
 function translateAttributes(element: Element, language: string) {
