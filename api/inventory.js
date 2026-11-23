@@ -33,6 +33,30 @@ async function db(path, options = {}) {
   return body ? JSON.parse(body) : null;
 }
 
+function normalizeDuplicateKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('pt-BR');
+}
+
+async function findDuplicateProducts(ownerFamilyId, product) {
+  const rows = await db(
+    `homefin_inventory_products?family_id=eq.${encodeURIComponent(ownerFamilyId)}&select=id,name,sku,barcode,quantity,unit&limit=10000`
+  );
+  const nameKey = normalizeDuplicateKey(product.name);
+  const skuKey = normalizeDuplicateKey(product.sku);
+  const barcodeKey = normalizeDuplicateKey(product.barcode);
+  return (rows || []).filter(row => {
+    if (String(row.id) === String(product.id || '')) return false;
+    return (nameKey && normalizeDuplicateKey(row.name) === nameKey) ||
+      (skuKey && normalizeDuplicateKey(row.sku) === skuKey) ||
+      (barcodeKey && normalizeDuplicateKey(row.barcode) === barcodeKey);
+  }).slice(0, 5);
+}
+
 function validStockQuantity(value, allowZero = false) {
   return typeof value === 'number' &&
     Number.isFinite(value) &&
@@ -253,6 +277,31 @@ export default async function handler(req, res) {
     const access = await resolveInventoryAccess(familyId);
     const inventoryFamilyId = access.ownerFamilyId;
 
+    if (action === 'duplicate-check') {
+      const product = req.body.product;
+      if (
+        !product ||
+        typeof product.name !== 'string' ||
+        !product.name.trim() ||
+        product.name.length > 160 ||
+        typeof product.sku !== 'string' ||
+        typeof (product.barcode || '') !== 'string'
+      ) {
+        return res.status(400).json({ error: 'Informe o nome e os códigos do produto.' });
+      }
+      const duplicates = await findDuplicateProducts(inventoryFamilyId, product);
+      return res.status(200).json({
+        duplicates: duplicates.map(row => ({
+          id: row.id,
+          name: row.name,
+          sku: row.sku || '',
+          barcode: row.barcode || '',
+          quantity: Number(row.quantity || 0),
+          unit: row.unit || 'UN',
+        })),
+      });
+    }
+
     if (
       ['save', 'delete', 'move', 'move-batch', 'set-archived'].includes(action) &&
       (
@@ -339,6 +388,15 @@ export default async function handler(req, res) {
       const p = req.body.product;
       if (!validProduct(p) || !validInventoryExtras(p)) {
         return res.status(400).json({ error: 'Dados do produto inválidos.' });
+      }
+
+      const duplicates = await findDuplicateProducts(inventoryFamilyId, p);
+      if (duplicates.length) {
+        return res.status(409).json({
+          code: 'PRODUCT_DUPLICATE',
+          error: 'Produto já cadastrado. Abra o registro existente para atualizar os dados.',
+          duplicates,
+        });
       }
 
       // O caminho da foto nunca é enviado à função de cadastro.
