@@ -71,7 +71,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [helpOpen, setHelpOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const currentPageKey = location.pathname.replace(/^\\/+|\\/+$/g, '').split('/')[0] || 'dashboard';
+  const currentPageKey = location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0] || 'dashboard';
   const pageGuide = PAGE_GUIDES[currentPageKey] || { title: 'Como usar o HomeFin', intro: 'Orientações gerais para aproveitar os recursos do aplicativo.', steps: ['Use o menu lateral para acessar cada módulo.', 'Cadastre e mantenha seus dados atualizados no módulo correspondente.', 'Use os botões de cada página para criar, editar, consultar ou exportar informações.', 'Consulte este guia sempre que precisar entender uma função.'], tips: ['As opções podem variar conforme o módulo e as permissões da família.', 'Se encontrar um problema, abra Suporte e informe a página e a ação realizada.'] };
   const [houseName, setHouseName] = useState('Carregando...');
   const [logoImage, setLogoImage] = useState('');
@@ -281,7 +281,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 : 'Sincronização com a nuvem confirmada.'}
             </div>
           )}
-          <PageAdvertisement pageKey={location.pathname.replace(/^\\/+|\\/+$/g, '')} />
+          <PageAdvertisement pageKey={location.pathname.replace(/^\/+|\/+$/g, '')} />
           {currentPageKey !== 'spreadsheets' && (
             <div className="mb-3 flex justify-end print:hidden">
               <button type="button" onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200/80 bg-white/75 px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-[0_4px_16px_rgba(37,99,235,0.10)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:shadow-[0_6px_22px_rgba(37,99,235,0.16)] dark:border-blue-300/20 dark:bg-slate-900/65 dark:text-blue-200 dark:hover:bg-blue-400/10"><BookOpen size={18} /> COMO USAR</button>
