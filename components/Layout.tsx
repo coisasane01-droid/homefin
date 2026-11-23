@@ -8,6 +8,7 @@ import {
   Home,
   Cloud,
   CloudOff,
+  BookOpen,
 } from 'lucide-react';
 import { db } from '../services/db';
 import { saasDb } from '../services/saasDb';
@@ -43,6 +44,23 @@ const colors = {
   rose: '#f43f5e',
 };
 
+const PAGE_GUIDES: Record<string, { title: string; intro: string; steps: string[]; tips: string[] }> = {
+  bills: { title: 'Contas do Mês', intro: 'Acompanhe vencimentos, pagamentos e valores da família.', steps: ['Use as setas para consultar outros meses.', 'Clique em Nova Conta e preencha descrição, valor e vencimento.', 'Escolha categoria, status e, se desejar, atribua a um membro.', 'Use a repetição mensal para criar próximos lançamentos sem alterar os meses anteriores.', 'Abra uma conta para consultar ou atualizar seus dados; use o menu de opções para ações adicionais.'], tips: ['O valor pago pode ser informado separadamente do valor total.', 'Anexos e leitura por foto/IA dependem da disponibilidade e configuração do recurso.', 'Confira o mês selecionado antes de editar ou excluir.'] },
+  dashboard: { title: 'Dashboard', intro: 'Veja um resumo da situação financeira da família.', steps: ['Confira os indicadores de valores totais, pagos e pendentes.', 'Observe os gráficos para identificar categorias e tendências.', 'Use os módulos do menu lateral para abrir os registros detalhados.', 'Atualize os lançamentos nos módulos de origem; o Dashboard reflete os dados disponíveis.'], tips: ['Os indicadores dependem dos lançamentos cadastrados e do período considerado.', 'Se algo parecer incorreto, confira os registros nos módulos de origem.'] },
+  wallets: { title: 'Contas & Cofrinhos', intro: 'Organize contas financeiras e acompanhe saldos e movimentações.', steps: ['Cadastre as contas ou carteiras que deseja acompanhar.', 'Informe os dados solicitados e o saldo inicial, quando aplicável.', 'Registre entradas e saídas na conta correspondente.', 'Consulte os saldos para acompanhar a distribuição do dinheiro.'], tips: ['Confira a conta selecionada antes de registrar uma movimentação.', 'Mantenha os lançamentos atualizados.'] },
+  calendar: { title: 'Agenda Família', intro: 'Organize compromissos, datas importantes e eventos da família.', steps: ['Use Hoje e as setas para navegar pelas datas.', 'Alterne entre Dia, Semana e Mês.', 'Clique em Novo evento ou em uma data para cadastrar um compromisso.', 'Preencha título, data, horário e detalhes disponíveis e salve.', 'Use Meus calendários para mostrar ou ocultar categorias.'], tips: ['Confira as permissões de notificação do aparelho e do navegador para receber alertas.', 'Mantenha o aplicativo e as notificações autorizados.'] },
+  shopping: { title: 'Lista de Compras', intro: 'Monte listas e acompanhe o que ainda precisa comprar.', steps: ['Adicione os produtos que deseja comprar.', 'Informe quantidade e outros detalhes disponíveis.', 'Marque os itens conforme forem comprados.', 'Revise a lista antes de finalizar as compras.'], tips: ['Evite cadastrar o mesmo produto mais de uma vez na mesma lista.', 'Atualize a quantidade quando necessário.'] },
+  debts: { title: 'Dívidas', intro: 'Registre compromissos financeiros e acompanhe o que falta pagar ou receber.', steps: ['Cadastre uma dívida e informe descrição, valor e vencimento.', 'Indique a natureza do registro conforme as opções da tela.', 'Atualize pagamentos e valores parciais ao longo do tempo.', 'Consulte a lista para acompanhar os saldos em aberto.'], tips: ['Registre cada pagamento para manter o saldo restante correto.', 'Confira os dados antes de excluir.'] },
+  goals: { title: 'Metas e Sonhos', intro: 'Planeje objetivos e acompanhe seu progresso.', steps: ['Crie uma meta com nome e valor desejado.', 'Informe o progresso ou os valores guardados.', 'Acompanhe quanto falta para alcançar o objetivo.', 'Revise suas metas e atualize os valores periodicamente.'], tips: ['Defina valores realistas e mantenha os registros atualizados.', 'O progresso depende dos valores informados na meta.'] },
+  assets: { title: 'Bens e Patrimônio', intro: 'Mantenha um registro dos bens e acompanhe seu patrimônio.', steps: ['Cadastre cada bem com descrição e informações solicitadas.', 'Informe valores e detalhes que ajudem a identificar o item.', 'Atualize o cadastro quando houver mudança de valor ou situação.', 'Consulte a relação para acompanhar os bens registrados.'], tips: ['Use descrições claras para diferenciar bens semelhantes.', 'Identifique valores estimados como estimativas.'] },
+  reports: { title: 'Relatórios', intro: 'Consulte uma visão organizada das informações financeiras registradas.', steps: ['Abra o relatório desejado.', 'Selecione o período ou os filtros disponíveis.', 'Analise totais, categorias e comparações apresentados.', 'Use os módulos de origem para conferir lançamentos específicos.'], tips: ['Relatórios dependem da qualidade e atualização dos cadastros.', 'Confira o intervalo selecionado antes de comparar períodos.'] },
+  inventory: { title: 'Estoque', intro: 'Controle produtos, quantidades, preços e movimentações.', steps: ['Cadastre o produto com identificação, descrição, unidade e preços.', 'Escolha o modo de quantidade adequado: inteiro ou fracionado, quando disponível.', 'Registre entradas ao receber mercadoria e saídas em vendas ou consumo.', 'Use busca e filtros para localizar produtos e identificar estoque baixo.', 'Consulte o histórico para verificar movimentações anteriores.', 'Use Compartilhar / Criar estoque para gerenciar acesso de outras famílias, se você for responsável pelo estoque.'], tips: ['Confira unidade e quantidade antes de salvar.', 'Pesquise nome ou código para evitar duplicidade.', 'O estoque compartilhado pode exigir conexão para alterações de famílias convidadas.'] },
+  ranking: { title: 'Ranking Familiar', intro: 'Acompanhe a participação e os resultados apresentados no ranking.', steps: ['Consulte a classificação e os indicadores exibidos.', 'Observe o período e os critérios informados na tela.', 'Mantenha os registros dos módulos atualizados.'], tips: ['O ranking é uma visão de acompanhamento; confira os módulos de origem para entender cada resultado.'] },
+  share: { title: 'Compartilhar / Indicar', intro: 'Consulte as opções para compartilhar o HomeFin e acompanhar indicações.', steps: ['Leia as informações e regras exibidas.', 'Use os recursos de compartilhamento para enviar o convite.', 'Acompanhe o status das indicações, quando apresentado.'], tips: ['Compartilhe apenas com pessoas que desejam conhecer o aplicativo.', 'Confira as condições antes de concluir uma indicação.'] },
+  support: { title: 'Suporte', intro: 'Use este espaço para conversar com a equipe de atendimento.', steps: ['Abra uma nova conversa ou selecione um atendimento existente.', 'Descreva a dúvida com o máximo de contexto possível.', 'Anexe imagens ou documentos relevantes, se disponível.', 'Acompanhe as respostas nesta mesma área.'], tips: ['Informe em qual página ocorreu o problema e o que estava tentando fazer.', 'Não envie senhas, PINs ou chaves secretas.'] },
+  settings: { title: 'Configurações', intro: 'Personalize a aparência e as preferências da sua família.', steps: ['Revise opções de aparência, como tema e cor principal.', 'Ajuste dados e elementos visuais da família.', 'Configure o menu central/flutuante escolhendo itens e apresentação.', 'Revise preferências de notificações e segurança.', 'Salve as alterações e aguarde a confirmação.'], tips: ['Algumas mudanças visuais podem ser aplicadas imediatamente; outras dependem de salvar.', 'Para receber notificações, autorize o aplicativo no aparelho e no navegador.'] },
+  plans: { title: 'Meu Plano', intro: 'Consulte o plano da família e as informações de assinatura.', steps: ['Confira o plano associado à família.', 'Leia os recursos e limites descritos para cada opção.', 'Siga as instruções da tela para consultar ou alterar a assinatura, quando disponível.'], tips: ['Verifique valores, periodicidade e condições antes de confirmar uma contratação.'] },
+};
 interface LayoutProps {
   children: React.ReactNode;
 }
@@ -50,8 +68,11 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { t } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const currentPageKey = location.pathname.replace(/^\\/+|\\/+$/g, '').split('/')[0] || 'dashboard';
+  const pageGuide = PAGE_GUIDES[currentPageKey] || { title: 'Como usar o HomeFin', intro: 'Orientações gerais para aproveitar os recursos do aplicativo.', steps: ['Use o menu lateral para acessar cada módulo.', 'Cadastre e mantenha seus dados atualizados no módulo correspondente.', 'Use os botões de cada página para criar, editar, consultar ou exportar informações.', 'Consulte este guia sempre que precisar entender uma função.'], tips: ['As opções podem variar conforme o módulo e as permissões da família.', 'Se encontrar um problema, abra Suporte e informe a página e a ação realizada.'] };
   const [houseName, setHouseName] = useState('Carregando...');
   const [logoImage, setLogoImage] = useState('');
   const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
@@ -191,7 +212,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         style={{
           WebkitBackdropFilter: 'blur(28px) saturate(175%)',
           backdropFilter: 'blur(28px) saturate(175%)',
-          backgroundImage: isDark\n            ? 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.20), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.13), transparent 48%), linear-gradient(145deg, rgba(15,23,42,0.18), rgba(30,58,138,0.12))'\n            : 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
+          backgroundImage: isDark
+            ? 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.20), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.13), transparent 48%), linear-gradient(145deg, rgba(15,23,42,0.18), rgba(30,58,138,0.12))'
+            : 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
         }}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-blue-400/80 to-transparent shadow-[0_0_14px_rgba(59,130,246,0.55)]" />
@@ -258,8 +281,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 : 'Sincronização com a nuvem confirmada.'}
             </div>
           )}
-          <PageAdvertisement pageKey={location.pathname.replace(/^\/+|\/+$/g, '')} />
+          <PageAdvertisement pageKey={location.pathname.replace(/^\\/+|\\/+$/g, '')} />
+          {currentPageKey !== 'spreadsheets' && (
+            <div className="mb-3 flex justify-end print:hidden">
+              <button type="button" onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200/80 bg-white/75 px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-[0_4px_16px_rgba(37,99,235,0.10)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:shadow-[0_6px_22px_rgba(37,99,235,0.16)] dark:border-blue-300/20 dark:bg-slate-900/65 dark:text-blue-200 dark:hover:bg-blue-400/10"><BookOpen size={18} /> COMO USAR</button>
+            </div>
+          )}
           {children}
+          {helpOpen && (
+            <div role="dialog" aria-modal="true" aria-labelledby="homefin-help-title" className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm print:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setHelpOpen(false); }}>
+              <section className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-blue-200/70 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.30)] dark:border-blue-300/15 dark:bg-slate-900 sm:p-7">
+                <div className="mb-5 flex items-start justify-between gap-4">
+                  <div><p className="mb-1 text-sm font-semibold text-blue-600 dark:text-blue-300">Central de ajuda HomeFin</p><h2 id="homefin-help-title" className="text-2xl font-bold text-slate-900 dark:text-white">Como usar: {pageGuide.title}</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-300">{pageGuide.intro}</p></div>
+                  <button type="button" onClick={() => setHelpOpen(false)} aria-label="Fechar guia" className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-800"><X size={20} /></button>
+                </div>
+                <div className="space-y-5"><div><h3 className="mb-3 text-base font-bold text-slate-800 dark:text-slate-100">Passo a passo</h3><ol className="space-y-3">{pageGuide.steps.map((step, index) => <li key={index} className="flex gap-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:bg-blue-400/15 dark:text-blue-200">{index + 1}</span><span className="pt-1">{step}</span></li>)}</ol></div>
+                  <div className="rounded-2xl border border-blue-200/70 bg-blue-50/80 p-4 dark:border-blue-300/15 dark:bg-blue-400/10"><h3 className="mb-2 font-bold text-blue-900 dark:text-blue-100">Dicas importantes</h3><ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-blue-900/90 dark:text-blue-100/90">{pageGuide.tips.map((tip, index) => <li key={index}>{tip}</li>)}</ul></div></div>
+                <div className="mt-6 flex justify-end"><button type="button" onClick={() => setHelpOpen(false)} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Entendi</button></div>
+              </section>
+            </div>
+          )}
         </div>
       </main>
 
