@@ -259,6 +259,21 @@ const dictionary: Record<string, Translation> = {
   "Navegação por Meses:": { en: "Month Navigation:", es: "Navegación por Meses:" },
   "HomeFin — Organização financeira familiar": { en: "HomeFin — Family financial organization", es: "HomeFin — Organización financiera familiar" },
   "Suporte HomeFin": { en: "HomeFin Support", es: "Soporte HomeFin" },
+  "Dashboard": { en: "Dashboard", es: "Panel" },
+  "Nova Meta": { en: "New Goal", es: "Nueva Meta" },
+  "Ajustar enquadramento da foto": { en: "Adjust photo framing", es: "Ajustar encuadre de la foto" },
+  "Criar uma Meta:": { en: "Create a Goal:", es: "Crear una Meta:" },
+  "Acompanhar o Progresso:": { en: "Track Progress:", es: "Seguir el Progreso:" },
+  "Atualizar Valores:": { en: "Update Amounts:", es: "Actualizar Valores:" },
+  "Nome da Família": { en: "Family Name", es: "Nombre de la Familia" },
+  "Nome da Família / Casa": { en: "Family / Home Name", es: "Nombre de la Familia / Hogar" },
+  "Código de Acesso": { en: "Access Code", es: "Código de Acceso" },
+  "Não tenho código (Ver Planos)": { en: "I don't have a code (View Plans)", es: "No tengo código (Ver Planes)" },
+  "Sim, tenho um código": { en: "Yes, I have a code", es: "Sí, tengo un código" },
+  "Acessar Família": { en: "Access Family", es: "Acceder a la Familia" },
+  "Bem-vindo!": { en: "Welcome!", es: "¡Bienvenido!" },
+  "Para começar, você possui um código de convite?": { en: "To get started, do you have an invitation code?", es: "Para comenzar, ¿tiene un código de invitación?" },
+  "Digite o nome da sua família para entrar.": { en: "Enter your family name to sign in.", es: "Escriba el nombre de su familia para entrar." },
 };
 
 const originalText = new WeakMap<Text, string>();
@@ -271,7 +286,7 @@ function translateTextNode(node: Text, language: string) {
   if (!parent || ignoredTags.has(parent.tagName) || parent.closest('[data-no-auto-translate="true"]')) return;
   const currentValue = node.nodeValue || '';
   const lastApplied = lastAppliedText.get(node);
-  if (!originalText.has(node) || (lastApplied !== undefined && currentValue !== lastApplied)) {
+  if (!originalText.has(node) || (lastApplied !== undefined && currentValue !== lastApplied) || (lastApplied === undefined && currentValue !== originalText.get(node))) {
     originalText.set(node, currentValue);
   }
   const original = originalText.get(node) || '';
