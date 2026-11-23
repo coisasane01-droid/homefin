@@ -86,7 +86,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
   };
 
   const checkRemoteDuplicate = async () => {
-    if (!familyId || familyId === 'v1' || !descricao.trim()) return [];
+    if (!navigator.onLine || !familyId || familyId === 'v1' || !descricao.trim()) return [];
     const token = await getFamilySessionToken(familyId);
     if (!token) throw new Error('Sua sessão expirou. Entre novamente para conferir duplicidade.');
     const response = await fetch(homefinApiUrl('/api/inventory'), {
@@ -117,7 +117,7 @@ export const CadastroProdutoModal: React.FC<CadastroProdutoModalProps> = ({
       return;
     }
     setDuplicateMessage('');
-    if (descricao.trim().length < 3 && !codigoBarras.trim()) {
+    if (!navigator.onLine || (descricao.trim().length < 3 && !codigoBarras.trim())) {
       setDuplicateChecking(false);
       return;
     }
