@@ -190,6 +190,8 @@ const Spreadsheets: React.FC = () => {
   const [cloudAvailable, setCloudAvailable] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [columnModal, setColumnModal] = useState(false);
+  const [pdfExportModalOpen, setPdfExportModalOpen] = useState(false);
+  const [pdfSelectedColumnIds, setPdfSelectedColumnIds] = useState<string[]>([]);
   const [columnName, setColumnName] = useState('');
   const [columnType, setColumnType] = useState<SpreadsheetColumnType>('text');
   const [formulaModalColumnId, setFormulaModalColumnId] = useState<string | null>(null);
@@ -889,8 +891,13 @@ const handleSave = async () => {
     });
   };
 
-  const handleExportPdf = async () => {
+  const handleExportPdf = async (includedColumnIds: string[]) => {
     if (!selected) return;
+    const exportColumns = selected.columns.filter((column) => includedColumnIds.includes(column.id));
+    if (!exportColumns.length) {
+      setSyncError('Selecione pelo menos uma coluna para exportar.');
+      return;
+    }
     if (hasInvalidSpreadsheetExtraCommission(selected)) {
       setSyncError('Confira a configuração e os valores da comissão extra antes de exportar o PDF.');
       return;
@@ -908,11 +915,37 @@ const handleSave = async () => {
       import('jspdf'),
       import('jspdf-autotable'),
     ]);
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const estimatedLinesPerRow = selected.rows.reduce((maxLines, row) => {
+      const rowLines = exportColumns.reduce((rowMax, column) => {
+        const raw = row.cells[column.id] || '';
+        return Math.max(rowMax, Math.ceil(raw.length / Math.max(12, 30 - exportColumns.length)));
+      }, 1);
+      return Math.max(maxLines, rowLines);
+    }, 1);
+    const pageWidth = Math.max(297, Math.min(500, 34 + exportColumns.length * 18));
+    const commissionCount = Number(!!selected.commissionEnabled) + Number(!!selected.unitCommissionEnabled) + Number(!!selected.extraCommissionEnabled);
+    const notesHeight = selected.notes.trim() ? Math.ceil(selected.notes.length / 120) * 4 + 10 : 0;
+    const estimatedTableHeight = selected.rows.length * (6 + estimatedLinesPerRow * 3.2);
+    const pageHeight = Math.max(210, 58 + estimatedTableHeight + commissionCount * 15 + notesHeight);
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [pageWidth, pageHeight] });
     const emittedAt = new Date().toLocaleDateString('pt-BR');
-    const columnTitles = [...selected.columns.map((column) => column.name), 'Total'];
+    const columnTitles = [...exportColumns.map((column) => column.name), 'Total'];
+    const exportRowTotal = (row: SpreadsheetRow) => {
+      let total = 0;
+      for (const column of exportColumns) {
+        if (column.type !== 'currency' || column.formulaConfig?.mode === 'column') continue;
+        const value = column.formulaConfig || column.formulaExpression || column.formula
+          ? calculateSpreadsheetColumnFormula(selected, column.id, row)
+          : parseSpreadsheetCurrency(row.cells[column.id] || '');
+        if (value === null || !Number.isFinite(value)) return null;
+        total += value;
+      }
+      return total;
+    };
+    const exportGrandTotal = exportColumns.reduce((sum, column) =>
+      sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0);
     const body = selected.rows.map((row) => [
-      ...selected.columns.map((column) => {
+      ...exportColumns.map((column) => {
         if (column.formulaConfig?.mode === 'column') return '—';
         if (column.formulaConfig || column.formulaExpression || column.formula) {
           const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
@@ -922,7 +955,7 @@ const handleSave = async () => {
           ? formatCurrency(parseSpreadsheetCurrency(row.cells[column.id] || '') || 0)
           : row.cells[column.id] || '';
       }),
-      formatSpreadsheetTotal(calculateSpreadsheetRowTotal(row, selected.columns)),
+      formatSpreadsheetTotal(exportRowTotal(row)),
     ]);
 
     doc.setTextColor(55, 48, 163);
@@ -940,7 +973,7 @@ const handleSave = async () => {
       30
     );
 
-    const pdfColumnTotals = selected.columns.map((column) =>
+    const pdfColumnTotals = exportColumns.map((column) =>
       column.type !== 'currency'
         ? '—'
         : formatCurrency(calculateSpreadsheetColumnTotal(selected, column.id))
@@ -950,7 +983,7 @@ const handleSave = async () => {
       startY: 36,
       head: [columnTitles],
       body,
-      foot: [[...pdfColumnTotals, formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))]],
+      foot: [[...pdfColumnTotals, formatSpreadsheetTotal(exportGrandTotal)]],
       showFoot: 'lastPage',
       footStyles: {
         fillColor: [220, 252, 231],
@@ -963,8 +996,8 @@ const handleSave = async () => {
       margin: { left: 14, right: 14, top: 36, bottom: 14 },
       styles: {
         font: 'helvetica',
-        fontSize: 7,
-        cellPadding: 2,
+        fontSize: Math.max(4, Math.min(7, 8 - exportColumns.length * 0.16 - selected.rows.length * 0.015)),
+        cellPadding: Math.max(0.7, Math.min(2, 2.2 - exportColumns.length * 0.035)),
         overflow: 'linebreak',
         valign: 'middle',
       },
@@ -973,8 +1006,7 @@ const handleSave = async () => {
       columnStyles: Object.fromEntries(
         columnTitles.map((_, index) => [index, { cellWidth: 'wrap' as const }])
       ),
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      pageBreak: 'avoid',
       showHead: 'everyPage',
     });
 
@@ -982,8 +1014,8 @@ const handleSave = async () => {
       lastAutoTable?: { finalY: number }
     };
     const finalY = tableDocument.lastAutoTable?.finalY || 40;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const pageWidth = doc.internal.pageSize.getWidth();
+    const actualPageHeight = doc.internal.pageSize.getHeight();
+    const actualPageWidth = doc.internal.pageSize.getWidth();
 
     const writeContinuationHeader = (title: string) => {
       doc.setTextColor(55, 48, 163);
@@ -1045,10 +1077,7 @@ const handleSave = async () => {
 
     let summaryY = finalY + 9;
 
-    if (summaryY + summaryHeight + 8 > pageHeight - 14) {
-      doc.addPage();
-      summaryY = writeContinuationHeader('Resumo financeiro');
-    }
+    // A página PDF recebe altura dinâmica para manter tabela e resumo em uma única página.
 
     // Quadro principal: total geral.
     doc.setFillColor(236, 253, 245);
@@ -1139,27 +1168,16 @@ const handleSave = async () => {
       doc.setTextColor(55, 65, 81);
       let notesY = summaryY + summaryHeight + 4;
       for (const line of notes) {
-        if (notesY > pageHeight - 14) {
-          doc.addPage();
-          notesY = writeContinuationHeader('Observações');
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9);
-          doc.setTextColor(55, 65, 81);
-        }
         doc.text(line, 14, notesY);
         notesY += 4;
       }
     }
 
-    const pageCount = doc.getNumberOfPages();
-    for (let page = 1; page <= pageCount; page += 1) {
-      doc.setPage(page);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.text('HomeFin', 14, pageHeight - 6);
-      doc.text(`${page}/${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
-    }
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text('HomeFin', 14, actualPageHeight - 6);
+    doc.text('1/1', actualPageWidth - 14, actualPageHeight - 6, { align: 'right' });
 
     const safeName = (selected.name || 'Sem_nome')
       .normalize('NFD')
@@ -1289,6 +1307,38 @@ const handleSave = async () => {
           </div>
         );
       })()}
+
+      {pdfExportModalOpen && selected && (
+        <div role="dialog" aria-modal="true" aria-labelledby="pdf-export-title" className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-800">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 id="pdf-export-title" className="text-lg font-bold text-gray-900 dark:text-white">Exportar PDF</h2>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Escolha as colunas que deseja incluir. A planilha original não será alterada.</p>
+              </div>
+              <button type="button" onClick={() => setPdfExportModalOpen(false)} aria-label="Fechar" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"><X size={20} /></button>
+            </div>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setPdfSelectedColumnIds(selected.columns.map((column) => column.id))} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">Selecionar todas</button>
+              <button type="button" onClick={() => setPdfSelectedColumnIds([])} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">Desmarcar todas</button>
+            </div>
+            <div className="max-h-[45vh] space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+              {selected.columns.map((column) => (
+                <label key={column.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/60">
+                  <input type="checkbox" checked={pdfSelectedColumnIds.includes(column.id)} onChange={(event) => setPdfSelectedColumnIds((current) => event.target.checked ? [...current, column.id] : current.filter((id) => id !== column.id))} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                  <span>{column.name}</span>
+                  <span className="ml-auto text-xs text-gray-400">{column.type === 'currency' ? 'Valor (R$)' : 'Texto'}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">O PDF será gerado em uma única página, com orientação e dimensões ajustadas para evitar cortes.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setPdfExportModalOpen(false)} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Cancelar</button>
+              <button type="button" disabled={!pdfSelectedColumnIds.length} onClick={() => { const ids = [...pdfSelectedColumnIds]; setPdfExportModalOpen(false); void handleExportPdf(ids); }} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"><Download size={16} /> Gerar PDF</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {columnModal && (
         <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
@@ -1522,7 +1572,10 @@ const handleSave = async () => {
                 <Copy size={16} /> Duplicar
               </button>
               <button
-                onClick={handleExportPdf}
+                onClick={() => {
+                  setPdfSelectedColumnIds(selected.columns.map((column) => column.id));
+                  setPdfExportModalOpen(true);
+                }}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 <Download size={16} /> Exportar PDF
