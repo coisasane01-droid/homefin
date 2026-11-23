@@ -404,6 +404,28 @@ const Bills: React.FC = () => {
                 const token = localStorage.getItem(`homefin_family_session_token_${familyId}`);
                 if (!token) throw new Error('Sessão familiar não encontrada. Entre novamente.');
 
+                // Reduz a foto para caber com segurança no limite de requisição da Vercel.
+                let scanMimeType = file.type;
+                let scanBase64 = base64String.split(',')[1];
+                try {
+                    const bitmap = await createImageBitmap(file);
+                    const maxSide = 1600;
+                    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+                    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+                    const context = canvas.getContext('2d');
+                    if (context) {
+                        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                        const compressed = canvas.toDataURL('image/jpeg', 0.78);
+                        scanMimeType = 'image/jpeg';
+                        scanBase64 = compressed.split(',')[1];
+                    }
+                    bitmap.close();
+                } catch (compressionError) {
+                    console.warn('HomeFin: usando a imagem original para leitura.', compressionError);
+                }
+
                 // A análise ocorre no servidor para não expor a chave da IA no navegador.
                 const scanResponse = await fetch('/api/bill-scan', {
                     method: 'POST',
@@ -413,8 +435,8 @@ const Bills: React.FC = () => {
                     },
                     body: JSON.stringify({
                         familyId,
-                        mimeType: file.type,
-                        imageBase64: base64String.split(',')[1]
+                        mimeType: scanMimeType,
+                        imageBase64: scanBase64
                     })
                 });
                 const scanResult = await scanResponse.json();
