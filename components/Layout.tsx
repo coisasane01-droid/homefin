@@ -155,7 +155,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
       {/* Mobile Header (z-40) */}
-      <div className="md:hidden fixed w-full z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center shadow-sm h-[72px] print:hidden">
+      <div className="md:hidden fixed w-full z-40 border-b border-white/60 bg-white/70 p-4 shadow-[0_8px_30px_rgba(15,23,42,0.08)] backdrop-blur-2xl flex justify-between items-center h-[72px] dark:border-white/10 dark:bg-slate-950/65 print:hidden">
         <div className="flex items-center gap-2 text-primary-600 font-bold text-xl min-w-0">
            {logoImage ? (
              <img src={logoImage} alt="Foto da família" className={`w-9 h-9 object-cover flex-shrink-0 ${logoShape === 'circle' ? 'rounded-full' : 'rounded-md'}`} />
@@ -174,7 +174,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar (z-50) - Highest layer for navigation */}
       <aside 
-        className={`fixed md:sticky top-0 h-screen w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 z-50 transform transition-transform duration-300 ease-in-out print:hidden ${
+        className={`fixed md:sticky top-0 h-screen w-64 border-r border-white/70 bg-white/70 shadow-[8px_0_32px_rgba(15,23,42,0.06)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/65 dark:shadow-[8px_0_32px_rgba(0,0,0,0.18)] z-50 transform transition-transform duration-300 ease-in-out print:hidden ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
@@ -197,10 +197,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   key={item.path}
                   to={item.path}
                   onClick={() => setIsSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                    isActive 
-                      ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-semibold' 
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  className={`flex items-center gap-3 border px-4 py-3 rounded-xl transition-all duration-200 ${
+                    isActive
+                      ? 'border-primary-500/20 bg-primary-500/10 text-primary-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.45),0_4px_14px_rgba(79,70,229,0.08)] dark:border-primary-400/20 dark:bg-primary-400/10 dark:text-primary-200 font-semibold'
+                      : 'border-transparent text-gray-600 hover:border-white/60 hover:bg-white/45 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/5'
                   }`}
                 >
                   <item.icon size={20} />
@@ -212,7 +212,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <button 
             onClick={handleLogout}
-            className="flex-shrink-0 flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors mt-auto"
+            className="flex-shrink-0 flex items-center gap-3 border border-transparent px-4 py-3 text-red-500 hover:border-red-500/10 hover:bg-red-500/5 dark:hover:bg-red-400/10 rounded-xl transition-all mt-auto"
           >
             <LogOut size={20} />
             {t('logout')}
@@ -248,7 +248,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Overlay for mobile sidebar (z-45) */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-45 md:hidden"
+          className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm z-45 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
