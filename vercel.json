@@ -5,6 +5,10 @@
       "destination": "/api/family-auth?mode=passkey"
     },
     {
+      "source": "/api/inventory-recognize",
+      "destination": "/api/inventory?mode=recognize"
+    },
+    {
       "source": "/api/inventory-photo",
       "destination": "/api/inventory?mode=photo"
     },
