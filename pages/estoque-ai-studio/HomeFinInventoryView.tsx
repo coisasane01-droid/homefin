@@ -515,6 +515,8 @@ export default function HomeFinInventoryView() {
         <CadastroProdutoModal
           onClose={() => { setIsCadastroOpen(false); setEditingProduct(null); }}
           productToEdit={editingProduct}
+          familyId={familyId}
+          existingProducts={products}
           onSaveProduct={async (product) => {
             if (!familyId || familyId === 'v1') {
               throw new Error('Entre na sua família para salvar produtos.');
