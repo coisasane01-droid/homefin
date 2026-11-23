@@ -1919,7 +1919,7 @@ const handleSave = async () => {
             </div>
           </div>
 
-          <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-4 shadow-sm dark:border-violet-900 dark:bg-violet-950">
+          <section className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm dark:border-blue-900 dark:bg-blue-950">
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">Preenchimento rápido</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
