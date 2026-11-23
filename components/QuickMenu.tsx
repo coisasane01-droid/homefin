@@ -92,8 +92,8 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
               aria-current={active ? 'page' : undefined}
               className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 transition-all duration-200 active:scale-95 ${
                 active
-                  ? 'bg-primary-500/12 text-primary-700 dark:bg-primary-400/15 dark:text-primary-200'
-                  : 'text-slate-600 hover:bg-white/45 dark:text-slate-200 dark:hover:bg-white/8'
+                  ? 'bg-primary-500/10 text-primary-700 dark:bg-primary-400/15 dark:text-primary-200'
+                  : 'text-slate-600 hover:bg-white/45 dark:text-slate-200 dark:hover:bg-white/10'
               }`}
             >
               <Icon size={20} strokeWidth={active ? 2.4 : 1.9} />
@@ -110,7 +110,7 @@ const QuickMenu: React.FC<QuickMenuProps> = ({
           type="button"
           onClick={onOpenMenu}
           aria-label="Abrir menu completo"
-          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 text-slate-600 transition-all duration-200 hover:bg-white/45 active:scale-95 dark:text-slate-200 dark:hover:bg-white/8"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 text-slate-600 transition-all duration-200 hover:bg-white/45 active:scale-95 dark:text-slate-200 dark:hover:bg-white/10"
         >
           <Menu size={20} strokeWidth={1.9} />
           <span className="text-[10px] font-semibold leading-tight">Mais</span>
