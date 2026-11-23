@@ -331,7 +331,8 @@ const Bills: React.FC = () => {
 
   const openOverdueHistory = async (bill: Bill) => {
     const allBills = await db.getAllBills();
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const related = allBills
       .filter(item => bill.recurringId
         ? item.recurringId === bill.recurringId
