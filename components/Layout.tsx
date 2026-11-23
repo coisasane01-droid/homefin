@@ -191,7 +191,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         style={{
           WebkitBackdropFilter: 'blur(28px) saturate(175%)',
           backdropFilter: 'blur(28px) saturate(175%)',
-          backgroundImage: 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
+          backgroundImage: isDark\n            ? 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.20), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.13), transparent 48%), linear-gradient(145deg, rgba(15,23,42,0.18), rgba(30,58,138,0.12))'\n            : 'radial-gradient(ellipse at 12% 8%, rgba(59,130,246,0.13), transparent 42%), radial-gradient(ellipse at 88% 42%, rgba(14,165,233,0.09), transparent 48%), linear-gradient(145deg, rgba(255,255,255,0.30), rgba(219,234,254,0.16))',
         }}
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-blue-400/80 to-transparent shadow-[0_0_14px_rgba(59,130,246,0.55)]" />
