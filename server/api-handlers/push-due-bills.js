@@ -241,6 +241,72 @@ export default async function handler(req, res) {
         if (successful > 0) sentNotices++;
         else failedNotices++;
       }
+
+      // Eventos da agenda: um aviso por evento no dia marcado.
+      const agendaEvents = Array.isArray(data.events) ? data.events : [];
+      for (const event of agendaEvents) {
+        const eventDate = typeof event?.start === 'string' ? event.start.slice(0, 10) : '';
+        if (
+          !event ||
+          typeof event.id !== 'string' ||
+          !event.id.trim() ||
+          eventDate !== today
+        ) continue;
+
+        checked++;
+        const noticeType = 'event_today';
+        const claimed = await claimNotice(familyId, event.id, today, noticeType);
+        if (!claimed) continue;
+
+        const startText = typeof event.start === 'string' ? event.start.slice(11, 16) : '';
+        const hasTime = !event.allDay && /^([01]\\d|2[0-3]):[0-5]\\d$/.test(startText) && startText !== '00:00';
+        const location = typeof event.location === 'string' && event.location.trim()
+          ? ` Local: ${event.location.trim().slice(0, 100)}.`
+          : '';
+        const message = `${String(event.title || 'Evento da agenda').slice(0, 120)}. ${hasTime ? `Horário: ${startText}.` : 'Evento previsto para hoje.'}${location}`;
+        const payload = JSON.stringify({
+          title: 'Você tem um evento hoje!',
+          body: message.slice(0, 500),
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          url: `https://homefinapp.vercel.app/#/calendar`,
+        });
+
+        const results = await Promise.allSettled(subscriptions.map(async subscription => {
+          if (!isSupportedPushEndpoint(subscription.endpoint)) {
+            return { sent: false, expired: false };
+          }
+          try {
+            await webpush.sendNotification(subscription.subscription, payload);
+            return { sent: true, expired: false };
+          } catch (error) {
+            const status = Number(error?.statusCode || 0);
+            return {
+              sent: false,
+              expired: status === 404 || status === 410,
+              endpoint: subscription.endpoint,
+            };
+          }
+        }));
+
+        const outcomes = results
+          .filter(result => result.status === 'fulfilled')
+          .map(result => result.value);
+        const successful = outcomes.filter(result => result.sent).length;
+        const expired = outcomes.filter(result => result.expired);
+
+        for (const item of expired) {
+          try {
+            await removeExpired(item.endpoint, familyId);
+          } catch {
+            console.error('Não foi possível remover inscrição Push expirada.');
+          }
+        }
+
+        await finishNotice(familyId, event.id, today, noticeType, successful > 0);
+        if (successful > 0) sentNotices++;
+        else failedNotices++;
+      }
     }
 
     return res.status(200).json({
