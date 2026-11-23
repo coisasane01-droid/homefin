@@ -1,4 +1,5 @@
 import './locales/i18n';
+import { startGlobalDomTranslation } from './locales/domTranslation';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
@@ -32,6 +33,8 @@ window.addEventListener('appinstalled', () => {
   appWindow.__homefinAppInstalled = true;
   window.dispatchEvent(new Event('homefin-app-installed'));
 });
+
+startGlobalDomTranslation();
 
 const container = document.getElementById('root');
 if (container) {
