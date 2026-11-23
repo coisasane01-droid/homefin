@@ -6,7 +6,9 @@ import {
 import { inventoryService } from '../services/inventory';
 import InventorySharingPanel from '../components/InventorySharingPanel';
 import type { InventoryProduct, InventoryMovementType, InventoryData } from '../types/inventory';
-import { formatCurrency } from '../utils';\nimport { getFamilySessionToken } from '../services/familyAuth';\nimport { homefinApiUrl } from '../services/nativeApi';
+import { formatCurrency } from '../utils';
+import { getFamilySessionToken } from '../services/familyAuth';
+import { homefinApiUrl } from '../services/nativeApi';
 
 type SelectedItem = {
   productId: string;
