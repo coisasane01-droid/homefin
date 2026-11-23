@@ -81,7 +81,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     // Check for due bills notifications
     db.checkDueBills();
     return () => window.removeEventListener('homefin-family-sync-status', handleSyncStatus);
-  }, [location.pathname]); 
+  }, [location.pathname]);
+
+  // Recebe as mudanças das Configurações e reflete no menu sem recarregar a página.
+  useEffect(() => {
+    const handleQuickMenuUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<ReturnType<typeof normalizeQuickMenu>>).detail;
+      if (detail) setQuickMenu(normalizeQuickMenu(detail));
+    };
+
+    window.addEventListener('homefin-quick-menu-updated', handleQuickMenuUpdate);
+    return () => window.removeEventListener('homefin-quick-menu-updated', handleQuickMenuUpdate);
+  }, []);
 
   const checkPlanStatus = () => {
     const familyId = localStorage.getItem('homefin_current_family_id');
