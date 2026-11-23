@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   BookOpen,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  History,
+  Settings2,
   Check,
   Cloud,
   CloudOff,
@@ -56,9 +62,11 @@ const createInitialColumns = (): SpreadsheetColumn[] => [
   { id: crypto.randomUUID(), name: 'Outros', type: 'currency' },
 ];
 
+const isSpreadsheetDateColumn = (column: SpreadsheetColumn): boolean => column.type === 'text' && /^(data|data do servi[cç]o|data da venda|data do lan[cç]amento)$/i.test(column.name.trim());
+const getTodaySpreadsheetDate = (): string => new Date().toLocaleDateString('pt-BR');
 const emptyRow = (columns: SpreadsheetColumn[]): SpreadsheetRow => ({
   id: crypto.randomUUID(),
-  cells: Object.fromEntries(columns.map((column) => [column.id, ''])),
+  cells: Object.fromEntries(columns.map((column) => [column.id, isSpreadsheetDateColumn(column) ? getTodaySpreadsheetDate() : ''])),
 });
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString('pt-BR');
@@ -192,6 +200,8 @@ const Spreadsheets: React.FC = () => {
   const [columnModal, setColumnModal] = useState(false);
   const [pdfExportModalOpen, setPdfExportModalOpen] = useState(false);
   const [pdfSelectedColumnIds, setPdfSelectedColumnIds] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [commissionSettingsOpen, setCommissionSettingsOpen] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnType, setColumnType] = useState<SpreadsheetColumnType>('text');
   const [formulaModalColumnId, setFormulaModalColumnId] = useState<string | null>(null);
@@ -483,6 +493,20 @@ const handleSave = async () => {
     if (!selected) return;
     updateSelected({ rows: [...selected.rows, emptyRow(selected.columns)] });
   };
+  const moveColumnBy = (id: string, direction: -1 | 1) => {
+    if (!selected) return;
+    const index = selected.columns.findIndex((item) => item.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= selected.columns.length) return;
+    updateSelected({ columns: moveItem(selected.columns, index, target, direction < 0) });
+  };
+  const moveRowBy = (id: string, direction: -1 | 1) => {
+    if (!selected) return;
+    const index = selected.rows.findIndex((item) => item.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= selected.rows.length) return;
+    updateSelected({ rows: moveItem(selected.rows, index, target, direction < 0) });
+  };
 
   const handleAddQuickEntry = () => {
     if (!selected || saving) return;
@@ -598,20 +622,13 @@ const handleSave = async () => {
         targetId: session.sourceId,
         before: false,
       });
-    }, 250);
+    }, event.pointerType === 'touch' ? 120 : 0);
   };
 
   const handleDragPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
     const session = dragSession.current;
     if (!session || session.pointerId !== event.pointerId) return;
-    if (!session.active) {
-      if (Math.hypot(event.clientX - session.startX, event.clientY - session.startY) > 10) {
-        if (dragTimer.current !== null) window.clearTimeout(dragTimer.current);
-        dragTimer.current = null;
-        dragSession.current = null;
-      }
-      return;
-    }
+    if (!session.active) return;
 
     event.preventDefault();
     const selector = session.kind === 'column' ? '[data-column-id]' : '[data-row-id]';
@@ -1414,6 +1431,7 @@ const handleSave = async () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={() => setHistoryOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"><History size={19} /> Histórico</button>
           <button onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-white px-4 py-3 font-semibold text-primary-700 shadow-sm hover:bg-primary-50 dark:border-primary-800 dark:bg-gray-800 dark:text-primary-300 dark:hover:bg-primary-900/20">
             <BookOpen size={19} /> COMO USAR
           </button>
@@ -1444,10 +1462,10 @@ const handleSave = async () => {
         </div>
       )}
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+      {historyOpen && <div role="dialog" aria-modal="true" aria-label="Histórico de planilhas" className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm"><section className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Histórico</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Histórico de planilhas</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">Pesquise por nome, mês ou ano.</p>
           </div>
           <label className="relative block w-full sm:max-w-xs">
@@ -1459,6 +1477,7 @@ const handleSave = async () => {
               className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"
             />
           </label>
+          <button type="button" onClick={() => setHistoryOpen(false)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200">Fechar</button>
         </div>
         {loading ? (
           <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
@@ -1504,7 +1523,7 @@ const handleSave = async () => {
             {records.length ? 'Nenhuma planilha corresponde à busca.' : 'Nenhuma planilha salva ainda.'}
           </div>
         )}
-      </section>
+      </section></div>}
 
       {selected && (
         <section className="space-y-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
@@ -1549,6 +1568,7 @@ const handleSave = async () => {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button onClick={() => setCommissionSettingsOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300"><Settings2 size={16} /> Configurar comissões</button>
               <button
                 onClick={handleDuplicate}
                 title="Duplicar planilha"
@@ -1587,11 +1607,9 @@ const handleSave = async () => {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Total geral</p>
               <p className="mt-1 max-w-full break-words text-2xl font-extrabold tabular-nums leading-tight text-emerald-800 dark:text-emerald-200">{formatSpreadsheetTotal(calculateSpreadsheetTotal(selected))}</p>
-              {selected.commissionEnabled && (
-                <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  COMISSÃO ({selected.commissionPercentage ?? 0}%): {formatCurrency(calculateSpreadsheetCommission(selected))}
-                </p>
-              )}
+              {selected.commissionEnabled && <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">Comissão percentual ({selected.commissionPercentage ?? 0}%): {formatCurrency(calculateSpreadsheetCommission(selected))}</p>}
+              {selected.unitCommissionEnabled && <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">Comissão por unidade: {formatCurrency(calculateSpreadsheetUnitCommission(selected))}</p>}
+              {selected.extraCommissionEnabled && <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">Comissão extra: {formatCurrency(calculateSpreadsheetExtraCommission(selected))}</p>}
             </div>
             <div className="flex items-center gap-2 text-sm">
               {saving ? (
@@ -1606,6 +1624,7 @@ const handleSave = async () => {
             </div>
           </div>
 
+          {commissionSettingsOpen && <div role="dialog" aria-modal="true" aria-label="Configurações de comissão" className="fixed inset-0 z-[106] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm"><div className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-gray-900 dark:text-white">Configurações de comissão</h2><p className="text-sm text-gray-500 dark:text-gray-400">Configure os cálculos sem ocupar espaço na planilha.</p></div><button type="button" onClick={() => setCommissionSettingsOpen(false)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200">Fechar</button></div>
           <section className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/20">
             <label className="flex items-start gap-3">
               <input
@@ -1791,7 +1810,7 @@ const handleSave = async () => {
                 </div>
               </div>
             )}
-          </section>
+          </section></div></div>}
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -1916,9 +1935,10 @@ const handleSave = async () => {
                           >
                             <DragHandleIcon />
                           </button>
+                          <div className="flex items-center gap-0.5"><button type="button" disabled={selected.columns[0]?.id === column.id} onClick={() => moveColumnBy(column.id, -1)} title="Mover coluna para esquerda" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronLeft size={15} /></button><button type="button" disabled={selected.columns[selected.columns.length - 1]?.id === column.id} onClick={() => moveColumnBy(column.id, 1)} title="Mover coluna para direita" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronRight size={15} /></button>
                           <button onClick={() => handleRenameColumn(column)} className="truncate font-semibold text-gray-700 hover:text-primary-600 dark:text-gray-200">
                             {column.name}
-                          </button>
+                          </button></div>
                         </div>
                         {column.type === 'currency' && (
                           <button
@@ -1975,6 +1995,7 @@ const handleSave = async () => {
                         >
                           <DragHandleIcon />
                         </button>
+                        <button type="button" disabled={rowIndex === 0} onClick={() => moveRowBy(row.id, -1)} title="Mover linha para cima" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronUp size={15} /></button><button type="button" disabled={rowIndex === selected.rows.length - 1} onClick={() => moveRowBy(row.id, 1)} title="Mover linha para baixo" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronDown size={15} /></button>
                         {rowIndex + 1}
                       </div>
                     </td>
