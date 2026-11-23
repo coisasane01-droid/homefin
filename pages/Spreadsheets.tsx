@@ -1192,6 +1192,88 @@ const handleSave = async () => {
     } catch (error) {
       setSyncError(error instanceof Error ? `Não foi possível gerar o PDF: ${error.message}` : 'Não foi possível gerar o PDF.');
     }
+
+  // Exporta os dados em CSV UTF-8 com BOM e separador ;, compatível com Excel.
+  // O arquivo inclui valores calculados, totais por coluna e resumo das comissões.
+  const handleExportExcel = () => {
+    if (!selected) return;
+    if (hasInvalidSpreadsheetExtraCommission(selected)) {
+      setSyncError('Confira a configuração e os valores da comissão extra antes de exportar.');
+      return;
+    }
+    if (hasInvalidUnitQuantity(selected)) {
+      setSyncError('Corrija as quantidades inválidas antes de exportar.');
+      return;
+    }
+    if (hasInvalidSpreadsheetCurrency(selected)) {
+      setSyncError('Corrija os valores monetários inválidos antes de exportar.');
+      return;
+    }
+
+    const csvCell = (value: unknown) => {
+      const text = String(value ?? '');
+      return '"' + text.replace(/"/g, '""') + '"';
+    };
+    const rows: string[][] = [];
+    rows.push(['HomeFin | Planilhas', selected.name || 'Planilha sem nome']);
+    rows.push(['Referência', `${monthNames[selected.referenceMonth - 1]} de ${selected.referenceYear}`]);
+    rows.push([]);
+    rows.push([...selected.columns.map((column) => column.name), 'Total']);
+
+    selected.rows.forEach((row) => {
+      const values = selected.columns.map((column) => {
+        if (column.formulaConfig?.mode === 'column') return '—';
+        if (column.formulaConfig || column.formulaExpression || column.formula) {
+          const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
+          return value === null || !Number.isFinite(value) ? '' : value;
+        }
+        return column.type === 'currency'
+          ? parseSpreadsheetCurrency(row.cells[column.id] || '')
+          : (row.cells[column.id] || '');
+      });
+      rows.push([...values.map((value) => String(value)), String(calculateSpreadsheetRowTotal(selected, row))]);
+    });
+
+    rows.push([
+      'TOTAL POR COLUNA',
+      ...selected.columns.slice(1).map((column) =>
+        column.type === 'currency' ? String(calculateSpreadsheetColumnTotal(selected, column.id)) : '—'
+      ),
+      String(calculateSpreadsheetTotal(selected)),
+    ]);
+
+    rows.push([]);
+    rows.push(['TOTAL GERAL', String(calculateSpreadsheetTotal(selected))]);
+    if (selected.commissionEnabled) {
+      rows.push(['Comissão percentual', `${selected.commissionPercentage ?? 0}%`, String(calculateSpreadsheetCommission(selected))]);
+    }
+    if (selected.unitCommissionEnabled) {
+      rows.push(['Comissão por unidade', `${calculateSpreadsheetUnitCommissionQuantity(selected)} unidades x R$ ${selected.unitCommissionAmount ?? 0}`, String(calculateSpreadsheetUnitCommission(selected))]);
+    }
+    if (selected.extraCommissionEnabled) {
+      rows.push(['Comissão extra', selected.extraCommissionMode === 'fixed' ? 'Valor fixo por unidade acima do preço' : `${selected.extraCommissionRate ?? 0}% sobre o excedente`, String(calculateSpreadsheetExtraCommission(selected))]);
+    }
+    rows.push(['TOTAL DAS COMISSÕES', '', String(
+      (selected.commissionEnabled ? calculateSpreadsheetCommission(selected) : 0) +
+      (selected.unitCommissionEnabled ? calculateSpreadsheetUnitCommission(selected) : 0) +
+      (selected.extraCommissionEnabled ? calculateSpreadsheetExtraCommission(selected) : 0)
+    )]);
+    if (selected.notes.trim()) rows.push([], ['Observações gerais', selected.notes]);
+
+    const csv = '\\uFEFF' + rows.map((row) => row.map(csvCell).join(';')).join('\\r\\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const safeName = (selected.name || 'planilha').replace(/[^a-z0-9-_]+/gi, '_');
+    anchor.href = url;
+    anchor.download = `${safeName}_${selected.referenceMonth}-${selected.referenceYear}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setSyncError('');
+  };
+
   };
 
   return (
@@ -1576,6 +1658,13 @@ const handleSave = async () => {
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 <Copy size={16} /> Duplicar
+              </button>
+              <button
+                onClick={handleExportExcel}
+                title="Exportar dados para abrir no Excel"
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+              >
+                <Download size={16} /> Exportar Excel
               </button>
               <button
                 onClick={() => {
