@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Package, Plus,
-  Search, Trash2, Pencil, RefreshCw, X, List, CheckCircle2,
+  Search, Trash2, Pencil, RefreshCw, X, List, CheckCircle2, Camera, Loader2,
 } from 'lucide-react';
 import { inventoryService } from '../services/inventory';
 import InventorySharingPanel from '../components/InventorySharingPanel';
@@ -32,9 +32,9 @@ const blankProduct = (): InventoryProduct => ({
 
 const normalizeProductKey = (value: string) => value
   .normalize('NFD')
-  .replace(/[\\u0300-\\u036f]/g, '')
+  .replace(/[\u0300-\u036f]/g, '')
   .trim()
-  .replace(/\\s+/g, ' ')
+  .replace(/\s+/g, ' ')
   .toLocaleLowerCase('pt-BR');
 
 const moneyInput = (value: number) => String(value || 0).replace('.', ',');
@@ -63,7 +63,9 @@ const Inventory: React.FC = () => {
   const [tableOpen, setTableOpen] = useState(false);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchNote, setBatchNote] = useState('');\n  const [recognizingPhoto, setRecognizingPhoto] = useState(false);\n  const [photoScanMessage, setPhotoScanMessage] = useState('');
+  const [batchNote, setBatchNote] = useState('');
+  const [recognizingPhoto, setRecognizingPhoto] = useState(false);
+  const [photoScanMessage, setPhotoScanMessage] = useState('');
 
   const reload = async () => {
     if (!familyId || familyId === 'v1') {
@@ -154,8 +156,8 @@ const Inventory: React.FC = () => {
       setPhotoScanMessage('Selecione uma imagem válida.');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setPhotoScanMessage('A foto deve ter no máximo 5 MB.');
+    if (file.size > 3 * 1024 * 1024) {
+      setPhotoScanMessage('A foto deve ter no máximo 3 MB.');
       return;
     }
     setRecognizingPhoto(true);
@@ -274,6 +276,7 @@ const Inventory: React.FC = () => {
       setData({ products: result.data.products, movements: result.data.movements });
       setSynced(result.synced);
       setEditing(null);
+      setPhotoScanMessage('');
       setMessage(result.synced
         ? 'Produto salvo e confirmado na nuvem.'
         : result.error || 'Produto salvo neste aparelho; sincronização pendente.');
