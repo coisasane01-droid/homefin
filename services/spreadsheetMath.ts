@@ -63,6 +63,32 @@ const applyStructuredSpreadsheetFormula = (
   return Number.isFinite(result) ? result : null;
 };
 
+const normalizeSpreadsheetColumnName = (name: string): string =>
+  name.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const getPlusPneusSalesColumns = (columns: SpreadsheetColumn[]) => {
+  const find = (...names: string[]) => columns.find(column =>
+    names.includes(normalizeSpreadsheetColumnName(column.name))
+  );
+  const tireQuantity = find('pneu quantidade vendido');
+  const tireOriginalPrice = find('preco pneu');
+  const tireSalePrice = find('preco vendido peneu', 'preco vendido pneu');
+  const valveQuantity = find('valvula bico quantidade');
+  const valveUnitPrice = find('valvula bico preco');
+  const itemPrice = find('preco item vendido');
+  const partPrice = find('preco peca vendida');
+  if (!tireQuantity || !tireOriginalPrice || !tireSalePrice) return null;
+  return { tireQuantity, tireOriginalPrice, tireSalePrice, valveQuantity, valveUnitPrice, itemPrice, partPrice };
+};
+
+const readSpreadsheetQuantity = (row: SpreadsheetRow, column: SpreadsheetColumn | undefined): number => {
+  if (!column) return 0;
+  const raw = String(row.cells[column.id] ?? '').trim().replace(/\\s/g, '').replace(',', '.');
+  if (!raw) return 0;
+  const quantity = Number(raw);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+};
+
 const getRawSpreadsheetColumnTotal = (
   spreadsheet: Pick<HomeFinSpreadsheet, 'columns' | 'rows'>,
   columnId: string
@@ -79,6 +105,18 @@ export const calculateSpreadsheetColumnTotal = (
 
   const column = spreadsheet.columns.find((item) => item.id === columnId);
   if (!column || column.type !== 'currency') return 0;
+
+  const salesColumns = getPlusPneusSalesColumns(spreadsheet.columns);
+  if (salesColumns && column.id === salesColumns.tireSalePrice.id) {
+    return spreadsheet.rows.reduce((total, row) =>
+      total + readSpreadsheetQuantity(row, salesColumns.tireQuantity) *
+        (parseSpreadsheetCurrency(row.cells[column.id] || '') ?? 0), 0);
+  }
+  if (salesColumns && salesColumns.valveUnitPrice && column.id === salesColumns.valveUnitPrice.id) {
+    return spreadsheet.rows.reduce((total, row) =>
+      total + readSpreadsheetQuantity(row, salesColumns.valveQuantity) *
+        (parseSpreadsheetCurrency(row.cells[column.id] || '') ?? 0), 0);
+  }
 
   const config = column.formulaConfig;
   if (config) {
@@ -124,8 +162,23 @@ export const calculateSpreadsheetRowTotal = (
   columns: SpreadsheetColumn[]
 ): number | null => {
   let total = 0;
+  const salesColumns = getPlusPneusSalesColumns(columns);
   for (const column of columns) {
     if (column.type !== 'currency') continue;
+    if (salesColumns && column.id === salesColumns.tireOriginalPrice.id) continue;
+
+    if (salesColumns && column.id === salesColumns.tireSalePrice.id) {
+      const unitPrice = parseSpreadsheetCurrency(row.cells[column.id] || '');
+      if (unitPrice === null) return null;
+      total += readSpreadsheetQuantity(row, salesColumns.tireQuantity) * unitPrice;
+      continue;
+    }
+    if (salesColumns?.valveUnitPrice && column.id === salesColumns.valveUnitPrice.id) {
+      const unitPrice = parseSpreadsheetCurrency(row.cells[column.id] || '');
+      if (unitPrice === null) return null;
+      total += readSpreadsheetQuantity(row, salesColumns.valveQuantity) * unitPrice;
+      continue;
+    }
 
     if (column.formulaConfig?.mode === 'column') continue;
 
@@ -151,8 +204,9 @@ export const calculateSpreadsheetTotal = (
   spreadsheet: HomeFinSpreadsheet
 ): number | null => {
   if (hasInvalidSpreadsheetCurrency(spreadsheet)) return null;
+  const salesColumns = getPlusPneusSalesColumns(spreadsheet.columns);
   return spreadsheet.columns
-    .filter((column) => column.type === 'currency')
+    .filter((column) => column.type === 'currency' && (!salesColumns || column.id !== salesColumns.tireOriginalPrice.id))
     .reduce((total, column) => total + calculateSpreadsheetColumnTotal(spreadsheet, column.id), 0);
 };
 
