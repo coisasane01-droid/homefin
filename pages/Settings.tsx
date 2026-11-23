@@ -117,6 +117,11 @@ const Settings: React.FC = () => {
   useEffect(() => {
     if (!settingsLoaded.current || !settings.quickMenu) return;
 
+    // Atualiza o menu flutuante no Layout imediatamente, sem esperar a gravação.
+    window.dispatchEvent(new CustomEvent('homefin-quick-menu-updated', {
+      detail: normalizeQuickMenu(settings.quickMenu),
+    }));
+
     const timeout = window.setTimeout(async () => {
       try {
         await db.updateSettings(settings);
