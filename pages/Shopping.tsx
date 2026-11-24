@@ -228,7 +228,7 @@ const Shopping: React.FC = () => {
         .toLocaleLowerCase('pt-BR');
       const alreadyExists = items.some(item =>
         !item.checked &&
-        item.name.replace(/^\p{Extended_Pictographic}\\s*/u, '')
+        item.name.replace(/^\p{Extended_Pictographic}\s*/u, '')
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .trim()
