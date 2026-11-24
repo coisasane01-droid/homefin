@@ -200,7 +200,7 @@ const Inventory: React.FC = () => {
         sku: recognized.sku || current.sku,
         barcode: recognized.barcode || current.barcode || '',
         category: recognized.category || current.category,
-        supplier: recognized.supplier || current.supplier,
+        supplier: recognized.brand || recognized.supplier || current.supplier,
         measure: recognized.measure || current.measure || '',
         unit: recognized.unit || current.unit || 'UN',
         ncm: recognized.ncm || current.ncm || '',
