@@ -12,13 +12,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido.' });
   }
 
-  const { familyId, imageBase64, mimeType } = req.body || {};
+  const { familyId, imageBase64, mimeType, purpose = 'inventory' } = req.body || {};
   if (
     typeof familyId !== 'string' ||
     !FAMILY_PATTERN.test(familyId) ||
     familyId === 'v1'
   ) {
     return res.status(400).json({ error: 'Identificador familiar inválido.' });
+  }
+
+  if (!['inventory', 'shopping'].includes(purpose)) {
+    return res.status(400).json({ error: 'Finalidade de reconhecimento inválida.' });
   }
 
   if (
@@ -46,33 +50,40 @@ export default async function handler(req, res) {
       });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: {
-        parts: [
-          { inlineData: { data: imageBase64, mimeType } },
-          {
-            text: [
-              'Você é um assistente de cadastro de estoque. Analise a foto da embalagem, etiqueta ou produto.',
-              'Extraia somente informações que estejam visíveis e legíveis na imagem.',
-              'Não invente marca, modelo, código, categoria, NCM ou unidade.',
-              'Se houver código de barras legível, retorne todos os dígitos exatamente.',
-              'O campo name deve ser uma descrição curta e clara do produto; supplier pode receber a marca/fabricante quando visível.',
-              'measure deve receber medida/modelo visível (por exemplo 205/55 R16, 1 litro ou 10 metros).',
-              'unit deve ser uma unidade clara (UN, KG, L, M, CX); se não for possível identificar, retorne string vazia.',
-              'Nunca estime preços, custo, preço de venda, quantidade em estoque ou estoque mínimo.',
-              'Retorne campos vazios quando a informação não estiver visível.'
-            ].join(' ')
-          }
-        ]
-      },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const isShopping = purpose === 'shopping';
+    const prompt = isShopping
+      ? [
+          'Você identifica produtos de supermercado e itens domésticos em fotografias para uma lista de compras.',
+          'Retorne somente o nome comum e curto do produto, em português do Brasil, por exemplo Arroz, Feijão, Leite integral ou Detergente.',
+          'Não descreva a foto, não inclua marca, preço, quantidade, tamanho, embalagem ou frases explicativas.',
+          'Se houver vários produtos, escolha o item principal que ocupa mais destaque na imagem.',
+          'Não confunda logotipos, textos promocionais ou objetos ao fundo com o produto.',
+          'Se não for possível reconhecer com segurança o produto, retorne name vazio. Nunca invente.'
+        ].join(' ')
+      : [
+          'Você é um especialista em leitura visual e cadastro de produtos para estoque de uma loja brasileira, incluindo pneus.',
+          'Analise a imagem inteira e leia cuidadosamente etiquetas, rótulos, inscrições gravadas, laterais, flancos e logotipos. Considere que textos podem estar inclinados, de lado ou parcialmente curvados; faça a leitura visual mesmo quando precisar imaginar a rotação da etiqueta.',
+          'Identifique a MARCA/FABRICANTE pelo nome ou logotipo realmente visível. Marcas de pneus que podem aparecer incluem HIFLY, SUNNY, QIMA e outras. Não escolha uma dessas marcas por probabilidade: registre somente a que estiver claramente escrita ou representada na imagem.',
+          'Em pneus, procure separadamente: marca, modelo/desenho, medida (ex.: 165/70R14), índice de carga e velocidade (ex.: 85T), construção e especificações (XL, tubeless, radial). A medida nunca deve ser confundida com código, preço ou ruído visual.',
+          'O campo brand deve conter apenas a marca/fabricante identificada. O campo supplier deve repetir a marca somente quando ela estiver visível; não invente fornecedor.',
+          'O campo name deve ser uma descrição curta e útil, incluindo tipo de produto, marca, medida e modelo quando esses dados estiverem legíveis. Exemplo: Pneu HIFLY 165/70R14 85T. Não acrescente dados que não estejam visíveis.',
+          'Extraia somente informações visíveis e legíveis. Se houver código de barras legível, retorne todos os dígitos exatamente.',
+          'measure deve receber medida/modelo visível (por exemplo 205/55 R16, 1 litro ou 10 metros). unit deve ser uma unidade clara (UN, KG, L, M, CX); se não for possível identificar, retorne string vazia.',
+          'Nunca estime preços, custo, preço de venda, quantidade em estoque ou estoque mínimo. Não use informações de outros produtos ao fundo para completar o produto principal.',
+          'Retorne campos vazios quando a informação não estiver visível. Se a marca estiver ilegível, deixe brand vazio em vez de adivinhar.'
+        ].join(' ');
+
+    const responseSchema = isShopping
+      ? {
+          type: Type.OBJECT,
+          properties: { name: { type: Type.STRING } },
+          required: ['name']
+        }
+      : {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING },
+            brand: { type: Type.STRING },
             sku: { type: Type.STRING },
             barcode: { type: Type.STRING },
             category: { type: Type.STRING },
@@ -82,18 +93,46 @@ export default async function handler(req, res) {
             ncm: { type: Type.STRING },
             notes: { type: Type.STRING }
           },
-          required: ['name', 'sku', 'barcode', 'category', 'supplier', 'measure', 'unit', 'ncm', 'notes']
-        }
+          required: ['name', 'brand', 'sku', 'barcode', 'category', 'supplier', 'measure', 'unit', 'ncm', 'notes']
+        };
+
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: imageBase64, mimeType } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema
       }
     });
 
     if (!response.text) {
-      return res.status(422).json({ error: 'Não foi possível identificar dados suficientes nesta foto. Tente outra imagem mais nítida.' });
+      return res.status(422).json({
+        error: isShopping
+          ? 'Não consegui identificar o produto. Tente fotografar mais perto e com boa iluminação.'
+          : 'Não foi possível identificar dados suficientes nesta foto. Tente outra imagem mais nítida.'
+      });
     }
 
     const parsed = JSON.parse(response.text);
+
+    if (isShopping) {
+      const name = typeof parsed.name === 'string' ? parsed.name.trim().slice(0, 120) : '';
+      if (!name) {
+        return res.status(422).json({
+          error: 'Não consegui reconhecer o produto com segurança. Tente outra foto.'
+        });
+      }
+      return res.status(200).json({ product: { name } });
+    }
+
     const limits = {
-      name: 160, sku: 80, barcode: 100, category: 100,
+      name: 160, brand: 100, sku: 80, barcode: 100, category: 100,
       supplier: 160, measure: 120, unit: 30, ncm: 20, notes: 1000
     };
     const product = {};
@@ -101,6 +140,9 @@ export default async function handler(req, res) {
       const value = typeof parsed[field] === 'string' ? parsed[field].trim() : '';
       product[field] = value.slice(0, maxLength);
     }
+
+    // A marca explícita tem prioridade sobre o campo genérico de fornecedor.
+    if (!product.supplier && product.brand) product.supplier = product.brand;
 
     if (!product.name && !product.barcode && !product.sku) {
       return res.status(422).json({
