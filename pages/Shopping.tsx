@@ -222,17 +222,17 @@ const Shopping: React.FC = () => {
       if (!productName) throw new Error('A IA não identificou o nome do produto. Tente outra foto.');
 
       const normalizedName = productName.normalize('NFD')
-        .replace(/[\\u0300-\\u036f]/g, '')
+        .replace(/[\u0300-\u036f]/g, '')
         .trim()
-        .replace(/\\s+/g, ' ')
+        .replace(/\s+/g, ' ')
         .toLocaleLowerCase('pt-BR');
       const alreadyExists = items.some(item =>
         !item.checked &&
-        item.name.replace(/^\\p{Extended_Pictographic}\\s*/u, '')
+        item.name.replace(/^\p{Extended_Pictographic}\\s*/u, '')
           .normalize('NFD')
-          .replace(/[\\u0300-\\u036f]/g, '')
+          .replace(/[\u0300-\u036f]/g, '')
           .trim()
-          .replace(/\\s+/g, ' ')
+          .replace(/\s+/g, ' ')
           .toLocaleLowerCase('pt-BR') === normalizedName
       );
       if (alreadyExists) {
