@@ -68,6 +68,7 @@ const Inventory: React.FC = () => {
   const [batchNote, setBatchNote] = useState('');
   const [recognizingPhoto, setRecognizingPhoto] = useState(false);
   const [photoScanMessage, setPhotoScanMessage] = useState('');
+  const [pendingInventoryPhoto, setPendingInventoryPhoto] = useState<{ imageBase64: string; mimeType: string } | null>(null);
 
   const reload = async () => {
     if (!familyId || familyId === 'v1') {
@@ -154,12 +155,12 @@ const Inventory: React.FC = () => {
 
   const recognizeProductPhoto = async (file?: File) => {
     if (!file || !editing) return;
-    if (!file.type.startsWith('image/')) {
-      setPhotoScanMessage('Selecione uma imagem válida.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setPhotoScanMessage('Use uma foto JPG, PNG ou WEBP.');
       return;
     }
-    if (file.size > 3 * 1024 * 1024) {
-      setPhotoScanMessage('A foto deve ter no máximo 3 MB.');
+    if (file.size > 2 * 1024 * 1024) {
+      setPhotoScanMessage('A foto deve ter no máximo 2 MB para armazenamento seguro.');
       return;
     }
     setRecognizingPhoto(true);
@@ -178,6 +179,9 @@ const Inventory: React.FC = () => {
         reader.onerror = () => reject(new Error('Falha ao ler a foto.'));
         reader.readAsDataURL(file);
       });
+      // Mantém a foto original no formulário para enviá-la ao Storage após salvar o produto.
+      setPendingInventoryPhoto({ imageBase64: base64, mimeType: file.type });
+
       const response = await fetch(homefinApiUrl('/api/inventory-recognize'), {
         method: 'POST',
         headers: {
@@ -308,11 +312,54 @@ const Inventory: React.FC = () => {
       });
       setData({ products: result.data.products, movements: result.data.movements });
       setSynced(result.synced);
+
+      // Fotos do Estoque são permanentes: só removemos a cópia temporária
+      // depois do upload confirmado e do vínculo no Supabase.
+      if (pendingInventoryPhoto) {
+        if (!result.synced) {
+          setMessage('Produto salvo neste aparelho, mas a foto ainda não foi enviada. Conecte-se à internet e salve novamente para armazená-la.');
+          return;
+        }
+
+        const token = await getFamilySessionToken(familyId);
+        if (!token) {
+          setMessage('Produto salvo, mas sua sessão expirou antes do envio da foto. Entre novamente e salve para concluir o armazenamento.');
+          return;
+        }
+
+        const ownerFamilyId = localStorage.getItem(`homefin_inventory_owner_${familyId}`) || familyId;
+        const photoResponse = await fetch(homefinApiUrl('/api/inventory-photo'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          cache: 'no-store',
+          body: JSON.stringify({
+            action: 'upload',
+            familyId,
+            productId: editing.id,
+            expectedOwnerFamilyId: ownerFamilyId,
+            imageBase64: pendingInventoryPhoto.imageBase64,
+          }),
+        });
+        const photoResult = await photoResponse.json().catch(() => ({}));
+        if (!photoResponse.ok) {
+          setMessage(`Produto salvo, mas a foto não foi armazenada: ${photoResult.error || 'tente novamente'}`);
+          return;
+        }
+        setPendingInventoryPhoto(null);
+        const refreshed = await inventoryService.load(familyId);
+        setData({ products: refreshed.data.products, movements: refreshed.data.movements });
+      }
+
       setEditing(null);
       setPhotoScanMessage('');
-      setMessage(result.synced
-        ? 'Produto salvo e confirmado na nuvem.'
-        : result.error || 'Produto salvo neste aparelho; sincronização pendente.');
+      setMessage(pendingInventoryPhoto
+        ? 'Produto e foto salvos permanentemente no estoque.'
+        : result.synced
+          ? 'Produto salvo e confirmado na nuvem.'
+          : result.error || 'Produto salvo neste aparelho; sincronização pendente.');
     } catch (error) {
       setMessage(error instanceof Error
         ? error.message
@@ -803,8 +850,9 @@ const Inventory: React.FC = () => {
 
       {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
         <form onSubmit={save} className="max-h-[92vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 dark:bg-gray-900">
-          <div className="flex items-center justify-between"><h2 className="text-xl font-bold">{data.products.some(p => p.id === editing.id) ? 'Editar produto' : 'Novo produto'}</h2><button type="button" onClick={() => setEditing(null)}><X/></button></div>
+          <div className="flex items-center justify-between"><h2 className="text-xl font-bold">{data.products.some(p => p.id === editing.id) ? 'Editar produto' : 'Novo produto'}</h2><button type="button" onClick={() => { setEditing(null); setPendingInventoryPhoto(null); setPhotoScanMessage(''); }}><X/></button></div>
           <div className="rounded-xl border border-dashed border-primary-400 bg-primary-50/60 p-3 dark:bg-primary-950/20">
+            {pendingInventoryPhoto && <div className="mb-3 flex items-center gap-3 rounded-lg bg-white p-2 dark:bg-gray-800"><img src={`data:${pendingInventoryPhoto.mimeType};base64,${pendingInventoryPhoto.imageBase64}`} alt="Foto do produto que será armazenada" className="h-16 w-16 rounded object-cover"/><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Foto pronta para armazenamento</p><p className="text-xs text-gray-500">Será vinculada ao produto no Supabase ao salvar.</p></div><button type="button" onClick={() => setPendingInventoryPhoto(null)} className="rounded p-2 text-gray-500" title="Remover foto"><X size={16}/></button></div>}
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-3 font-bold text-white hover:bg-primary-700">
               {recognizingPhoto ? <Loader2 size={19} className="animate-spin"/> : <Camera size={19}/>}
               {recognizingPhoto ? 'ANALISANDO FOTO...' : 'FOTOGRAFAR / ESCANEAR PRODUTO'}
@@ -816,7 +864,7 @@ const Inventory: React.FC = () => {
                 }}/>
             </label>
             <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
-              Fotografe a embalagem ou etiqueta. A leitura tenta identificar nome, marca, código, categoria e unidade.
+              Fotografe a embalagem ou etiqueta. A IA identifica nome, marca, código, categoria e unidade; a mesma foto original será armazenada permanentemente no cadastro do produto.
             </p>
             {photoScanMessage && <p className="mt-2 text-xs font-medium text-primary-800 dark:text-primary-200">{photoScanMessage}</p>}
           </div>
