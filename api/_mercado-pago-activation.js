@@ -60,9 +60,17 @@ export async function activateApprovedPayment(payment) {
         fee_payer: String(item?.fee_payer || ''),
       }))
     : [];
-  const fee = amount(feeDetails.reduce((sum, item) => sum + item.amount, 0));
-  const reportedNet = Number(payment.transaction_details?.net_received_amount);
-  const net = Number.isFinite(reportedNet) && reportedNet >= 0
+  const reportedNetRaw = payment.transaction_details?.net_received_amount;
+  const reportedNet = Number(reportedNetRaw);
+  const hasReportedNet = reportedNetRaw !== null && reportedNetRaw !== undefined &&
+    Number.isFinite(reportedNet) && reportedNet >= 0;
+  const reportedFee = amount(feeDetails.reduce((sum, item) => sum + item.amount, 0));
+  const fee = feeDetails.length
+    ? reportedFee
+    : hasReportedNet
+      ? amount(Math.max(0, gross - reportedNet))
+      : 0;
+  const net = hasReportedNet
     ? amount(reportedNet)
     : amount(Math.max(0, gross - fee));
 
