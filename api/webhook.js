@@ -1,43 +1,33 @@
-// Este arquivo deve ser implantado como uma Serverless Function na Vercel
-// Caminho: /api/webhook.js
+import { fetchMercadoPagoPayment, verifyMercadoPagoWebhook, activateApprovedPayment } from './_mercado-pago-activation.js';
 
 export default async function handler(req, res) {
-  if (req.method === 'POST') {
-    try {
-      const { type, data } = req.body;
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).end('Method Not Allowed');
+  }
 
-      // Verifica se é uma notificação de pagamento
-      if (type === 'payment') {
-        const paymentId = data.id;
-        
-        console.log(`Recebido webhook de pagamento: ${paymentId}`);
+  const type = String(req.body?.type || req.query?.type || '');
+  const paymentId = String(req.body?.data?.id || req.query?.['data.id'] || req.query?.id || '').trim();
+  if (type !== 'payment' || !paymentId) {
+    return res.status(200).json({ received: true, ignored: true });
+  }
 
-        // AQUI VOCÊ DEVE:
-        // 1. Consultar a API do Mercado Pago usando o paymentId para confirmar o status
-        // 2. Se status === 'approved', buscar o usuário no Supabase
-        // 3. Atualizar o plano do usuário para 'premium'
-        
-        /* Exemplo de código para consultar Mercado Pago:
-        const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-          headers: {
-            'Authorization': `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`
-          }
-        });
-        const paymentData = await response.json();
-        
-        if (paymentData.status === 'approved') {
-           // Atualizar banco de dados
-        }
-        */
-      }
+  if (!process.env.MERCADO_PAGO_WEBHOOK_SECRET) {
+    console.error('Webhook Mercado Pago sem MERCADO_PAGO_WEBHOOK_SECRET configurado.');
+    return res.status(503).json({ received: false, error: 'Webhook não configurado.' });
+  }
+  if (!verifyMercadoPagoWebhook(req, paymentId)) {
+    return res.status(401).json({ received: false, error: 'Assinatura do webhook inválida.' });
+  }
 
-      res.status(200).json({ received: true });
-    } catch (error) {
-      console.error('Erro no webhook:', error);
-      res.status(500).json({ error: 'Internal Server Error' });
+  try {
+    const payment = await fetchMercadoPagoPayment(paymentId);
+    if (payment.status === 'approved') {
+      await activateApprovedPayment(payment);
     }
-  } else {
-    res.setHeader('Allow', ['POST']);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
+    return res.status(200).json({ received: true, status: payment.status });
+  } catch (error) {
+    console.error('Erro ao processar webhook do Mercado Pago:', error instanceof Error ? error.message : 'erro desconhecido');
+    return res.status(500).json({ received: false });
   }
 }
