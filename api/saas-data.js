@@ -98,6 +98,69 @@ export default async function handler(req, res) {
     }
   }
 
+  if (action === 'list-families') {
+    if (!isAdmin) return res.status(401).json({ error: 'Sessão administrativa inválida.' });
+    try {
+      const [saasRows, credentialRows, familyDataRows] = await Promise.all([
+        requestSaas(),
+        (async () => {
+          const { url, key } = getConfig();
+          const response = await fetch(`${url}/rest/v1/homefin_family_credentials?select=family_id`, {
+            headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
+            cache: 'no-store',
+          });
+          if (!response.ok) throw new Error(`Supabase credentials HTTP ${response.status}`);
+          return response.json();
+        })(),
+        (async () => {
+          const { url, key } = getConfig();
+          const response = await fetch(`${url}/rest/v1/homefin_data?select=family_id,data`, {
+            headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
+            cache: 'no-store',
+          });
+          if (!response.ok) throw new Error(`Supabase family data HTTP ${response.status}`);
+          return response.json();
+        })(),
+      ]);
+
+      const storedFamilies = Array.isArray(saasRows?.[0]?.data?.families)
+        ? saasRows[0].data.families
+        : [];
+      const byId = new Map(storedFamilies
+        .filter(family => family && typeof family.id === 'string')
+        .map(family => [family.id, { ...family }]));
+
+      for (const row of credentialRows || []) {
+        const id = String(row?.family_id || '').trim();
+        if (id && !byId.has(id)) byId.set(id, { id, name: id, status: 'active', plan: 'free', createdAt: '' });
+      }
+
+      for (const row of familyDataRows || []) {
+        const id = String(row?.family_id || '').trim();
+        if (!id) continue;
+        const payload = row?.data && typeof row.data === 'object' ? row.data : {};
+        const fallbackName = payload.familyName || payload.houseName || payload.settings?.houseName || payload.profile?.familyName || id;
+        if (!byId.has(id)) {
+          byId.set(id, { id, name: String(fallbackName), status: 'active', plan: 'free', createdAt: '', legacyDataOnly: true });
+        } else if ((!byId.get(id).name || byId.get(id).name === id) && fallbackName !== id) {
+          byId.get(id).name = String(fallbackName);
+        }
+      }
+
+      return res.status(200).json({
+        families: Array.from(byId.values()),
+        sources: {
+          saas: storedFamilies.length,
+          credentials: (credentialRows || []).length,
+          familyData: (familyDataRows || []).length,
+        },
+      });
+    } catch (error) {
+      console.error('Erro ao listar cadastro completo de famílias:', error instanceof Error ? error.message : error);
+      return res.status(503).json({ error: 'Não foi possível consultar todas as famílias cadastradas.' });
+    }
+  }
+
   if (action !== 'save') {
     return res.status(400).json({ error: 'Ação SaaS inválida.' });
   }
