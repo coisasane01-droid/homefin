@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, 
   X,
@@ -79,6 +79,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
   const [quickMenu, setQuickMenu] = useState<ReturnType<typeof normalizeQuickMenu>>(DEFAULT_QUICK_MENU);
+  const [disabledFamilyPages, setDisabledFamilyPages] = useState<string[]>([]);
   const [syncStatus, setSyncStatus] = useState<'pending' | 'synced' | 'conflict' | null>(() => {
     const familyId = localStorage.getItem('homefin_current_family_id') || '';
     if (!familyId) return null;
@@ -88,6 +89,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       ? 'synced'
       : null;
   });
+
+  useEffect(() => {
+    const refreshFamilyPageAccess = () => {
+      const familyId = localStorage.getItem('homefin_current_family_id') || '';
+      const family = saasDb.getFamilies().find(item => item.id === familyId);
+      setDisabledFamilyPages(Array.isArray(family?.disabledPages) ? family.disabledPages : []);
+    };
+    refreshFamilyPageAccess();
+    window.addEventListener('homefin-saas-synced', refreshFamilyPageAccess);
+    return () => window.removeEventListener('homefin-saas-synced', refreshFamilyPageAccess);
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -184,6 +196,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   };
 
+  if (disabledFamilyPages.includes(location.pathname)) {
+    const fallbackPath = SIDEBAR_MENU_ITEMS.find(item => !disabledFamilyPages.includes(item.path))?.path;
+    if (fallbackPath) return <Navigate to={fallbackPath} replace />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-center text-white">
+        <div className="max-w-md">
+          <h1 className="text-xl font-bold">Acesso não disponível</h1>
+          <p className="mt-2 text-sm text-slate-300">Esta página foi desabilitada para sua família. Entre em contato com o suporte.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-screen min-w-0 max-w-[100vw] overflow-x-clip bg-gray-50 dark:bg-gray-900 flex transition-colors duration-300">
       {/* Mobile Header (z-40) */}
@@ -231,7 +256,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           
           <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1 mt-14 md:mt-0">
-            {SIDEBAR_MENU_ITEMS.map((item) => {
+            {SIDEBAR_MENU_ITEMS.filter(item => !disabledFamilyPages.includes(item.path)).map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <Link
@@ -313,7 +338,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       )}
       <QuickMenu
         enabled={quickMenu.enabled}
-        items={quickMenu.items}
+        items={quickMenu.items.filter(item => !disabledFamilyPages.includes(item.id))}
         hidden={isSidebarOpen}
         onOpenMenu={openMainMenu}
         onNewAccount={openNewAccount}
