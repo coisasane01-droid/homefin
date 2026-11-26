@@ -166,8 +166,12 @@ const Planos: React.FC = () => {
               )}
               
               {plan.image && (
-                <div className="h-48 w-full overflow-hidden">
-                  <img src={plan.image} alt={plan.name} className="w-full h-full object-cover transition-transform hover:scale-110 duration-500" />
+                <div className="flex h-44 w-full items-center justify-center overflow-hidden bg-white p-3 sm:h-48">
+                  <img
+                    src={plan.image}
+                    alt={plan.name}
+                    className="max-h-full max-w-full object-contain object-center"
+                  />
                 </div>
               )}
               
