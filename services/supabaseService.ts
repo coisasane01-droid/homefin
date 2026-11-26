@@ -84,7 +84,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function requestSaasData(action: 'get' | 'save', saasData?: any): Promise<any> {
+async function requestSaasData(action: 'get' | 'save' | 'list-families', saasData?: any): Promise<any> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const adminToken = sessionStorage.getItem('homefin_admin_session_token');
   const adminExpiry = Number(sessionStorage.getItem('homefin_admin_session_expires_at') || 0);
@@ -117,7 +117,7 @@ async function requestSaasData(action: 'get' | 'save', saasData?: any): Promise<
   if (!response.ok) {
     throw new Error(result?.error || `Falha ao acessar configuração SaaS (HTTP ${response.status}).`);
   }
-  return result?.data ?? null;
+  return result?.data ?? result ?? null;
 }
 
 async function requestFamilyData(
