@@ -306,7 +306,7 @@ const Spreadsheets: React.FC = () => {
           ? calculateSpreadsheetColumnFormula(selected, column.id, row)
           : null;
 
-        const values = [column.name, raw];
+        const values = [column.name, raw, ...(row.saleItems || []).map(item => item.description)];
 
         if (hasRowFormula && calculated !== null && Number.isFinite(calculated)) {
           values.push(String(calculated), formatCurrency(calculated));
@@ -480,6 +480,7 @@ const handleSave = async () => {
             row.cells[column.id] || '',
           ])
         ),
+        ...(row.saleItems?.length ? { saleItems: row.saleItems.map(item => ({ ...item, id: crypto.randomUUID() })) } : {}),
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -979,6 +980,9 @@ const handleSave = async () => {
       sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0);
     const body = selected.rows.map((row) => [
       ...exportColumns.map((column) => {
+        if (column.id === exportColumns[0]?.id && row.saleItems?.length) {
+          return [column.type === 'currency' ? formatCurrency(parseSpreadsheetCurrency(row.cells[column.id] || '') || 0) : (row.cells[column.id] || ''), ...row.saleItems.map(item => item.description + ' (' + item.quantity + ' x R$ ' + item.unitPrice + ')')].filter(Boolean).join(' | ');
+        }
         if (column.formulaConfig?.mode === 'column') return '—';
         if (column.formulaConfig || column.formulaExpression || column.formula) {
           const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
@@ -1251,6 +1255,7 @@ const handleSave = async () => {
           ? parseSpreadsheetCurrency(row.cells[column.id] || '')
           : (row.cells[column.id] || '');
       });
+      if (row.saleItems?.length) values[0] = [String(values[0] ?? ''), ...row.saleItems.map(item => item.description + ' (' + item.quantity + ' x R$ ' + item.unitPrice + ')')].filter(Boolean).join(' | ');
       rows.push([...values.map((value) => String(value)), String(calculateSpreadsheetRowTotal(row, selected.columns) ?? 0)]);
     });
 
@@ -2131,8 +2136,12 @@ const handleSave = async () => {
                           <DragHandleIcon />
                         </button>
                         <button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === 0} onClick={() => moveRowBy(row.id, -1)} title="Mover linha para cima" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronUp size={15} /></button><button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === selected.rows.length - 1} onClick={() => moveRowBy(row.id, 1)} title="Mover linha para baixo" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronDown size={15} /></button>
-                        {rowIndex + 1}
+                        <div className="flex flex-col items-center">
+                          <span>{rowIndex + 1}</span>
+                          {row.saleItems?.length ? <span className="mt-1 max-w-[90px] text-[10px] leading-tight text-emerald-700 dark:text-emerald-300">{row.saleItems.length} item(ns)</span> : null}
+                        </div>
                       </div>
+                      {row.saleItems?.length ? <div className="mt-1 max-w-[120px] space-y-1 text-left">{row.saleItems.map(item => <div key={item.id} title={item.description} className="rounded bg-emerald-50 px-1 py-0.5 text-[10px] leading-tight text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">{item.description} · {item.quantity}x</div>)}</div> : null}
                     </td>
                     {selected.columns.map((column) => (
                       <td key={column.id} className="border-r border-b border-gray-200 p-1.5 dark:border-gray-700">
