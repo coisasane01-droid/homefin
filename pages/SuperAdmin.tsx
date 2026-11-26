@@ -241,6 +241,9 @@ const SuperAdmin: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const handleSaasSync = () => loadData();
+    window.addEventListener('homefin-saas-synced', handleSaasSync);
+    return () => window.removeEventListener('homefin-saas-synced', handleSaasSync);
   }, []);
 
   const loadData = () => {
