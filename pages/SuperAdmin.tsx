@@ -59,6 +59,8 @@ const SuperAdmin: React.FC = () => {
 
   // Support State
   const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
+  const [supportSearch, setSupportSearch] = useState('');
+  const [supportUnreadByFamily, setSupportUnreadByFamily] = useState<Record<string, number>>({});
   const [selectedSupportFamily, setSelectedSupportFamily] = useState<string | null>(null);
   const [supportMessage, setSupportMessage] = useState('');
   const [supportBlocked, setSupportBlocked] = useState(false);
@@ -151,6 +153,11 @@ const SuperAdmin: React.FC = () => {
   const checkUnreadSupportMessages = async () => {
     try {
       const unreadMessages = await supportService.getUnreadFamilyMessages();
+      const unreadCounts = unreadMessages.reduce<Record<string, number>>((counts, item) => {
+        counts[item.family_id] = (counts[item.family_id] || 0) + 1;
+        return counts;
+      }, {});
+      setSupportUnreadByFamily(unreadCounts);
 
       if (!supportNotificationsInitialized.current) {
         unreadMessages.forEach((item) => {
@@ -547,6 +554,7 @@ const SuperAdmin: React.FC = () => {
       setSupportResolved(settings.resolved);
       setSelectedSupportFamily(familyId);
       await supportService.markMessagesAsRead(familyId, 'family');
+      setSupportUnreadByFamily(current => ({ ...current, [familyId]: 0 }));
     } catch (error) {
       console.error('Erro ao carregar conversa do suporte:', error);
       showNotification('Não foi possível carregar a conversa.', 'error');
@@ -1220,17 +1228,40 @@ const SuperAdmin: React.FC = () => {
 
             <div className="bg-white rounded-xl shadow-sm overflow-hidden">
               <div className="p-4 border-b">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <MessageCircle className="text-indigo-600" />
-                  Conversas
-                </h2>
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <MessageCircle className="text-indigo-600" />
+                    Conversas
+                  </h2>
+                  {Object.values(supportUnreadByFamily).reduce((sum, count) => sum + count, 0) > 0 && (
+                    <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700">
+                      {Object.values(supportUnreadByFamily).reduce((sum, count) => sum + count, 0)} novas
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  Selecione uma família para abrir o atendimento.
+                  Famílias com mensagens novas aparecem primeiro.
                 </p>
+                <div className="relative mt-3">
+                  <input
+                    type="search"
+                    value={supportSearch}
+                    onChange={event => setSupportSearch(event.target.value)}
+                    placeholder="Buscar família por nome ou ID..."
+                    aria-label="Buscar conversa por família"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
               </div>
 
               <div className="max-h-[600px] overflow-y-auto">
-                {families.map((family, index) => (
+                {[...families]
+                  .filter(family => {
+                    const query = supportSearch.trim().toLocaleLowerCase('pt-BR');
+                    return !query || family.name.toLocaleLowerCase('pt-BR').includes(query) || family.id.toLocaleLowerCase('pt-BR').includes(query);
+                  })
+                  .sort((a, b) => (supportUnreadByFamily[b.id] || 0) - (supportUnreadByFamily[a.id] || 0) || a.name.localeCompare(b.name, 'pt-BR'))
+                  .map((family, index) => (
                   <button
                     key={`${family.id}-${index}`}
                     type="button"
@@ -1247,12 +1278,26 @@ const SuperAdmin: React.FC = () => {
                     <div className="text-xs text-gray-500 font-mono mt-1">
                       ID: {family.id}
                     </div>
+                    {(supportUnreadByFamily[family.id] || 0) > 0 && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs font-bold text-red-600">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                        {supportUnreadByFamily[family.id]} mensagem(ns) nova(s)
+                      </div>
+                    )}
                   </button>
                 ))}
 
                 {families.length === 0 && (
                   <div className="p-6 text-center text-gray-400">
                     Nenhuma família cadastrada.
+                  </div>
+                )}
+                {families.length > 0 && !families.some(family => {
+                  const query = supportSearch.trim().toLocaleLowerCase('pt-BR');
+                  return !query || family.name.toLocaleLowerCase('pt-BR').includes(query) || family.id.toLocaleLowerCase('pt-BR').includes(query);
+                }) && (
+                  <div className="p-6 text-center text-sm text-gray-400">
+                    Nenhuma família encontrada.
                   </div>
                 )}
               </div>
@@ -1494,8 +1539,8 @@ const SuperAdmin: React.FC = () => {
                         </label>
                       </div>
                       {plan.image && (
-                        <div className="relative w-full h-32 bg-gray-50 rounded-lg overflow-hidden border">
-                          <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
+                        <div className="relative flex h-44 w-full items-center justify-center rounded-lg border bg-white p-3">
+                          <img src={plan.image} alt={plan.name} className="h-full w-full object-contain" />
                           <button
                             onClick={() => handleUpdatePlan({ ...plan, image: undefined })}
                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white"
