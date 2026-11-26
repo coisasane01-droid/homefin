@@ -183,6 +183,43 @@ const Shopping: React.FC = () => {
       const token = await getFamilySessionToken(familyId);
       if (!token) throw new Error('Sua sessão expirou. Entre novamente para usar a câmera.');
 
+      // Reduz fotos grandes de celulares e converte formatos decodificáveis (incluindo HEIC) para JPEG.
+      let preparedImage: Blob = file;
+      try {
+        let bitmap: ImageBitmap | null = null;
+        if (typeof createImageBitmap === 'function') bitmap = await createImageBitmap(file);
+        if (bitmap) {
+          const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Não foi possível preparar a foto.');
+          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          bitmap.close();
+          preparedImage = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Falha ao otimizar a foto.')), 'image/jpeg', 0.82));
+        } else if (file.type !== 'image/jpeg' || file.size > 3 * 1024 * 1024) {
+          const objectUrl = URL.createObjectURL(file);
+          try {
+            const image = new Image();
+            image.src = objectUrl;
+            await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('Este formato de foto não pôde ser aberto. Tente selecionar uma imagem JPG.')); });
+            const scale = Math.min(1, 1920 / Math.max(image.naturalWidth, image.naturalHeight));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Não foi possível preparar a foto.');
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            preparedImage = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Falha ao otimizar a foto.')), 'image/jpeg', 0.82));
+          } finally { URL.revokeObjectURL(objectUrl); }
+        }
+      } catch (error) {
+        if (!['image/heic', 'image/heif'].includes(file.type.toLowerCase()) || file.size > 3 * 1024 * 1024) throw error;
+        // HEIC pequeno pode seguir diretamente para o modelo, que aceita esse formato.
+      }
+      if (preparedImage.size > 3 * 1024 * 1024) throw new Error('A foto continua muito grande após a otimização. Tente aproximar a câmera do produto.');
+      const mimeType = preparedImage.type || file.type;
       const imageBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -192,7 +229,7 @@ const Shopping: React.FC = () => {
           else resolve(dataUrl.slice(comma + 1));
         };
         reader.onerror = () => reject(new Error('Falha ao ler a foto.'));
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(preparedImage);
       });
 
       const response = await fetch(homefinApiUrl('/api/inventory-recognize'), {
@@ -205,7 +242,7 @@ const Shopping: React.FC = () => {
         body: JSON.stringify({
           familyId,
           imageBase64,
-          mimeType: file.type,
+          mimeType,
           purpose: 'shopping',
         }),
       });
