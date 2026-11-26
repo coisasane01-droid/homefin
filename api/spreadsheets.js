@@ -109,6 +109,25 @@ function validSpreadsheet(spreadsheet) {
     }
     rowIds.add(row.id);
 
+    if (row.saleItems !== undefined) {
+      if (!Array.isArray(row.saleItems) || row.saleItems.length > 100) return false;
+      const saleItemIds = new Set();
+      for (const item of row.saleItems) {
+        const quantity = Number(item?.quantity);
+        if (
+          !item || typeof item !== 'object' ||
+          typeof item.id !== 'string' || !UUID_PATTERN.test(item.id) || saleItemIds.has(item.id) ||
+          typeof item.description !== 'string' || !item.description.trim() || item.description.length > 160 ||
+          !Number.isFinite(quantity) || quantity <= 0 || quantity > 999999999 ||
+          typeof item.unitPrice !== 'string' || item.unitPrice.length > 40 ||
+          (item.category !== undefined && !['product', 'part'].includes(item.category))
+        ) return false;
+        const price = item.unitPrice.replace(/R\\$/gi, '').replace(/\\s/g, '');
+        if (!price || (!BRAZILIAN_CURRENCY_PATTERN.test(price) && !DECIMAL_CURRENCY_PATTERN.test(price))) return false;
+        saleItemIds.add(item.id);
+      }
+    }
+
     for (const [columnId, value] of Object.entries(row.cells)) {
       if (!columnIds.has(columnId) || typeof value !== 'string' || value.length > 2000) {
         return false;
