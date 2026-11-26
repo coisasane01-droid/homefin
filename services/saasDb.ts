@@ -19,6 +19,8 @@ export interface Family {
   createdAt: string;
   expiresAt?: string;
   settings?: UserSettings;
+  /** Páginas bloqueadas pelo Super Admin. Ausente mantém compatibilidade: todas liberadas. */
+  disabledPages?: string[];
 }
 
 export interface Plan {
@@ -635,6 +637,29 @@ export const saasDb = {
       };
 
       saveSaasData(data);
+    }
+  },
+
+  updateFamilyAndSync: async (
+    id: string,
+    updates: Partial<Family>
+  ): Promise<void> => {
+    const data = getSaasData();
+    const idx = data.families.findIndex((family: Family) => family.id === id);
+    if (idx < 0) throw new Error('Família não encontrada.');
+
+    data.families[idx] = { ...data.families[idx], ...updates };
+    const safeData = structuredClone(data);
+    safeData.paymentConfig = removeLegacyMercadoPagoToken(safeData.paymentConfig);
+
+    // Atualiza o cache local e confirma a gravação remota antes de informar sucesso.
+    localStorage.setItem(SAAS_STORAGE_KEY, JSON.stringify(safeData));
+    try {
+      await supabaseService.saveSaasData(safeData);
+      window.dispatchEvent(new Event('homefin-saas-synced'));
+    } catch (error) {
+      console.error('Falha ao salvar permissões da família:', error);
+      throw new Error('Não foi possível confirmar a gravação das permissões na nuvem.');
     }
   },
 
