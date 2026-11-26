@@ -644,7 +644,8 @@ export const saasDb = {
     id: string,
     updates: Partial<Family>
   ): Promise<void> => {
-    const data = getSaasData();
+    const previousData = getSaasData();
+    const data = structuredClone(previousData);
     const idx = data.families.findIndex((family: Family) => family.id === id);
     if (idx < 0) throw new Error('Família não encontrada.');
 
@@ -658,6 +659,11 @@ export const saasDb = {
       await supabaseService.saveSaasData(safeData);
       window.dispatchEvent(new Event('homefin-saas-synced'));
     } catch (error) {
+      try {
+        localStorage.setItem(SAAS_STORAGE_KEY, JSON.stringify(previousData));
+      } catch (restoreError) {
+        console.error('Falha ao restaurar cache SaaS após erro:', restoreError);
+      }
       console.error('Falha ao salvar permissões da família:', error);
       throw new Error('Não foi possível confirmar a gravação das permissões na nuvem.');
     }
