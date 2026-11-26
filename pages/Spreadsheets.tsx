@@ -89,7 +89,7 @@ const moveItem = <T,>(
 
 const normalizeSalesColumnName = (name: string) => name
   .normalize('NFD')
-  .replace(/[\\u0300-\\u036f]/g, '')
+  .replace(/\\p{M}/gu, '')
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, ' ')
   .trim();
@@ -123,7 +123,7 @@ const migrateSaleItemsIntoColumns = (spreadsheet: HomeFinSpreadsheet): {
       priceColumn: SpreadsheetColumn | undefined
     ) => {
       if (!descriptionColumn || !priceColumn) return;
-      const items = remaining.filter(item => item.category === category);
+      const items = remaining.filter(item => item.category === category || (!item.category && category === 'product'));
       if (!items.length) return;
 
       const currentDescription = String(cells[descriptionColumn.id] || '').trim();
@@ -154,7 +154,7 @@ const migrateSaleItemsIntoColumns = (spreadsheet: HomeFinSpreadsheet): {
       }
 
       for (let index = remaining.length - 1; index >= 0; index--) {
-        if (remaining[index].category === category) remaining.splice(index, 1);
+        if (remaining[index].category === category || (!remaining[index].category && category === 'product')) remaining.splice(index, 1);
       }
       changed = true;
     };
