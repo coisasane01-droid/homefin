@@ -1,6 +1,6 @@
 import { homefinApiUrl } from './nativeApi';
 import { getFamilySessionToken } from './familyAuth';
-export interface MercadoPagoPaymentResponse {
+export interface MercadoPagoPaymentStatusResponse {\n  activated: boolean;\n  status: string;\n  statusDetail?: string;\n  grossAmount?: number;\n  feeAmount?: number;\n  netAmount?: number;\n}\n\nexport interface MercadoPagoPaymentResponse {
   id: number;
   status: string;
   status_detail: string;
@@ -45,7 +45,7 @@ async function requestPayment(payload: Record<string, unknown>): Promise<Mercado
   return result as MercadoPagoPaymentResponse;
 }
 
-export const createPixPayment = async (
+export const checkMercadoPagoPayment = async (paymentId: number | string): Promise<MercadoPagoPaymentStatusResponse> => {\n  const familyId = localStorage.getItem('homefin_current_family_id') || '';\n  const sessionToken = familyId && familyId !== 'v1' ? await getFamilySessionToken(familyId) : null;\n  if (!familyId || familyId === 'v1' || !sessionToken) throw new Error('Sua sessão expirou. Entre novamente na família.');\n\n  const response = await fetch(homefinApiUrl('/api/payment-status'), {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },\n    body: JSON.stringify({ familyId, paymentId: String(paymentId) }),\n  });\n  const result = await response.json().catch(() => ({}));\n  if (!response.ok) throw new Error(typeof result?.error === 'string' ? result.error : 'Não foi possível consultar o pagamento.');\n  return result as MercadoPagoPaymentStatusResponse;\n};\n\nexport const createPixPayment = async (
   email: string,
   planId: string
 ): Promise<MercadoPagoPaymentResponse> => {
