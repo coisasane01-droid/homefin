@@ -114,7 +114,7 @@ export default async function handler(req, res) {
         })(),
         (async () => {
           const { url, key } = getConfig();
-          const response = await fetch(`${url}/rest/v1/homefin_data?select=family_id,data`, {
+          const response = await fetch(`${url}/rest/v1/homefin_data?select=family_id`, {
             headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
             cache: 'no-store',
           });
@@ -138,12 +138,9 @@ export default async function handler(req, res) {
       for (const row of familyDataRows || []) {
         const id = String(row?.family_id || '').trim();
         if (!id) continue;
-        const payload = row?.data && typeof row.data === 'object' ? row.data : {};
-        const fallbackName = payload.familyName || payload.houseName || payload.settings?.houseName || payload.profile?.familyName || id;
         if (!byId.has(id)) {
-          byId.set(id, { id, name: String(fallbackName), status: 'active', plan: 'free', createdAt: '', legacyDataOnly: true });
-        } else if ((!byId.get(id).name || byId.get(id).name === id) && fallbackName !== id) {
-          byId.get(id).name = String(fallbackName);
+          // Registro legado sem metadados no SaaS: preserva o acesso pelo identificador.
+          byId.set(id, { id, name: id, status: 'active', plan: 'free', createdAt: '', legacyDataOnly: true });
         }
       }
 
