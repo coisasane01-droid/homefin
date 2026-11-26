@@ -620,7 +620,7 @@ const handleSave = async () => {
       setQuickSaleItems([]);
       setSyncError(result.error || (!result.synced
         ? 'Cópia criada neste aparelho; a nuvem ainda não confirmou a sincronização.'
-        : 'Planilha duplicada no Histórico, com os dados zerados.'));
+        : ''));
 
     } catch (error) {
       setSyncError(error instanceof Error ? error.message : 'Não foi possível duplicar a planilha.');
