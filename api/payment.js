@@ -105,7 +105,7 @@ export default async function handler(req, res) {
 
   const paymentBody = {
     transaction_amount: plan.price,
-    description: `Assinatura HomeFin ${plan.name}`,
+    description: `Assinatura HomeFin ${plan.name}`,\n    notification_url: process.env.MERCADO_PAGO_WEBHOOK_URL || 'https://homefinapp.vercel.app/api/webhook',
     payment_method_id: method === 'pix' ? 'pix' : body.paymentMethodId,
     payer: { email },
     external_reference: familyId,
