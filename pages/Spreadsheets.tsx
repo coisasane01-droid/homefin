@@ -145,11 +145,12 @@ const migrateSaleItemsIntoColumns = (spreadsheet: HomeFinSpreadsheet): {
         sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
       const currentPrice = parseSpreadsheetCurrency(cells[priceColumn.id] || '');
       const priceAlreadyStored = currentPrice !== null && Math.abs(currentPrice - categoryTotal) < 0.005;
-      if (!priceAlreadyStored && missingItems.length) {
+      if (!priceAlreadyStored && (currentPrice === null || currentPrice === 0)) {
+        cells[priceColumn.id] = categoryTotal.toFixed(2).replace('.', ',');
+      } else if (!priceAlreadyStored && missingItems.length) {
         const missingTotal = missingItems.reduce((sum, item) =>
           sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
-        const base = currentPrice ?? 0;
-        cells[priceColumn.id] = (base + missingTotal).toFixed(2).replace('.', ',');
+        cells[priceColumn.id] = ((currentPrice || 0) + missingTotal).toFixed(2).replace('.', ',');
       }
 
       for (let index = remaining.length - 1; index >= 0; index--) {
