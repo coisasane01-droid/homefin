@@ -71,7 +71,7 @@ const MeusPlanos: React.FC = () => {
     try {
       const payment = await createPixPayment(email, currentPlan.id);
       setMercadoPagoPayment(payment);
-      setPaymentStatus(payment.status || 'pending');
+      setPaymentStatus('pending');
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : 'Erro ao gerar PIX. Tente novamente.',
@@ -123,9 +123,10 @@ const MeusPlanos: React.FC = () => {
         formData.issuer_id
       );
 
-      setMercadoPagoPayment(payment);
-      setPaymentStatus(payment.status || 'pending');
-      if (!['approved', 'pending', 'in_process'].includes(payment.status)) {
+      if (['approved', 'pending', 'in_process'].includes(payment.status)) {
+        setMercadoPagoPayment(payment);
+        setPaymentStatus('pending');
+      } else {
         showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
     } catch (error) {
