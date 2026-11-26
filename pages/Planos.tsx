@@ -1,7 +1,7 @@
 import { showNotification } from '../services/utils/notifications';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { CheckCircle2, Star, Shield, Zap, X, CreditCard, QrCode, ArrowLeft, Copy, Tag, Loader2 } from 'lucide-react';
+import { CheckCircle2, Star, Shield, Zap, X, CreditCard, QrCode, Copy, Tag, Loader2 } from 'lucide-react';
 import { saasDb, Plan, PaymentConfig } from '../services/saasDb';
 import { createPixPayment, createCardPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
@@ -138,14 +138,6 @@ const Planos: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-20 px-4 relative">
-      <button 
-        onClick={() => navigate(-1)}
-        className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 transition-colors"
-        title="Voltar para Início"
-      >
-        <ArrowLeft size={24} />
-      </button>
-
       <div className="max-w-5xl mx-auto text-center">
         <h2 className="text-4xl font-bold text-gray-900 mb-4">Escolha o plano ideal para sua família</h2>
         <p className="text-xl text-gray-500 mb-16">Comece a organizar suas finanças hoje mesmo.</p>
