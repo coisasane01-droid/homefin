@@ -244,6 +244,12 @@ export const supabaseService = {
     return requestSaasData('get');
   },
 
+  /** Lista o cadastro completo de famílias no SaaS, credenciais e dados legados. */
+  getRegisteredFamilies: async (): Promise<any[]> => {
+    const result = await requestSaasData('list-families');
+    return Array.isArray(result?.families) ? result.families : [];
+  },
+
   /**
    * Salva ou atualiza toda a configuração SaaS.
    *
