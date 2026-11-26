@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { ShoppingItem, Bill, KnownProduct } from '../types';
 import { formatCurrency, generateId } from '../utils';
-import { Plus, Trash2, ShoppingCart, ArrowRight, Edit2, CheckCircle2, Circle, X, Save, Sparkles, Clock, RefreshCw, Flame, Check, Info, Calendar, Bell } from 'lucide-react';
+import { Plus, Trash2, ShoppingCart, ArrowRight, Edit2, CheckCircle2, Circle, X, Save, Sparkles, Clock, RefreshCw, Flame, Check, Info, Calendar, Bell, Camera, Loader2 } from 'lucide-react';
+import { getFamilySessionToken } from '../services/familyAuth';
+import { homefinApiUrl } from '../services/nativeApi';
 
 // Fallback items for new users without history
 const SEED_ITEMS = [
@@ -29,6 +31,8 @@ const Shopping: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState(''); // Feedback visual
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [recognizingShoppingPhoto, setRecognizingShoppingPhoto] = useState(false);
+  const [photoScanMessage, setPhotoScanMessage] = useState('');
   const [suggestions, setSuggestions] = useState<{
     restock: KnownProduct[];
     frequent: KnownProduct[];
@@ -36,6 +40,7 @@ const Shopping: React.FC = () => {
   }>({ restock: [], frequent: [], forgotten: [] });
   
   const inputRef = useRef<HTMLInputElement>(null);
+  const shoppingPhotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadItems();
@@ -150,6 +155,107 @@ const Shopping: React.FC = () => {
     // Keep focus for rapid entry if manual
     if (!editingId && name === newItemName) {
         setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  };
+
+  const recognizeShoppingPhoto = async (file?: File) => {
+    if (!file) return;
+    if (editingId) {
+      setPhotoScanMessage('Salve ou cancele a edição atual antes de adicionar um produto pela foto.');
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setPhotoScanMessage('Use uma foto JPG, PNG ou WEBP.');
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setPhotoScanMessage('A foto deve ter no máximo 3 MB.');
+      return;
+    }
+
+    setRecognizingShoppingPhoto(true);
+    setPhotoScanMessage('Analisando a foto...');
+    try {
+      const familyId = localStorage.getItem('homefin_current_family_id') || '';
+      if (!familyId || familyId === 'v1') {
+        throw new Error('Entre na sua família para adicionar produtos pela foto.');
+      }
+      const token = await getFamilySessionToken(familyId);
+      if (!token) throw new Error('Sua sessão expirou. Entre novamente para usar a câmera.');
+
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          const comma = dataUrl.indexOf(',');
+          if (comma < 0) reject(new Error('Não foi possível ler a foto.'));
+          else resolve(dataUrl.slice(comma + 1));
+        };
+        reader.onerror = () => reject(new Error('Falha ao ler a foto.'));
+        reader.readAsDataURL(file);
+      });
+
+      const response = await fetch(homefinApiUrl('/api/inventory-recognize'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          familyId,
+          imageBase64,
+          mimeType: file.type,
+          purpose: 'shopping',
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof result.error === 'string'
+          ? result.error
+          : 'Não foi possível reconhecer o produto.');
+      }
+
+      const productName = typeof result.product?.name === 'string'
+        ? result.product.name.trim()
+        : '';
+      if (!productName) throw new Error('A IA não identificou o nome do produto. Tente outra foto.');
+
+      const normalizedName = productName.normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase('pt-BR');
+      const alreadyExists = items.some(item =>
+        !item.checked &&
+        item.name.replace(/^\p{Extended_Pictographic}\s*/u, '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .replace(/\s+/g, ' ')
+          .toLocaleLowerCase('pt-BR') === normalizedName
+      );
+      if (alreadyExists) {
+        setPhotoScanMessage(`"${productName}" já está na lista.`);
+        return;
+      }
+
+      await db.addShoppingItem({
+        id: generateId(),
+        name: productName,
+        estimatedValue: 0,
+        checked: false,
+      });
+      await loadItems();
+      setPhotoScanMessage('');
+      showFeedback(`${productName} adicionado à lista!`);
+    } catch (error) {
+      setPhotoScanMessage(error instanceof Error
+        ? error.message
+        : 'Não foi possível analisar a foto. Tente novamente.');
+    } finally {
+      setRecognizingShoppingPhoto(false);
+      if (shoppingPhotoInputRef.current) shoppingPhotoInputRef.current.value = '';
     }
   };
 
@@ -334,6 +440,29 @@ const Shopping: React.FC = () => {
                     }`}
                 />
             </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+                <label className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold transition-colors ${recognizingShoppingPhoto || editingId ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-gray-700 dark:bg-gray-800' : 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-300'}`}>
+                    {recognizingShoppingPhoto ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                    {recognizingShoppingPhoto ? 'Analisando foto...' : 'Fotografar produto'}
+                    <input
+                        ref={shoppingPhotoInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        capture="environment"
+                        className="hidden"
+                        disabled={recognizingShoppingPhoto || Boolean(editingId)}
+                        onChange={event => void recognizeShoppingPhoto(event.target.files?.[0])}
+                    />
+                </label>
+                <span className="self-center text-xs text-gray-500 dark:text-gray-400">
+                    A IA identifica o nome; a foto não é salva.
+                </span>
+            </div>
+            {photoScanMessage && (
+                <p className={`text-sm ${photoScanMessage.includes('adicionado') ? 'text-emerald-600' : 'text-amber-600 dark:text-amber-400'}`} role="status">
+                    {photoScanMessage}
+                </p>
+            )}
             <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-1">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">R$</span>
