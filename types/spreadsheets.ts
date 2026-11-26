@@ -14,9 +14,18 @@ export interface SpreadsheetColumn {
   } | null;
 }
 
+export interface SpreadsheetSaleItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  category?: 'product' | 'part';
+}
+
 export interface SpreadsheetRow {
   id: string;
   cells: Record<string, string>;
+  saleItems?: SpreadsheetSaleItem[];
 }
 
 export interface HomeFinSpreadsheet {

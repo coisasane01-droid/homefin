@@ -191,6 +191,8 @@ const Spreadsheets: React.FC = () => {
   const [search, setSearch] = useState('');
   const [rowSearch, setRowSearch] = useState('');
   const [quickEntry, setQuickEntry] = useState<Record<string, string>>({});
+  const [quickSaleItems, setQuickSaleItems] = useState<Array<{ id: string; description: string; quantity: string; unitPrice: string; category: 'product' | 'part' }>>([]);
+  const [saleItemDraft, setSaleItemDraft] = useState({ description: '', quantity: '1', unitPrice: '', category: 'product' as 'product' | 'part' });
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -304,7 +306,7 @@ const Spreadsheets: React.FC = () => {
           ? calculateSpreadsheetColumnFormula(selected, column.id, row)
           : null;
 
-        const values = [column.name, raw];
+        const values = [column.name, raw, ...(row.saleItems || []).map(item => item.description)];
 
         if (hasRowFormula && calculated !== null && Number.isFinite(calculated)) {
           values.push(String(calculated), formatCurrency(calculated));
@@ -478,6 +480,7 @@ const handleSave = async () => {
             row.cells[column.id] || '',
           ])
         ),
+        ...(row.saleItems?.length ? { saleItems: row.saleItems.map(item => ({ ...item, id: crypto.randomUUID() })) } : {}),
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -513,7 +516,7 @@ const handleSave = async () => {
 
     const hasContent = selected.columns.some(
       (column) => (quickEntry[column.id] || '').trim() !== ''
-    );
+    ) || quickSaleItems.length > 0;
 
     if (!hasContent) {
       setSyncError('Preencha pelo menos um campo antes de adicionar o lançamento.');
@@ -544,11 +547,25 @@ const handleSave = async () => {
       ])
     );
 
+    const saleItems = quickSaleItems.map(item => ({
+      id: item.id,
+      description: item.description.trim(),
+      quantity: Number(item.quantity),
+      unitPrice: item.unitPrice.trim(),
+      category: item.category,
+    }));
+    if (saleItems.some(item => !item.description || !Number.isFinite(item.quantity) || item.quantity <= 0 || parseSpreadsheetCurrency(item.unitPrice) === null)) {
+      setSyncError('Confira descrição, quantidade e preço de cada produto/peça.');
+      return;
+    }
+
     updateSelected({
-      rows: [...selected.rows, { id: crypto.randomUUID(), cells }],
+      rows: [...selected.rows, { id: crypto.randomUUID(), cells, ...(saleItems.length ? { saleItems } : {}) }],
     });
 
     setQuickEntry({});
+    setQuickSaleItems([]);
+    setSaleItemDraft({ description: '', quantity: '1', unitPrice: '', category: 'product' });
     setRowSearch('');
     setSyncError('');
   };
@@ -957,12 +974,15 @@ const handleSave = async () => {
         if (value === null || !Number.isFinite(value)) return null;
         total += value;
       }
-      return total;
+      return total + (row.saleItems || []).reduce((sum, item) => sum + (parseSpreadsheetCurrency(item.unitPrice) || 0) * item.quantity, 0);
     };
     const exportGrandTotal = exportColumns.reduce((sum, column) =>
-      sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0);
+      sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0) + selected.rows.reduce((sum, row) => sum + (row.saleItems || []).reduce((itemSum, item) => itemSum + (parseSpreadsheetCurrency(item.unitPrice) || 0) * item.quantity, 0), 0);
     const body = selected.rows.map((row) => [
       ...exportColumns.map((column) => {
+        if (column.id === exportColumns[0]?.id && row.saleItems?.length) {
+          return [column.type === 'currency' ? formatCurrency(parseSpreadsheetCurrency(row.cells[column.id] || '') || 0) : (row.cells[column.id] || ''), ...row.saleItems.map(item => item.description + ' (' + item.quantity + ' x R$ ' + item.unitPrice + ')')].filter(Boolean).join(' | ');
+        }
         if (column.formulaConfig?.mode === 'column') return '—';
         if (column.formulaConfig || column.formulaExpression || column.formula) {
           const value = calculateSpreadsheetColumnFormula(selected, column.id, row);
@@ -1235,6 +1255,7 @@ const handleSave = async () => {
           ? parseSpreadsheetCurrency(row.cells[column.id] || '')
           : (row.cells[column.id] || '');
       });
+      if (row.saleItems?.length) values[0] = [String(values[0] ?? ''), ...row.saleItems.map(item => item.description + ' (' + item.quantity + ' x R$ ' + item.unitPrice + ')')].filter(Boolean).join(' | ');
       rows.push([...values.map((value) => String(value)), String(calculateSpreadsheetRowTotal(row, selected.columns) ?? 0)]);
     });
 
@@ -1957,6 +1978,33 @@ const handleSave = async () => {
               ))}
             </div>
 
+            <div className="space-y-3 rounded-lg border border-emerald-200 bg-white/80 p-3 dark:border-emerald-900 dark:bg-gray-900/60">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-white">Produtos e peças desta mesma venda</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Adicione vários itens sem criar outra linha de lançamento.</p>
+                </div>
+                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{quickSaleItems.length} item(ns)</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                <input value={saleItemDraft.description} onChange={e => setSaleItemDraft(v => ({...v, description:e.target.value}))} placeholder="Produto ou peça" maxLength={160} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"/>
+                <input value={saleItemDraft.quantity} onChange={e => setSaleItemDraft(v => ({...v, quantity:e.target.value}))} type="number" min="0.001" step="0.001" placeholder="Quantidade" className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"/>
+                <input value={saleItemDraft.unitPrice} onChange={e => setSaleItemDraft(v => ({...v, unitPrice:e.target.value}))} inputMode="decimal" placeholder="Preço unitário (R$)" className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"/>
+                <div className="flex gap-2">
+                  <select value={saleItemDraft.category} onChange={e => setSaleItemDraft(v => ({...v,category:e.target.value as 'product'|'part'}))} className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-white"><option value="product">Produto</option><option value="part">Peça</option></select>
+                  <button type="button" onClick={() => {
+                    const quantity=Number(saleItemDraft.quantity);
+                    if (!saleItemDraft.description.trim() || !Number.isFinite(quantity) || quantity<=0 || parseSpreadsheetCurrency(saleItemDraft.unitPrice)===null) { setSyncError('Informe produto/peça, quantidade e preço unitário válido.'); return; }
+                    setQuickSaleItems(items=>[...items,{...saleItemDraft,id:crypto.randomUUID()}]);
+                    setSaleItemDraft({description:'',quantity:'1',unitPrice:'',category:'product'});
+                    setSyncError('');
+                  }} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"><Plus size={15}/> Adicionar</button>
+                </div>
+              </div>
+              {quickSaleItems.map((item,index)=><div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm dark:bg-emerald-950/30"><span className="min-w-0 flex-1"><b>{index+1}. {item.description}</b> · {item.quantity} × R$ {item.unitPrice}</span><button type="button" onClick={()=>setQuickSaleItems(items=>items.filter(entry=>entry.id!==item.id))} className="text-red-600">Remover</button></div>)}
+              {quickSaleItems.length>0 && <p className="text-right text-sm font-bold text-emerald-700 dark:text-emerald-300">Subtotal dos itens: {formatCurrency(quickSaleItems.reduce((sum,item)=>sum+(Number(item.quantity)*(parseSpreadsheetCurrency(item.unitPrice)||0)),0))}</p>}
+            </div>
+
             <button
               type="button"
               onClick={handleAddQuickEntry}
@@ -2088,8 +2136,12 @@ const handleSave = async () => {
                           <DragHandleIcon />
                         </button>
                         <button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === 0} onClick={() => moveRowBy(row.id, -1)} title="Mover linha para cima" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronUp size={15} /></button><button type="button" disabled={selected.rows.findIndex((item) => item.id === row.id) === selected.rows.length - 1} onClick={() => moveRowBy(row.id, 1)} title="Mover linha para baixo" className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-25 dark:hover:bg-gray-700"><ChevronDown size={15} /></button>
-                        {rowIndex + 1}
+                        <div className="flex flex-col items-center">
+                          <span>{rowIndex + 1}</span>
+                          {row.saleItems?.length ? <span className="mt-1 max-w-[90px] text-[10px] leading-tight text-emerald-700 dark:text-emerald-300">{row.saleItems.length} item(ns)</span> : null}
+                        </div>
                       </div>
+                      {row.saleItems?.length ? <div className="mt-1 max-w-[120px] space-y-1 text-left">{row.saleItems.map(item => <div key={item.id} title={item.description} className="rounded bg-emerald-50 px-1 py-0.5 text-[10px] leading-tight text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">{item.description} · {item.quantity}x</div>)}</div> : null}
                     </td>
                     {selected.columns.map((column) => (
                       <td key={column.id} className="border-r border-b border-gray-200 p-1.5 dark:border-gray-700">
