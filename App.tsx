@@ -72,7 +72,7 @@ const App: React.FC = () => {
         <Route path="/" element={<LandingHomeFin />} />
         <Route path="/login" element={<Auth />} />
         <Route path="/setup" element={<PreConfiguracaoFamilia />} />
-        <Route path="/plans" element={<Planos />} />
+        <Route path="/plans" element={<Layout><Planos /></Layout>} />
         <Route path="/admin" element={<AdminLogin />} />
         <Route path="/admin/panel" element={<AdminPanelGuard />} />
         <Route element={<FamilySessionGuard />}>
