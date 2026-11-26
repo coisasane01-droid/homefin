@@ -249,6 +249,19 @@ const SuperAdmin: React.FC = () => {
   const loadData = () => {
     setCodes(saasDb.getCodes());
     setFamilies(saasDb.getFamilies());
+    void saasDb.getRegisteredFamilies()
+      .then(registeredFamilies => {
+        setFamilies(current => {
+          const byId = new Map(current.map(family => [family.id, family]));
+          for (const family of registeredFamilies) {
+            byId.set(family.id, { ...byId.get(family.id), ...family });
+          }
+          return Array.from(byId.values());
+        });
+      })
+      .catch(error => {
+        console.error('Não foi possível carregar o cadastro completo de famílias:', error);
+      });
     setPlans(saasDb.getPlans());
     setLandingConfig(saasDb.getLandingConfig());
     setPaymentConfig(saasDb.getPaymentConfig());
