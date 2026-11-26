@@ -164,12 +164,12 @@ const Shopping: React.FC = () => {
       setPhotoScanMessage('Salve ou cancele a edição atual antes de adicionar um produto pela foto.');
       return;
     }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setPhotoScanMessage('Use uma foto JPG, PNG ou WEBP.');
+    if (!file.type.startsWith('image/')) {
+      setPhotoScanMessage('Selecione uma foto da câmera ou da galeria.');
       return;
     }
-    if (file.size > 3 * 1024 * 1024) {
-      setPhotoScanMessage('A foto deve ter no máximo 3 MB.');
+    if (file.size > 12 * 1024 * 1024) {
+      setPhotoScanMessage('A foto original deve ter no máximo 12 MB.');
       return;
     }
 
@@ -447,7 +447,7 @@ const Shopping: React.FC = () => {
                     <input
                         ref={shoppingPhotoInputRef}
                         type="file"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept="image/*"
                         capture="environment"
                         className="hidden"
                         disabled={recognizingShoppingPhoto || Boolean(editingId)}
@@ -475,15 +475,16 @@ const Shopping: React.FC = () => {
                         className="w-full bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-4 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base"
                     />
                 </div>
-                <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <div className="relative min-w-0 w-full flex-1 overflow-hidden">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                         <Calendar size={18} />
                     </span>
                     <input 
                         type="date" 
                         value={newItemDueDate}
                         onChange={e => setNewItemDueDate(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-4 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base text-gray-500"
+                        className="block min-w-0 w-full max-w-full box-border appearance-none bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-2 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base text-gray-500"
+                        style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
                         title="Data limite para compra (Lembrete)"
                     />
                 </div>
