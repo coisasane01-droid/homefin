@@ -974,10 +974,10 @@ const handleSave = async () => {
         if (value === null || !Number.isFinite(value)) return null;
         total += value;
       }
-      return total;
+      return total + (row.saleItems || []).reduce((sum, item) => sum + (parseSpreadsheetCurrency(item.unitPrice) || 0) * item.quantity, 0);
     };
     const exportGrandTotal = exportColumns.reduce((sum, column) =>
-      sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0);
+      sum + (column.type === 'currency' ? calculateSpreadsheetColumnTotal(selected, column.id) : 0), 0) + selected.rows.reduce((sum, row) => sum + (row.saleItems || []).reduce((itemSum, item) => itemSum + (parseSpreadsheetCurrency(item.unitPrice) || 0) * item.quantity, 0), 0);
     const body = selected.rows.map((row) => [
       ...exportColumns.map((column) => {
         if (column.id === exportColumns[0]?.id && row.saleItems?.length) {
