@@ -40,7 +40,7 @@ export const SIDEBAR_MENU_ITEMS: NavigationItem[] = [
   { icon: Share2, label: 'Compartilhar / Indicar', path: '/share' },
   { icon: Headphones, label: 'Suporte', path: '/support' },
   { icon: Settings, label: 'Configurações', path: '/settings' },
-  { icon: CreditCard, label: 'Meu Plano', path: '/plans' },
+  { icon: CreditCard, label: 'Meu Plano', path: '/my-plan' },
 ];
 
 
