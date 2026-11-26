@@ -379,6 +379,15 @@ const Bills: React.FC = () => {
 
   const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
+        // Abre o formulário para revisar os dados que a IA extrair antes de salvar.
+        setEditingBill({
+            category: 'Fixa',
+            isBold: false,
+            attachments: [],
+            paidAmount: 0,
+            makeRecurring: false
+        });
+        setIsModalOpen(true);
         const file = e.target.files[0];
         const reader = new FileReader();
         
@@ -569,6 +578,14 @@ const Bills: React.FC = () => {
 
   return (
     <div className="pb-20 relative">
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        ref={cameraInputRef}
+        className="hidden"
+        onChange={handleCameraCapture}
+      />
       {/* Month Navigation - Static on mobile to prevent overlap, sticky on desktop */}
       <div className="md:sticky md:top-0 z-10 bg-gray-50 dark:bg-gray-900 pb-2 pt-2 border-b border-transparent">
         <div className="flex justify-between items-center">
@@ -649,12 +666,23 @@ const Bills: React.FC = () => {
                         <span className="hidden xs:inline">{isImporting ? 'Lendo...' : 'Importar Extrato'}</span>
                     </button>
                 </div>
-                <button 
-                    onClick={() => openModal()}
-                    className="text-xs md:text-sm flex items-center gap-1 bg-primary-600 text-white px-4 py-2 rounded shadow hover:bg-primary-700 transition-colors"
-                >
-                    <Plus size={16} /> Nova Conta
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={isScanning || isUploadingAttachment}
+                        className="text-xs md:text-sm flex items-center gap-1 border border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 px-3 py-2 rounded shadow-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
+                    >
+                        {isScanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                        <span>Escanear conta</span>
+                    </button>
+                    <button 
+                        onClick={() => openModal()}
+                        className="text-xs md:text-sm flex items-center gap-1 bg-primary-600 text-white px-4 py-2 rounded shadow hover:bg-primary-700 transition-colors"
+                    >
+                        <Plus size={16} /> Nova Conta
+                    </button>
+                </div>
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
@@ -1113,15 +1141,6 @@ const Bills: React.FC = () => {
                                 ))}
                             </div>
                         ) : null}
-
-                        <input 
-                            type="file" 
-                            accept="image/*"
-                            capture="environment"
-                            ref={cameraInputRef}
-                            className="hidden"
-                            onChange={handleCameraCapture}
-                        />
 
                         <div className="flex gap-2">
                             <button 
