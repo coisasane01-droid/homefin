@@ -122,7 +122,7 @@ function validSpreadsheet(spreadsheet) {
           typeof item.unitPrice !== 'string' || item.unitPrice.length > 40 ||
           (item.category !== undefined && !['product', 'part'].includes(item.category))
         ) return false;
-        const price = item.unitPrice.replace(/R\\$/gi, '').replace(/\\s/g, '');
+        const price = item.unitPrice.replace(/R\$/gi, '').replace(/\s/g, '');
         if (!price || (!BRAZILIAN_CURRENCY_PATTERN.test(price) && !DECIMAL_CURRENCY_PATTERN.test(price))) return false;
         saleItemIds.add(item.id);
       }
