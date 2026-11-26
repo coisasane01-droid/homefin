@@ -155,6 +155,15 @@ export const calculateSpreadsheetColumnTotals = (
   );
 };
 
+export const calculateSpreadsheetSaleItemsTotal = (row: SpreadsheetRow): number =>
+  (row.saleItems || []).reduce((sum, item) => {
+    const price = parseSpreadsheetCurrency(item.unitPrice);
+    const quantity = Number(item.quantity);
+    return price !== null && Number.isFinite(quantity) && quantity > 0
+      ? sum + quantity * price
+      : sum;
+  }, 0);
+
 export const calculateSpreadsheetRowTotal = (
   row: SpreadsheetRow,
   columns: SpreadsheetColumn[]
@@ -195,7 +204,7 @@ export const calculateSpreadsheetRowTotal = (
     if (amount === null) return null;
     total += amount;
   }
-  return total;
+  return total + calculateSpreadsheetSaleItemsTotal(row);
 };
 
 export const calculateSpreadsheetTotal = (
@@ -203,9 +212,10 @@ export const calculateSpreadsheetTotal = (
 ): number | null => {
   if (hasInvalidSpreadsheetCurrency(spreadsheet)) return null;
   const salesColumns = getPlusPneusSalesColumns(spreadsheet.columns);
-  return spreadsheet.columns
+  const columnsTotal = spreadsheet.columns
     .filter((column) => column.type === 'currency' && (!salesColumns || column.id !== salesColumns.tireOriginalPrice.id))
     .reduce((total, column) => total + calculateSpreadsheetColumnTotal(spreadsheet, column.id), 0);
+  return columnsTotal + spreadsheet.rows.reduce((sum, row) => sum + calculateSpreadsheetSaleItemsTotal(row), 0);
 };
 
 export const calculateSpreadsheetCommissionBase = (
