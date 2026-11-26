@@ -550,51 +550,83 @@ const handleSave = async () => {
 
   const handleDuplicate = async () => {
     if (!selected || saving) return;
-    const duplicatedColumns = selected.columns.map((column) => ({
+    if (!familyId || familyId === 'v1') {
+      setSyncError('Entre na sua família antes de duplicar uma planilha.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingNames = new Set(records.map(record => record.name.trim().toLocaleLowerCase('pt-BR')));
+    const baseName = selected.name.trim() || 'Planilha';
+    let copyName = `${baseName} (cópia)`.slice(0, 120);
+    let suffix = 2;
+    while (existingNames.has(copyName.toLocaleLowerCase('pt-BR'))) {
+      const ending = ` (cópia ${suffix++})`;
+      copyName = `${baseName.slice(0, 120 - ending.length)}${ending}`;
+    }
+
+    const columnIdMap = new Map(
+      selected.columns.map(column => [column.id, crypto.randomUUID()])
+    );
+    const duplicatedColumns = selected.columns.map(column => ({
       ...column,
-      id: crypto.randomUUID(),
+      id: columnIdMap.get(column.id)!,
+      ...(column.formulaConfig ? {
+        formulaConfig: {
+          ...column.formulaConfig,
+          sourceColumnId: columnIdMap.get(column.formulaConfig.sourceColumnId) || column.formulaConfig.sourceColumnId,
+          secondColumnId: columnIdMap.get(column.formulaConfig.secondColumnId) || column.formulaConfig.secondColumnId,
+        },
+      } : {}),
     }));
+    const remapColumnId = (id?: string | null) =>
+      id === SPREADSHEET_TOTAL_COMMISSION_BASE
+        ? SPREADSHEET_TOTAL_COMMISSION_BASE
+        : id ? columnIdMap.get(id) || null : null;
+
     const duplicate: HomeFinSpreadsheet = {
       ...selected,
       id: crypto.randomUUID(),
-      name: `${selected.name} (cópia)`.slice(0, 120),
+      name: copyName,
       columns: duplicatedColumns,
-      commissionColumnId: selected.commissionColumnId
-        ? selected.commissionColumnId === SPREADSHEET_TOTAL_COMMISSION_BASE
-          ? SPREADSHEET_TOTAL_COMMISSION_BASE
-          : duplicatedColumns[selected.columns.findIndex((column) => column.id === selected.commissionColumnId)]?.id || null
-        : null,
-      unitCommissionColumnId: selected.unitCommissionColumnId
-        ? duplicatedColumns[
-            selected.columns.findIndex(
-              (column) => column.id === selected.unitCommissionColumnId
-            )
-          ]?.id || null
-        : null,
-      extraCommissionOriginalColumnId: selected.extraCommissionOriginalColumnId
-        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionOriginalColumnId)]?.id || null : null,
-      extraCommissionSaleColumnId: selected.extraCommissionSaleColumnId
-        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionSaleColumnId)]?.id || null : null,
-      extraCommissionQuantityColumnId: selected.extraCommissionQuantityColumnId
-        ? duplicatedColumns[selected.columns.findIndex(c => c.id === selected.extraCommissionQuantityColumnId)]?.id || null : null,
-      rows: selected.rows.map((row) => ({
+      commissionColumnId: remapColumnId(selected.commissionColumnId),
+      unitCommissionColumnId: remapColumnId(selected.unitCommissionColumnId),
+      extraCommissionOriginalColumnId: remapColumnId(selected.extraCommissionOriginalColumnId),
+      extraCommissionSaleColumnId: remapColumnId(selected.extraCommissionSaleColumnId),
+      extraCommissionQuantityColumnId: remapColumnId(selected.extraCommissionQuantityColumnId),
+      rows: selected.rows.map(() => ({
         id: crypto.randomUUID(),
-        cells: Object.fromEntries(
-          selected.columns.map((column, index) => [
-            duplicatedColumns[index].id,
-            row.cells[column.id] || '',
-          ])
-        ),
-        ...(row.saleItems?.length ? { saleItems: row.saleItems.map(item => ({ ...item, id: crypto.randomUUID() })) } : {}),
+        cells: Object.fromEntries(duplicatedColumns.map(column => [column.id, ''])),
       })),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      notes: '',
+      createdAt: now,
+      updatedAt: now,
     };
 
-    setSelected(duplicate);
-    setDirty(true);
-    setSavedInCloud(false);
+    setSaving(true);
     setSyncError('');
+    try {
+      const result = await spreadsheetsService.save(familyId, duplicate);
+      const savedCopy = { ...duplicate, updatedAt: new Date().toISOString() };
+      setRecords(current => [savedCopy, ...current.filter(record => record.id !== savedCopy.id)]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      setSelected(savedCopy);
+      setDirty(false);
+      setSavedInCloud(result.synced);
+      setCloudAvailable(result.synced);
+      setHistoryOpen(false);
+      setRowSearch('');
+      setQuickEntry({});
+      setQuickSaleItems([]);
+      setSyncError(result.error || (!result.synced
+        ? 'Cópia criada neste aparelho; a nuvem ainda não confirmou a sincronização.'
+        : 'Planilha duplicada no Histórico, com os dados zerados.'));
+
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Não foi possível duplicar a planilha.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAddRow = () => {
