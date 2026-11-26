@@ -559,6 +559,48 @@ const handleSave = async () => {
       return;
     }
 
+    // Distribui os itens nas colunas legadas da planilha Plus Pneus:
+    // Produto -> Item Vendido / Preço Item Vendido
+    // Peça -> Peça Vendida / Preço Peça Vendida.
+    const normalizeSalesColumn = (name: string) => name
+      .normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const appendSaleCategory = (
+      category: 'product' | 'part',
+      descriptionColumnName: string,
+      priceColumnName: string
+    ) => {
+      const items = saleItems.filter(item => item.category === category);
+      if (!items.length) return;
+      const descriptionColumn = selected.columns.find(column =>
+        normalizeSalesColumn(column.name) === descriptionColumnName
+      );
+      const priceColumn = selected.columns.find(column =>
+        normalizeSalesColumn(column.name) === priceColumnName
+      );
+
+      if (descriptionColumn) {
+        const descriptions = items.map(item => {
+          const quantityLabel = item.quantity === 1 ? '' : ` (${item.quantity}x)`;
+          return `${item.description}${quantityLabel}`;
+        }).join(' | ');
+        const existing = cells[descriptionColumn.id]?.trim();
+        cells[descriptionColumn.id] = existing ? `${existing} | ${descriptions}` : descriptions;
+      }
+
+      if (priceColumn) {
+        const itemsTotal = items.reduce((sum, item) =>
+          sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
+        const existing = parseSpreadsheetCurrency(cells[priceColumn.id] || '') || 0;
+        cells[priceColumn.id] = (existing + itemsTotal).toFixed(2).replace('.', ',');
+      }
+    };
+    appendSaleCategory('product', 'item vendido', 'preco item vendido');
+    appendSaleCategory('part', 'peca vendida', 'preco peca vendida');
+
     updateSelected({
       rows: [...selected.rows, { id: crypto.randomUUID(), cells, ...(saleItems.length ? { saleItems } : {}) }],
     });
