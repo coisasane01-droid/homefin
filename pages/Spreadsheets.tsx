@@ -87,6 +87,91 @@ const moveItem = <T,>(
   return reordered;
 };
 
+const normalizeSalesColumnName = (name: string) => name
+  .normalize('NFD')
+  .replace(/[\\u0300-\\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
+
+/**
+ * Migra os itens auxiliares da venda para as colunas próprias da planilha.
+ * A operação é idempotente: se descrição e valor já estiverem nas células,
+ * não os soma novamente.
+ */
+const migrateSaleItemsIntoColumns = (spreadsheet: HomeFinSpreadsheet): {
+  spreadsheet: HomeFinSpreadsheet;
+  changed: boolean;
+} => {
+  const findColumn = (name: string) => spreadsheet.columns.find(column =>
+    normalizeSalesColumnName(column.name) === name
+  );
+  const productDescription = findColumn('item vendido');
+  const productPrice = findColumn('preco item vendido');
+  const partDescription = findColumn('peca vendida');
+  const partPrice = findColumn('preco peca vendida');
+  let changed = false;
+
+  const rows = spreadsheet.rows.map(row => {
+    if (!row.saleItems?.length) return row;
+    const cells = { ...row.cells };
+    const remaining = [...row.saleItems];
+
+    const migrateCategory = (
+      category: 'product' | 'part',
+      descriptionColumn: SpreadsheetColumn | undefined,
+      priceColumn: SpreadsheetColumn | undefined
+    ) => {
+      if (!descriptionColumn || !priceColumn) return;
+      const items = remaining.filter(item => item.category === category);
+      if (!items.length) return;
+
+      const currentDescription = String(cells[descriptionColumn.id] || '').trim();
+      const normalizedDescription = currentDescription.normalize('NFD')
+        .replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+      const missingItems = items.filter(item =>
+        !normalizedDescription.includes(item.description.trim().normalize('NFD')
+          .replace(/[\\u0300-\\u036f]/g, '').toLowerCase())
+      );
+
+      const descriptions = missingItems.map(item =>
+        item.quantity === 1 ? item.description.trim() : `${item.description.trim()} (${item.quantity}x)`
+      );
+      if (descriptions.length) {
+        cells[descriptionColumn.id] = [currentDescription, ...descriptions].filter(Boolean).join(' | ');
+      }
+
+      const categoryTotal = items.reduce((sum, item) =>
+        sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
+      const currentPrice = parseSpreadsheetCurrency(cells[priceColumn.id] || '');
+      const priceAlreadyStored = currentPrice !== null && Math.abs(currentPrice - categoryTotal) < 0.005;
+      if (!priceAlreadyStored && missingItems.length) {
+        const missingTotal = missingItems.reduce((sum, item) =>
+          sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
+        const base = currentPrice ?? 0;
+        cells[priceColumn.id] = (base + missingTotal).toFixed(2).replace('.', ',');
+      }
+
+      for (let index = remaining.length - 1; index >= 0; index--) {
+        if (remaining[index].category === category) remaining.splice(index, 1);
+      }
+      changed = true;
+    };
+
+    migrateCategory('product', productDescription, productPrice);
+    migrateCategory('part', partDescription, partPrice);
+
+    if (remaining.length === row.saleItems.length) return row;
+    return {
+      ...row,
+      cells,
+      ...(remaining.length ? { saleItems: remaining } : { saleItems: undefined }),
+    };
+  });
+
+  return changed ? { spreadsheet: { ...spreadsheet, rows }, changed } : { spreadsheet, changed };
+};
+
 const createSpreadsheet = (): HomeFinSpreadsheet => {
   const now = new Date().toISOString();
   const columns = createInitialColumns();
@@ -240,6 +325,25 @@ const Spreadsheets: React.FC = () => {
     try {
       const result = await spreadsheetsService.load(familyId);
       let loadedRecords = result.records;
+      let migrationError = '';
+      const migratedRecords = loadedRecords.map(record => migrateSaleItemsIntoColumns(record));
+      const changedRecords = migratedRecords.filter(result => result.changed);
+      if (changedRecords.length) {
+        loadedRecords = migratedRecords.map(result => result.spreadsheet);
+        // Persiste a correção na nuvem apenas quando a leitura confirmou que
+        // os dados remotos foram carregados sem conflito.
+        if (result.synced) {
+          for (const migrated of changedRecords) {
+            const saved = await spreadsheetsService.save(familyId, migrated.spreadsheet);
+            if (!saved.synced) {
+              migrationError = saved.error || 'A correção foi aplicada neste aparelho, mas a nuvem ainda não confirmou o salvamento.';
+              break;
+            }
+          }
+        } else {
+          migrationError = result.error || 'A correção está preparada neste aparelho; aguardando sincronização segura com a nuvem.';
+        }
+      }
       let exampleSaveResult: { synced: boolean; error?: string } | null = null;
       if (result.synced && loadedRecords.length === 0 && !exampleCreationStarted.current) {
         exampleCreationStarted.current = true;
@@ -254,7 +358,7 @@ const Spreadsheets: React.FC = () => {
       setRecords(loadedRecords);
       setCloudAvailable(exampleSaveResult ? exampleSaveResult.synced : result.synced);
       setSavedInCloud(exampleSaveResult ? exampleSaveResult.synced : result.synced);
-      setSyncError(exampleSaveResult?.error || result.error || '');
+      setSyncError(migrationError || exampleSaveResult?.error || result.error || '');
     } catch (error) {
       setCloudAvailable(false);
       setSavedInCloud(false);
@@ -559,50 +663,18 @@ const handleSave = async () => {
       return;
     }
 
-    // Distribui os itens nas colunas legadas da planilha Plus Pneus:
-    // Produto -> Item Vendido / Preço Item Vendido
-    // Peça -> Peça Vendida / Preço Peça Vendida.
-    const normalizeSalesColumn = (name: string) => name
-      .normalize('NFD')
-      .replace(/[\\u0300-\\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
-    const appendSaleCategory = (
-      category: 'product' | 'part',
-      descriptionColumnName: string,
-      priceColumnName: string
-    ) => {
-      const items = saleItems.filter(item => item.category === category);
-      if (!items.length) return;
-      const descriptionColumn = selected.columns.find(column =>
-        normalizeSalesColumn(column.name) === descriptionColumnName
-      );
-      const priceColumn = selected.columns.find(column =>
-        normalizeSalesColumn(column.name) === priceColumnName
-      );
-
-      if (descriptionColumn) {
-        const descriptions = items.map(item => {
-          const quantityLabel = item.quantity === 1 ? '' : ` (${item.quantity}x)`;
-          return `${item.description}${quantityLabel}`;
-        }).join(' | ');
-        const existing = cells[descriptionColumn.id]?.trim();
-        cells[descriptionColumn.id] = existing ? `${existing} | ${descriptions}` : descriptions;
-      }
-
-      if (priceColumn) {
-        const itemsTotal = items.reduce((sum, item) =>
-          sum + item.quantity * (parseSpreadsheetCurrency(item.unitPrice) || 0), 0);
-        const existing = parseSpreadsheetCurrency(cells[priceColumn.id] || '') || 0;
-        cells[priceColumn.id] = (existing + itemsTotal).toFixed(2).replace('.', ',');
-      }
+    const newRow: SpreadsheetRow = {
+      id: crypto.randomUUID(),
+      cells,
+      ...(saleItems.length ? { saleItems } : {}),
     };
-    appendSaleCategory('product', 'item vendido', 'preco item vendido');
-    appendSaleCategory('part', 'peca vendida', 'preco peca vendida');
+    const migratedNewRow = migrateSaleItemsIntoColumns({
+      ...selected,
+      rows: [newRow],
+    }).spreadsheet.rows[0];
 
     updateSelected({
-      rows: [...selected.rows, { id: crypto.randomUUID(), cells, ...(saleItems.length ? { saleItems } : {}) }],
+      rows: [...selected.rows, migratedNewRow],
     });
 
     setQuickEntry({});
