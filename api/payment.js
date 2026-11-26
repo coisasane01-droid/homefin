@@ -147,7 +147,20 @@ export default async function handler(req, res) {
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('Falha ao criar pagamento no Mercado Pago:', response.status);
+      // Registra somente os campos de diagnóstico retornados pelo provedor.
+      // Nunca registrar Access Token, e-mail, payload do pagador ou dados do cartão.
+      const causes = Array.isArray(result?.cause)
+        ? result.cause.map(item => ({
+            code: item?.code,
+            description: item?.description
+          }))
+        : [];
+      console.error('Falha ao criar pagamento no Mercado Pago:', {
+        httpStatus: response.status,
+        error: result?.error,
+        message: result?.message,
+        causes
+      });
       return jsonError(res, 502, 'O Mercado Pago não conseguiu criar o pagamento. Confira os dados e tente novamente.');
     }
 
