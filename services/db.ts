@@ -95,6 +95,52 @@ const preserveDeviceTheme = (remote: AppData, local: AppData): AppData => ({
 });
 
 
+
+const mergeRecordLists = (remoteItems: any[] = [], localItems: any[] = []) => {
+  const result = new Map<string, any>();
+  const identity = (item: any, index: number, side: string) => {
+    if (item && typeof item.id === 'string' && item.id) return `id:${item.id}`;
+    if (item && typeof item.name === 'string' && item.name.trim()) return `name:${item.name.trim().toLocaleLowerCase('pt-BR')}`;
+    return `${side}:${index}:${stableSerialize(item)}`;
+  };
+  remoteItems.forEach((item, index) => result.set(identity(item, index, 'remote'), item));
+  localItems.forEach((item, index) => result.set(identity(item, index, 'local'), item));
+  return [...result.values()];
+};
+
+const reconcileFamilyData = (remoteValue: AppData, localValue: AppData): AppData => {
+  const remote = normalizeData(remoteValue);
+  const local = normalizeData(localValue);
+  return {
+    bills: mergeRecordLists(remote.bills, local.bills),
+    shoppingList: mergeRecordLists(remote.shoppingList, local.shoppingList),
+    knownProducts: mergeRecordLists(remote.knownProducts, local.knownProducts),
+    goals: mergeRecordLists(remote.goals, local.goals),
+    assets: mergeRecordLists(remote.assets, local.assets),
+    events: mergeRecordLists(remote.events, local.events),
+    debts: mergeRecordLists(remote.debts, local.debts),
+    bankAccounts: mergeRecordLists(remote.bankAccounts, local.bankAccounts),
+    settings: {
+      ...remote.settings, ...local.settings,
+      integrations: { ...remote.settings.integrations, ...local.settings.integrations },
+      notificationPreferences: { ...remote.settings.notificationPreferences, ...local.settings.notificationPreferences },
+      theme: local.settings.theme,
+      logoImage: local.settings.logoImage || remote.settings.logoImage,
+      backgroundImage: local.settings.backgroundImage || remote.settings.backgroundImage,
+    },
+  };
+};
+
+const saveReconciliationBackup = (familyId: string, localSnapshot: AppData, remoteSnapshot: AppData) => {
+  const key = `homefin_sync_recovery_${familyId}_${Date.now()}`;
+  try {
+    localStorage.setItem(key, JSON.stringify({ createdAt: new Date().toISOString(), familyId, local: localSnapshot, remote: remoteSnapshot }));
+    localStorage.setItem(`homefin_sync_recovery_latest_${familyId}`, key);
+  } catch {
+    throw new Error('Não foi possível criar a cópia de segurança local da reconciliação. Os dados foram mantidos sem alteração.');
+  }
+};
+
 const enqueueRemoteSave = (
   familyId: string,
   storageKey: string,
@@ -109,38 +155,32 @@ const enqueueRemoteSave = (
       const latestSerializedSnapshot = currentSerializedSnapshot || serializedSnapshot;
       const latestSnapshot = normalizeData(JSON.parse(latestSerializedSnapshot));
 
-      // Reavalia conflitos antigos antes de manter o bloqueio.
-      // Só libera quando os dados locais e remotos são comprovadamente iguais.
+      // Reconciliacao com backup dos dois lados antes de liberar o bloqueio.
       if (localStorage.getItem(getSyncConflictKey(familyId))) {
         const remote = await homefinProxy.getFamilyData(familyId);
-
         if (currentFamilyId !== familyId) return;
-
         if (!remote?.data || !remote.updatedAt) {
-          throw new FamilyDataConflictError(
-            'Não foi possível confirmar a versão remota. Os dados locais foram preservados.'
-          );
+          throw new FamilyDataConflictError('Não foi possível ler a versão remota. Os dados locais foram preservados.');
         }
-
-        const currentRaw = localStorage.getItem(storageKey);
-
-        if (
-          currentRaw !== latestSerializedSnapshot ||
-          stableSerializeFamilyData(latestSnapshot) !==
-            stableSerializeFamilyData(normalizeData(remote.data))
-        ) {
-          throw new FamilyDataConflictError(
-            'Os dados locais e remotos continuam diferentes ou foram alterados durante a comparação. Os dois lados foram preservados.'
-          );
+        if (localStorage.getItem(storageKey) !== latestSerializedSnapshot) {
+          publishSyncStatus(familyId, 'pending');
+          return;
         }
-
-        localStorage.setItem(
-          getRemoteUpdatedAtKey(familyId),
-          remote.updatedAt
-        );
-        localStorage.removeItem(pendingKey);
-        localStorage.removeItem(getSyncConflictKey(familyId));
-        publishSyncStatus(familyId, 'synced');
+        const remoteSnapshot = normalizeData(remote.data);
+        saveReconciliationBackup(familyId, latestSnapshot, remoteSnapshot);
+        const merged = reconcileFamilyData(remoteSnapshot, latestSnapshot);
+        const mergedSerialized = JSON.stringify(merged);
+        localStorage.setItem(storageKey, mergedSerialized);
+        cachedData = merged;
+        const updatedAt = await homefinProxy.saveFamilyData(familyId, merged, remote.updatedAt);
+        localStorage.setItem(getRemoteUpdatedAtKey(familyId), updatedAt);
+        if (localStorage.getItem(storageKey) === mergedSerialized) {
+          localStorage.removeItem(pendingKey);
+          localStorage.removeItem(getSyncConflictKey(familyId));
+          publishSyncStatus(familyId, 'synced');
+        } else {
+          publishSyncStatus(familyId, 'pending');
+        }
         return;
       }
 
