@@ -1683,7 +1683,7 @@ const handleSave = async () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setHistoryOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"><History size={19} /> Histórico</button>
+          <button onClick={() => setHistoryOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"><History size={19} /> Planilhas</button>
           <button onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-white px-4 py-3 font-semibold text-primary-700 shadow-sm hover:bg-primary-50 dark:border-primary-800 dark:bg-gray-800 dark:text-primary-300 dark:hover:bg-primary-900/20">
             <BookOpen size={19} /> COMO USAR
           </button>
@@ -1714,10 +1714,10 @@ const handleSave = async () => {
         </div>
       )}
 
-      {historyOpen && <div role="dialog" aria-modal="true" aria-label="Histórico de planilhas" className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm"><section className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+      {historyOpen && <div role="dialog" aria-modal="true" aria-label="Planilhas" className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm"><section className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Histórico de planilhas</h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Planilhas</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">Pesquise por nome, mês ou ano.</p>
           </div>
           <label className="relative block w-full sm:max-w-xs">
@@ -1738,37 +1738,56 @@ const handleSave = async () => {
         ) : filteredRecords.length ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filteredRecords.map((record) => (
-              <button
+              <div
                 key={record.id}
-                onClick={() => {
-                  if (saving) return;
-                  if (canLeaveCurrent()) {
-                    setSelected(record);
-                    setHistoryOpen(false);
-                    setDirty(false);
-                    setSavedInCloud(cloudAvailable);
-                    setSyncError('');
-                  }
-                }}
-                className={`min-w-0 overflow-hidden rounded-xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                className={`relative min-w-0 overflow-hidden rounded-xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
                   selected?.id === record.id
                     ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200 dark:border-blue-500 dark:bg-blue-950/50 dark:ring-blue-800'
                     : 'border-gray-200 bg-gray-50 hover:border-blue-200 hover:bg-blue-50/70 dark:border-gray-700 dark:bg-gray-900/70 dark:hover:border-blue-800 dark:hover:bg-gray-800'
                 }`}
               >
-                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-gray-900 dark:text-white">{record.name || 'Sem nome'}</p>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      {monthNames[record.referenceMonth - 1]} {record.referenceYear}
-                    </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (saving) return;
+                    if (canLeaveCurrent()) {
+                      setSelected(record);
+                      setHistoryOpen(false);
+                      setDirty(false);
+                      setSavedInCloud(cloudAvailable);
+                      setSyncError('');
+                    }
+                  }}
+                  className="block w-full min-w-0 p-4 pb-3 text-left"
+                  aria-label={`Abrir planilha ${record.name || 'Sem nome'}`}
+                >
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-gray-900 dark:text-white">{record.name || 'Sem nome'}</p>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        {monthNames[record.referenceMonth - 1]} {record.referenceYear}
+                      </p>
+                    </div>
+                    <span className="inline-flex max-w-full min-w-0 self-start break-words rounded-lg border border-emerald-200 bg-emerald-100/80 px-3 py-2 text-sm font-bold leading-snug tabular-nums text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 sm:self-auto sm:text-right">
+                      {formatSpreadsheetTotal(calculateSpreadsheetTotal(record))}
+                    </span>
                   </div>
-                  <span className="inline-flex max-w-full min-w-0 self-start break-words rounded-lg border border-emerald-200 bg-emerald-100/80 px-3 py-2 text-sm font-bold leading-snug tabular-nums text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 sm:self-auto sm:text-right">
-                    {formatSpreadsheetTotal(calculateSpreadsheetTotal(record))}
-                  </span>
+                  <p className="mt-3 text-xs text-gray-400">Criada em {formatDate(record.createdAt)}</p>
+                </button>
+                <div className="flex justify-end px-3 pb-3">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleDelete(record)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:bg-gray-800 dark:text-red-400 dark:hover:bg-red-950/40"
+                    aria-label={`Excluir planilha ${record.name || 'Sem nome'}`}
+                    title="Excluir planilha"
+                  >
+                    <Trash2 size={14} />
+                    Excluir
+                  </button>
                 </div>
-                <p className="mt-3 text-xs text-gray-400">Criada em {formatDate(record.createdAt)}</p>
-              </button>
+              </div>
             ))}
           </div>
         ) : (
