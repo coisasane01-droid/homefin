@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { validateFamilySession } from './_family-session.js';
 
 const FAMILY_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
