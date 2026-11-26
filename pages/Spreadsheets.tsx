@@ -89,7 +89,7 @@ const moveItem = <T,>(
 
 const normalizeSalesColumnName = (name: string) => name
   .normalize('NFD')
-  .replace(/\\p{M}/gu, '')
+  .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, ' ')
   .trim();
