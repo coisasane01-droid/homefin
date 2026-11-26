@@ -42,3 +42,23 @@ export const SIDEBAR_MENU_ITEMS: NavigationItem[] = [
   { icon: Settings, label: 'Configurações', path: '/settings' },
   { icon: CreditCard, label: 'Meu Plano', path: '/plans' },
 ];
+
+
+export const FAMILY_PAGE_ACCESS_OPTIONS = [
+  { path: '/dashboard', label: 'Dashboard' },
+  { path: '/bills', label: 'Contas do Mês' },
+  { path: '/shopping', label: 'Lista de Compras' },
+  { path: '/calendar', label: 'Agenda Família' },
+  { path: '/wallets', label: 'Contas & Cofrinhos' },
+  { path: '/goals', label: 'Metas e Sonhos' },
+  { path: '/assets', label: 'Bens e Patrimônio' },
+  { path: '/reports', label: 'Relatórios' },
+  { path: '/inventory', label: 'Estoque' },
+  { path: '/spreadsheets', label: 'Planilhas' },
+  { path: '/ranking', label: 'Ranking Familiar' },
+  { path: '/debts', label: 'Dívidas' },
+  { path: '/settings', label: 'Configurações' },
+  { path: '/my-plan', label: 'Meu Plano' },
+  { path: '/share', label: 'Compartilhar / Indicar' },
+  { path: '/support', label: 'Suporte' },
+] as const;
