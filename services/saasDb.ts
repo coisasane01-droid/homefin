@@ -689,6 +689,10 @@ export const saasDb = {
     return getSaasData().families;
   },
 
+  getRegisteredFamilies: async (): Promise<Family[]> => {
+    return await supabaseService.getRegisteredFamilies() as Family[];
+  },
+
   // ==========================================================
   // PLANOS
   // ==========================================================
