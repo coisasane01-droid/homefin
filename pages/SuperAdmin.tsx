@@ -1086,7 +1086,7 @@ const SuperAdmin: React.FC = () => {
                           <Settings size={16} />
                         </button>
                         <button
-                          onClick={() => handleCopyFamilyLink(family.id)
+                          onClick={() => handleCopyFamilyLink(family.id)}
                           className="text-blue-400 hover:text-blue-600 p-1 mr-2"
                           title="Copiar Link de Acesso"
                         >
