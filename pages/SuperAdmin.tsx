@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { saasDb, AccessCode, Family, Plan, LandingConfig, PaymentConfig } from '../services/saasDb';
 import { supportService, SupportMessage } from '../services/supportService';
 import { familyDeletionService } from '../services/familyDeletionService';
+import { FAMILY_PAGE_ACCESS_OPTIONS } from '../components/navigationConfig';
 import AdminPageAdvertisements from '../components/AdminPageAdvertisements';
 import { subscribeToPush, unsubscribeFromPush } from '../services/pushNotifications';
 import { Trash2, RefreshCw, Plus, X, Check, Copy, LogOut, Edit, Save, Image, Layout, Settings, DollarSign, CreditCard, MonitorPlay, MessageCircle, Lock, Unlock, Send, Bell, KeyRound, ShieldCheck } from 'lucide-react';
@@ -52,6 +53,9 @@ const SuperAdmin: React.FC = () => {
   const [planToDelete, setPlanToDelete] = useState<string | null>(null);
   const [familyToDelete, setFamilyToDelete] = useState<string | null>(null);
   const [isDeletingFamily, setIsDeletingFamily] = useState(false);
+  const [pageAccessFamilyId, setPageAccessFamilyId] = useState<string | null>(null);
+  const [draftDisabledPages, setDraftDisabledPages] = useState<string[]>([]);
+  const [savingPageAccess, setSavingPageAccess] = useState(false);
 
   // Support State
   const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
@@ -377,6 +381,28 @@ const SuperAdmin: React.FC = () => {
       );
     } finally {
       setIsDeletingFamily(false);
+    }
+  };
+
+  const openFamilyPageAccess = (family: Family) => {
+    setPageAccessFamilyId(family.id);
+    setDraftDisabledPages(family.disabledPages || []);
+  };
+
+  const saveFamilyPageAccess = async () => {
+    if (!pageAccessFamilyId) return;
+    setSavingPageAccess(true);
+    try {
+      await saasDb.updateFamilyAndSync(pageAccessFamilyId, {
+        disabledPages: draftDisabledPages,
+      });
+      setFamilies(saasDb.getFamilies());
+      setPageAccessFamilyId(null);
+      showNotification('Permissões de páginas salvas e sincronizadas na nuvem.', 'success');
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'Não foi possível salvar as permissões.', 'warning');
+    } finally {
+      setSavingPageAccess(false);
     }
   };
 
@@ -1050,7 +1076,14 @@ const SuperAdmin: React.FC = () => {
                       </td>
                       <td className="py-2 px-1 sm:px-4 text-right">
                         <button
-                          onClick={() => handleCopyFamilyLink(family.id)}
+                          onClick={() => openFamilyPageAccess(family)}
+                          className="text-indigo-500 hover:text-indigo-700 p-1 mr-2"
+                          title="Configurar acesso às páginas"
+                        >
+                          <Settings size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleCopyFamilyLink(family.id)
                           className="text-blue-400 hover:text-blue-600 p-1 mr-2"
                           title="Copiar Link de Acesso"
                         >
@@ -1074,6 +1107,66 @@ const SuperAdmin: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {pageAccessFamilyId && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+            <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Acesso às páginas</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Família: <strong>{families.find(family => family.id === pageAccessFamilyId)?.name || pageAccessFamilyId}</strong>
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">Desmarque as páginas que esta família não poderá abrir. As páginas não marcadas continuam liberadas.</p>
+                </div>
+                <button type="button" onClick={() => setPageAccessFamilyId(null)} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Fechar">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {FAMILY_PAGE_ACCESS_OPTIONS.map(page => {
+                  const allowed = !draftDisabledPages.includes(page.path);
+                  return (
+                    <label key={page.path} className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 text-sm text-gray-800 hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={allowed}
+                        onChange={event => setDraftDisabledPages(current =>
+                          event.target.checked
+                            ? current.filter(path => path !== page.path)
+                            : [...current, page.path]
+                        )}
+                        className="h-4 w-4 accent-indigo-600"
+                      />
+                      <span className="flex-1">{page.label}</span>
+                      <span className={allowed ? 'text-xs font-semibold text-emerald-600' : 'text-xs font-semibold text-red-600'}>
+                        {allowed ? 'Liberada' : 'Bloqueada'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => setDraftDisabledPages([])}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Liberar todas
+                </button>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setPageAccessFamilyId(null)} disabled={savingPageAccess} className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={() => void saveFamilyPageAccess()} disabled={savingPageAccess} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+                    <Save size={16} />
+                    {savingPageAccess ? 'Salvando...' : 'Salvar permissões'}
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
