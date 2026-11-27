@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, Star, Shield, Zap, X, CreditCard, QrCode, Copy, Tag, Loader2 } from 'lucide-react';
 import { saasDb, Plan, PaymentConfig } from '../services/saasDb';
-import { createPixPayment, createCardPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
+import { createPixPayment, createCardPayment, confirmMercadoPagoPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
 
 const Planos: React.FC = () => {
@@ -48,6 +48,35 @@ const Planos: React.FC = () => {
       setDiscountMessage(`Desconto de ${location.state.discountPercent}% aplicado!`);
     }
   }, [location.state]);
+
+
+  useEffect(() => {
+    if (!isCheckoutOpen || paymentMethod !== 'pix' || !mercadoPagoPayment?.id) return;
+    let active = true;
+    let checking = false;
+    const verify = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        const result = await confirmMercadoPagoPayment(mercadoPagoPayment.id);
+        if (active && result.approved) {
+          showNotification('PIX recebido! Sua assinatura foi ativada.', 'success');
+          setIsCheckoutOpen(false);
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Verificação automática do PIX:', error);
+      } finally {
+        checking = false;
+      }
+    };
+    const timer = window.setInterval(verify, 5000);
+    verify();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isCheckoutOpen, paymentMethod, mercadoPagoPayment?.id]);
 
   const handleSelectPlan = (plan: Plan) => {
     if (plan.price === 0) {
@@ -94,11 +123,23 @@ const Planos: React.FC = () => {
     }
   };
 
-  const handleConfirmPayment = () => {
-    showNotification(
-      'A confirmação automática foi bloqueada por segurança. O plano só será liberado após a verificação do pagamento no servidor.',
-      'error'
-    );
+  const handleConfirmPayment = async () => {
+    if (!mercadoPagoPayment?.id) return;
+    setLoading(true);
+    try {
+      const result = await confirmMercadoPagoPayment(mercadoPagoPayment.id);
+      if (result.approved) {
+        showNotification('Pagamento aprovado! Sua assinatura foi ativada.', 'success');
+        setIsCheckoutOpen(false);
+        window.location.reload();
+      } else {
+        showNotification('Pagamento ainda não aprovado. Assim que o Mercado Pago confirmar, o plano será liberado automaticamente.', 'info');
+      }
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'Não foi possível verificar o pagamento.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onCardPaymentSubmit = async (formData: any) => {
