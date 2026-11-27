@@ -26,6 +26,10 @@ const Planos: React.FC = () => {
   const [discountCode, setDiscountCode] = useState('');
   const [appliedDiscount, setAppliedDiscount] = useState<number | null>(null);
   const [discountMessage, setDiscountMessage] = useState('');
+  const isMercadoPagoTestMode = import.meta.env.VITE_HOMEFIN_MP_TEST_MODE === 'true';
+  const mercadoPagoPublicKey = isMercadoPagoTestMode
+    ? import.meta.env.VITE_MERCADO_PAGO_TEST_PUBLIC_KEY
+    : paymentConfig?.mercadoPagoPublicKey;
 
   useEffect(() => {
     let active = true;
@@ -65,9 +69,10 @@ const Planos: React.FC = () => {
     };
     window.addEventListener('homefin-saas-synced', handleSaasSynced);
 
-    if (config?.mercadoPagoPublicKey) {
-      initMercadoPago(config.mercadoPagoPublicKey, { locale: 'pt-BR' });
-    }
+    const publicKey = import.meta.env.VITE_HOMEFIN_MP_TEST_MODE === 'true'
+      ? import.meta.env.VITE_MERCADO_PAGO_TEST_PUBLIC_KEY
+      : config?.mercadoPagoPublicKey;
+    if (publicKey) initMercadoPago(publicKey, { locale: 'pt-BR' });
 
     // Check for code passed from Landing Page
     if (location.state?.code && location.state?.discountPercent) {
@@ -169,6 +174,8 @@ const Planos: React.FC = () => {
         showNotification('Pagamento aprovado! Sua assinatura foi ativada.', 'success');
         setIsCheckoutOpen(false);
         window.location.reload();
+      } else if (isMercadoPagoTestMode && result.status === 'approved') {
+        showNotification('Pagamento de teste aprovado. A assinatura real não foi alterada.', 'success');
       } else {
         showNotification('Pagamento ainda não aprovado. Assim que o Mercado Pago confirmar, o plano será liberado automaticamente.', 'info');
       }
@@ -194,6 +201,10 @@ const Planos: React.FC = () => {
       );
 
       if (payment.status === 'approved') {
+        if (isMercadoPagoTestMode) {
+          showNotification('Cartão de teste aprovado. Nenhuma assinatura real foi alterada.', 'success');
+          return;
+        }
         const confirmation = await confirmMercadoPagoPayment(payment.id);
         if (confirmation.approved) {
           showNotification('Pagamento aprovado! Sua assinatura foi ativada.', 'success');
@@ -224,6 +235,11 @@ const Planos: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-20 px-4 relative">
       <div className="max-w-5xl mx-auto text-center">
+        {isMercadoPagoTestMode && (
+          <div className="max-w-3xl mx-auto mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            AMBIENTE DE TESTE — pagamentos simulados. Nenhuma assinatura de produção será ativada.
+          </div>
+        )}
         <h2 className="text-4xl font-bold text-gray-900 mb-4">Escolha o plano ideal para sua família</h2>
         <p className="text-xl text-gray-500 mb-16">Comece a organizar suas finanças hoje mesmo.</p>
 
@@ -474,7 +490,7 @@ const Planos: React.FC = () => {
                 </div>
               ) : (
                 <div className="mb-4">
-                  {paymentConfig?.mercadoPagoPublicKey ? (
+                  {mercadoPagoPublicKey ? (
                     <div className="mercado-pago-brick">
                       <CardPayment
                         initialization={{
