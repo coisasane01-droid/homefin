@@ -86,7 +86,10 @@ export default async function handler(req, res) {
 
   if (body.action === 'confirm') {
     const paymentId = String(body.paymentId || '').trim();
-    if (!/^\d{1,30}$/.test(paymentId)) {
+    const validPaymentId = testMode
+      ? /^[A-Za-z0-9_-]{1,64}$/.test(paymentId)
+      : /^\d{1,30}$/.test(paymentId);
+    if (!validPaymentId) {
       return jsonError(res, 400, 'Identificador de pagamento inválido.');
     }
     try {
