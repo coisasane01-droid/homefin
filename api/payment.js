@@ -90,6 +90,30 @@ export default async function handler(req, res) {
       return jsonError(res, 400, 'Identificador de pagamento inválido.');
     }
     try {
+      if (testMode) {
+        const checkOrder = await fetch(`https://api.mercadopago.com/v1/orders/${encodeURIComponent(paymentId)}`, {
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
+        });
+        const order = await checkOrder.json().catch(() => ({}));
+        if (!checkOrder.ok) {
+          console.error('Falha ao consultar order PIX de teste:', { status: checkOrder.status, orderId: paymentId });
+          return jsonError(res, 502, 'Não foi possível consultar o PIX de teste no Mercado Pago.');
+        }
+        if (String(order.external_reference || '') !== familyId) {
+          return jsonError(res, 403, 'Este pagamento de teste não pertence a esta família.');
+        }
+        const testPayment = order.transactions?.payments?.[0] || {};
+        const testStatus = String(testPayment.status || order.status || 'unknown');
+        return res.status(200).json({
+          approved: false,
+          status: testStatus,
+          testMode: true,
+          message: testStatus === 'approved'
+            ? 'PIX de teste aprovado. Nenhuma assinatura foi alterada.'
+            : 'PIX de teste ainda está sendo processado.'
+        });
+      }
+
       const check = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
       });
@@ -172,6 +196,60 @@ export default async function handler(req, res) {
 
   if (!plan) {
     return jsonError(res, 400, 'Plano não encontrado ou sem preço válido no SuperAdmin.');
+  }
+
+  if (testMode && method === 'pix') {
+    try {
+      // Mercado Pago documents PIX sandbox through Orders API, not the legacy Payments API.
+      const orderResponse = await fetch('https://api.mercadopago.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Idempotency-Key': crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          type: 'online',
+          external_reference: familyId,
+          total_amount: plan.price.toFixed(2),
+          payer: { email, first_name: 'APRO' },
+          transactions: {
+            payments: [{
+              amount: plan.price.toFixed(2),
+              payment_method: { id: 'pix', type: 'bank_transfer' },
+            }],
+          },
+        }),
+      });
+      const order = await orderResponse.json().catch(() => ({}));
+      if (!orderResponse.ok) {
+        console.error('Falha ao criar PIX de teste no Mercado Pago:', {
+          httpStatus: orderResponse.status,
+          message: order?.message,
+          causes: Array.isArray(order?.cause) ? order.cause.map(item => ({ code: item?.code, description: item?.description })) : [],
+        });
+        return jsonError(res, 502, 'O Mercado Pago não conseguiu gerar o PIX de teste. Confira as credenciais de teste.');
+      }
+      const testPayment = order.transactions?.payments?.[0] || {};
+      const paymentMethod = testPayment.payment_method || {};
+      return res.status(200).json({
+        id: order.id,
+        status: testPayment.status || order.status,
+        status_detail: testPayment.status_detail || order.status_detail,
+        point_of_interaction: {
+          transaction_data: {
+            qr_code: paymentMethod.qr_code || '',
+            qr_code_base64: paymentMethod.qr_code_base64 || '',
+            ticket_url: paymentMethod.ticket_url || '',
+          },
+        },
+        testMode: true,
+      });
+    } catch (error) {
+      console.error('Erro ao criar PIX de teste:', error instanceof Error ? error.message : 'erro desconhecido');
+      return jsonError(res, 502, 'Não foi possível criar o PIX de teste no Mercado Pago.');
+    }
   }
 
   const paymentBody = {
