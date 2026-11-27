@@ -86,13 +86,13 @@ export const confirmMercadoPagoPayment = async (paymentId: number | string): Pro
     throw new Error('Sua sessão expirou. Entre novamente na família para continuar.');
   }
 
-  const response = await fetch(homefinApiUrl('/api/payment-confirm'), {
+  const response = await fetch(homefinApiUrl('/api/payment'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${sessionToken}`
     },
-    body: JSON.stringify({ familyId, paymentId: String(paymentId) })
+    body: JSON.stringify({ action: 'confirm', familyId, paymentId: String(paymentId) })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
