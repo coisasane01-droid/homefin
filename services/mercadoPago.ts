@@ -76,7 +76,7 @@ export const createCardPayment = async (
 };
 
 
-export const confirmMercadoPagoPayment = async (paymentId: number | string): Promise<{ approved: boolean; status: string }> => {
+export const confirmMercadoPagoPayment = async (paymentId: number | string): Promise<{ approved: boolean; status: string; testMode?: boolean; message?: string }> => {
   const familyId = localStorage.getItem('homefin_current_family_id') || '';
   const sessionToken = familyId && familyId !== 'v1'
     ? await getFamilySessionToken(familyId)
@@ -98,5 +98,5 @@ export const confirmMercadoPagoPayment = async (paymentId: number | string): Pro
   if (!response.ok) {
     throw new Error(typeof result?.error === 'string' ? result.error : 'Não foi possível verificar o pagamento.');
   }
-  return result as { approved: boolean; status: string };
+  return result as { approved: boolean; status: string; testMode?: boolean; message?: string };
 };
