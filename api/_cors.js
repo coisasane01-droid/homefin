@@ -8,7 +8,10 @@ const ALLOWED_ORIGINS = new Set([
 export function handleCors(req, res) {
   const origin = req.headers?.origin;
 
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+  const vercelOrigin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
+  const isAllowedVercelPreview = Boolean(vercelOrigin && origin === vercelOrigin);
+
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !isAllowedVercelPreview) {
     res.setHeader('Vary', 'Origin');
     res.status(403).json({ error: 'Origem não autorizada.' });
     return true;

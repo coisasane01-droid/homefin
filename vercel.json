@@ -25,6 +25,10 @@
       "destination": "/api/push?mode=broadcast"
     },
     {
+      "source": "/api/push-due-bills",
+      "destination": "/api/push?mode=due-bills"
+    },
+    {
       "source": "/api/family-attachments",
       "destination": "/api/family-files?mode=attachments"
     },

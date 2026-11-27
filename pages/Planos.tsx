@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, Star, Shield, Zap, X, CreditCard, QrCode, Copy, Tag, Loader2 } from 'lucide-react';
 import { saasDb, Plan, PaymentConfig } from '../services/saasDb';
-import { createPixPayment, createCardPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
+import { createPixPayment, createCardPayment, checkMercadoPagoPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
 
 const Planos: React.FC = () => {
@@ -20,6 +20,7 @@ const Planos: React.FC = () => {
   // Mercado Pago State
   const [mercadoPagoPayment, setMercadoPagoPayment] = useState<MercadoPagoPaymentResponse | null>(null);
   const [isGeneratingPix, setIsGeneratingPix] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState('');
   
   // Discount Code State
   const [discountCode, setDiscountCode] = useState('');
@@ -57,6 +58,7 @@ const Planos: React.FC = () => {
       // Open checkout modal
       setSelectedPlan(plan);
       setMercadoPagoPayment(null); // Reset previous payment
+      setPaymentStatus('');
       setIsCheckoutOpen(true);
     }
   };
@@ -83,6 +85,7 @@ const Planos: React.FC = () => {
     try {
       const payment = await createPixPayment(email, selectedPlan.id);
       setMercadoPagoPayment(payment);
+      setPaymentStatus('pending');
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : 'Erro ao gerar PIX. Tente novamente.',
@@ -94,12 +97,29 @@ const Planos: React.FC = () => {
     }
   };
 
-  const handleConfirmPayment = () => {
-    showNotification(
-      'A confirmação automática foi bloqueada por segurança. O plano só será liberado após a verificação do pagamento no servidor.',
-      'error'
-    );
-  };
+  useEffect(() => {
+    if (!isCheckoutOpen || !mercadoPagoPayment?.id || paymentStatus === 'approved') return;
+    let cancelled = false;
+    const verify = async () => {
+      try {
+        const result = await checkMercadoPagoPayment(mercadoPagoPayment.id);
+        if (!cancelled && result.activated) {
+          setPaymentStatus('approved');
+          await saasDb.syncFromSupabase();
+          const familyId = localStorage.getItem('homefin_current_family_id');
+          setCurrentFamilyPlan(saasDb.getFamilies().find(f => f.id === familyId)?.plan ?? null);
+          showNotification('Pagamento confirmado pelo Mercado Pago! Seu plano foi ativado.', 'success');
+        } else if (!cancelled) {
+          setPaymentStatus(result.status || 'pending');
+        }
+      } catch (error) {
+        console.warn('Aguardando confirmação do Mercado Pago:', error);
+      }
+    };
+    void verify();
+    const timer = window.setInterval(() => { void verify(); }, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [isCheckoutOpen, mercadoPagoPayment?.id, paymentStatus]);
 
   const onCardPaymentSubmit = async (formData: any) => {
     if (!selectedPlan) return;
@@ -115,8 +135,9 @@ const Planos: React.FC = () => {
         formData.issuer_id
       );
 
-      if (payment.status === 'approved') {
-        handleConfirmPayment();
+      if (['approved', 'pending', 'in_process'].includes(payment.status)) {
+        setMercadoPagoPayment(payment);
+        setPaymentStatus('pending');
       } else {
         showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
@@ -413,25 +434,14 @@ const Planos: React.FC = () => {
                 </div>
               )}
 
-              {paymentMethod === 'pix' && (
-                <button 
-                  onClick={handleConfirmPayment}
-                  disabled={loading || !mercadoPagoPayment}
-                  className={`w-full py-3 rounded-xl font-bold text-base transition-colors shadow-lg flex items-center justify-center gap-2 ${
-                    loading || !mercadoPagoPayment
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
-                      : 'bg-green-600 text-white hover:bg-green-700 shadow-green-500/30'
-                  }`}
-                >
-                  {loading ? (
-                    <>Processando...</>
-                  ) : (
-                    <>
-                      {appliedDiscount === 100 ? 'Confirmar (Grátis)' : 'Confirmar Pagamento'} 
-                      <CheckCircle2 size={18} />
-                    </>
-                  )}
-                </button>
+              {mercadoPagoPayment && (
+                <div className={`w-full rounded-xl p-3 text-center text-sm font-semibold ${
+                  paymentStatus === 'approved' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'
+                }`}>
+                  {paymentStatus === 'approved'
+                    ? 'Pagamento confirmado! Plano ativado com segurança.'
+                    : 'Aguardando confirmação automática do Mercado Pago. Esta tela será atualizada assim que o pagamento for aprovado.'}
+                </div>
               )}
               <p className="text-center text-[10px] text-gray-400 mt-3 flex items-center justify-center gap-1">
                 <Shield size={10} /> Pagamento 100% Seguro

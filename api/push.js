@@ -2,6 +2,7 @@ import { handleCors } from './_cors.js';
 import pushSendHandler from '../server/api-handlers/push-send.js';
 import pushSubscribeHandler from '../server/api-handlers/push-subscribe.js';
 import pushBroadcastHandler from '../server/api-handlers/push-broadcast.js';
+import pushDueBillsHandler from '../server/api-handlers/push-due-bills.js';
 
 export const config = {
   api: { bodyParser: false },
@@ -57,6 +58,7 @@ export default async function handler(req, res) {
     send: pushSendHandler,
     subscribe: pushSubscribeHandler,
     broadcast: pushBroadcastHandler,
+    'due-bills': pushDueBillsHandler,
   }[mode];
 
   if (!selected) {
