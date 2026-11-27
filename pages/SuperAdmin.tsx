@@ -1605,7 +1605,7 @@ const SuperAdmin: React.FC = () => {
                         <option value="months:12">12 meses</option>
                       </select>
                       <p className="text-xs text-gray-500 mt-2">
-                        Prazo configurado: {plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)} {plan.durationUnit === 'months' ? ((plan.durationValue ?? 1) === 1 ? 'mês' : 'meses') : 'dias'}.
+                        Prazo configurado: {plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)} {(plan.durationUnit || 'months') === 'months' ? ((plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)) === 1 ? 'mês' : 'meses') : 'dias'}.
                       </p>
                     </div>
 
