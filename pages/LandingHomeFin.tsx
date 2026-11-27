@@ -63,7 +63,7 @@ const LandingHomeFin: React.FC = () => {
     if (validation.valid) {
       // If it's a discount code (not full access), redirect to plans
       if (validation.discountPercent !== undefined && validation.discountPercent < 100) {
-        navigate('/plans', { state: { code: accessCode, discountPercent: validation.discountPercent, flow: 'signup' } });
+        navigate('/public-plans', { state: { code: accessCode, discountPercent: validation.discountPercent, flow: 'signup' } });
       } else {
         // Full access code
         navigate('/setup', { state: { code: accessCode } });
@@ -74,7 +74,7 @@ const LandingHomeFin: React.FC = () => {
   };
 
   const handleNoCode = () => {
-    navigate('/plans', { state: { flow: 'signup' } });
+    navigate('/public-plans', { state: { flow: 'signup' } });
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
