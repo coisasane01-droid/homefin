@@ -72,6 +72,9 @@ const App: React.FC = () => {
         <Route path="/" element={<LandingHomeFin />} />
         <Route path="/login" element={<Auth />} />
         <Route path="/setup" element={<PreConfiguracaoFamilia />} />
+        {/* Planos públicos da Landing: sem o menu interno da família. */}
+        <Route path="/public-plans" element={<Planos />} />
+        {/* Planos acessados pelo menu da família: mantém o Layout. */}
         <Route path="/plans" element={<Layout><Planos /></Layout>} />
         <Route path="/admin" element={<AdminLogin />} />
         <Route path="/admin/panel" element={<AdminPanelGuard />} />
