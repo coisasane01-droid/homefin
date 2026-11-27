@@ -101,6 +101,9 @@ const Planos: React.FC = () => {
           showNotification('PIX recebido! Sua assinatura foi ativada.', 'success');
           setIsCheckoutOpen(false);
           window.location.reload();
+        } else if (active && result.testMode && result.status === 'approved') {
+          showNotification('PIX de teste aprovado. Nenhuma assinatura real foi alterada.', 'success');
+          setIsCheckoutOpen(false);
         }
       } catch (error) {
         console.error('Verificação automática do PIX:', error);
