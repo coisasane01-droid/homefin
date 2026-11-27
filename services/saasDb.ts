@@ -30,6 +30,9 @@ export interface Plan {
   name: string;
   price: number;
   period: string;
+  /** Prazo de acesso concedido após a confirmação do pagamento. */
+  durationValue?: number;
+  durationUnit?: 'days' | 'months';
   features: string[];
   popular?: boolean;
   cta: string;
@@ -162,6 +165,8 @@ const initialSaasData: SaasData = {
       name: 'Família Pro',
       price: 29.90,
       period: '/mês',
+      durationValue: 30,
+      durationUnit: 'days',
       features: [
         'Tudo do Básico',
         'Metas e Sonhos',
