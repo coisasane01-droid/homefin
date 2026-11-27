@@ -52,9 +52,15 @@ export default async function handler(req, res) {
     return jsonError(res, 405, 'Método não permitido.');
   }
 
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  // Preview deployments are permanently isolated from production payment credentials.
+  const testMode = process.env.VERCEL_ENV === 'preview';
+  const accessToken = testMode
+    ? process.env.MERCADO_PAGO_TEST_ACCESS_TOKEN
+    : process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!accessToken) {
-    return jsonError(res, 503, 'Pagamento indisponível: integração do servidor não configurada.');
+    return jsonError(res, 503, testMode
+      ? 'Ambiente de teste sem MERCADO_PAGO_TEST_ACCESS_TOKEN configurado.'
+      : 'Pagamento indisponível: integração do servidor não configurada.');
   }
 
   const body = req.body || {};
@@ -102,6 +108,10 @@ export default async function handler(req, res) {
 
       const approvedPlanId = String(payment.metadata?.plan_id || '').trim();
       const amount = Number(payment.transaction_amount);
+      if (testMode) {
+        // Never write test approvals into the production family/subscription database.
+        return res.status(200).json({ approved: false, status: payment.status, testMode: true, message: 'Pagamento de teste verificado. Nenhuma assinatura foi alterada.' });
+      }
       if (!approvedPlanId || !Number.isFinite(amount) || amount <= 0 ||
           String(payment.currency_id || '').toUpperCase() !== 'BRL') {
         return jsonError(res, 400, 'Dados do pagamento aprovado são inválidos.');
