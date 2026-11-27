@@ -455,11 +455,20 @@ const Planos: React.FC = () => {
                                 alt="QR Code PIX" 
                                 className="w-full h-full object-contain" 
                               />
+                            ) : mercadoPagoPayment.point_of_interaction?.transaction_data?.qr_code ? (
+                              <div className="w-full max-h-full overflow-auto break-all rounded bg-gray-50 p-2 text-[9px] leading-tight text-gray-700">
+                                {mercadoPagoPayment.point_of_interaction.transaction_data.qr_code}
+                              </div>
                             ) : (
-                              <div className="text-xs text-red-500">Erro na imagem</div>
+                              <div className="text-xs text-red-500">QR Code indisponível</div>
                             )}
                           </div>
-                          <p className="text-xs text-gray-600 mb-2 font-medium">Escaneie o QR Code acima</p>
+                          <p className="text-xs text-gray-600 mb-2 font-medium">Escaneie o QR Code acima ou copie o código PIX</p>
+                          {mercadoPagoPayment.point_of_interaction?.transaction_data?.ticket_url && (
+                            <a href={mercadoPagoPayment.point_of_interaction.transaction_data.ticket_url} target="_blank" rel="noreferrer" className="mb-2 block text-xs font-semibold text-indigo-600 underline">
+                              Abrir página do PIX de teste
+                            </a>
+                          )}
                           <div className="flex flex-col gap-2">
                             <button 
                               onClick={() => handleCopyPix(mercadoPagoPayment.point_of_interaction?.transaction_data?.qr_code || '')}
