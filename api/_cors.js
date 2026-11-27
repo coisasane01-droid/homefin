@@ -22,7 +22,7 @@ function isCurrentVercelDeploymentOrigin(origin) {
 export function handleCors(req, res) {
   const origin = req.headers?.origin;
 
-  if (origin && !ALLOWED_ORIGINS.has(origin) && !isCurrentVercelDeploymentOrigin(origin)) {
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !isSameVercelOrigin(req, origin)) {
     res.setHeader('Vary', 'Origin');
     res.status(403).json({ error: 'Origem não autorizada.' });
     return true;
