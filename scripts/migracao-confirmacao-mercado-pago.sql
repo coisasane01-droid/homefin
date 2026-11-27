@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS public.homefin_mercado_pago_payments (
   processed_at timestamptz NOT NULL DEFAULT now()
 );
 
+REVOKE ALL ON TABLE public.homefin_mercado_pago_payments FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.homefin_mercado_pago_payments TO service_role;
+
 CREATE OR REPLACE FUNCTION public.homefin_confirm_mercado_pago_payment(
   p_payment_id text,
   p_family_id text,
@@ -39,6 +42,16 @@ BEGIN
     RAISE EXCEPTION 'Parâmetros de pagamento inválidos.';
   END IF;
 
+  SELECT data INTO v_data
+  FROM public.homefin_saas
+  WHERE id = 'global'
+  FOR UPDATE;
+
+  IF v_data IS NULL THEN
+    RAISE EXCEPTION 'Configuração global do HomeFin não encontrada.';
+  END IF;
+
+  -- Recheca após obter o lock para tratar notificações simultâneas do mesmo pagamento.
   SELECT * INTO v_existing
   FROM public.homefin_mercado_pago_payments
   WHERE payment_id = p_payment_id;
@@ -49,15 +62,6 @@ BEGIN
       RAISE EXCEPTION 'ID de pagamento já utilizado com dados diferentes.';
     END IF;
     RETURN jsonb_build_object('ok', true, 'already_processed', true);
-  END IF;
-
-  SELECT data INTO v_data
-  FROM public.homefin_saas
-  WHERE id = 'global'
-  FOR UPDATE;
-
-  IF v_data IS NULL THEN
-    RAISE EXCEPTION 'Configuração global do HomeFin não encontrada.';
   END IF;
 
   v_plans := COALESCE(v_data->'plans', '[]'::jsonb);
