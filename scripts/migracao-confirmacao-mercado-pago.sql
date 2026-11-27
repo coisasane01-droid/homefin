@@ -68,7 +68,7 @@ BEGIN
   v_families := COALESCE(v_data->'families', '[]'::jsonb);
 
   SELECT item INTO v_plan
-  FROM jsonb_array_elements(v_plans) AS item
+  FROM jsonb_array_elements(v_plans) AS plans(item)
   WHERE item->>'id' = p_plan_id
   LIMIT 1;
 
