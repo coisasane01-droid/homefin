@@ -108,13 +108,13 @@ export default async function handler(req, res) {
 
       const approvedPlanId = String(payment.metadata?.plan_id || '').trim();
       const amount = Number(payment.transaction_amount);
-      if (testMode) {
-        // Never write test approvals into the production family/subscription database.
-        return res.status(200).json({ approved: false, status: payment.status, testMode: true, message: 'Pagamento de teste verificado. Nenhuma assinatura foi alterada.' });
-      }
       if (!approvedPlanId || !Number.isFinite(amount) || amount <= 0 ||
           String(payment.currency_id || '').toUpperCase() !== 'BRL') {
         return jsonError(res, 400, 'Dados do pagamento aprovado são inválidos.');
+      }
+      if (testMode) {
+        // Never write test approvals into the production family/subscription database.
+        return res.status(200).json({ approved: false, status: payment.status, testMode: true, message: 'Pagamento de teste verificado. Nenhuma assinatura foi alterada.' });
       }
 
       const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
