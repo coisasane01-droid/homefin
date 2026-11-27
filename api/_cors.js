@@ -5,18 +5,20 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost',
 ]);
 
-// Em Preview, autoriza apenas os hosts exatos atribuídos pela Vercel
-// à implantação e à branch. Não libera indiscriminadamente *.vercel.app.
-function isCurrentVercelDeploymentOrigin(origin) {
-  const assignedHosts = [
-    process.env.VERCEL_URL,
-    process.env.VERCEL_BRANCH_URL,
-  ]
-    .map((value) => String(value || '').trim().toLowerCase())
-    .map((value) => value.replace(/^https?:\\/\\//, '').replace(/\\/$/, ''))
-    .filter(Boolean);
-
-  return assignedHosts.some((host) => origin === `https://${host}`);
+// Preview deployments use unique Vercel aliases. Permit only an exact
+// same-origin request to the host serving this function; never wildcard
+// arbitrary *.vercel.app origins.
+function isSameVercelOrigin(req, origin) {
+  try {
+    const parsed = new URL(origin);
+    const requestHost = String(req.headers?.host || '').trim().toLowerCase();
+    const originHost = parsed.host.toLowerCase();
+    return parsed.protocol === 'https:' &&
+      originHost === requestHost &&
+      parsed.hostname.toLowerCase().endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
 }
 
 export function handleCors(req, res) {
