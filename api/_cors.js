@@ -5,10 +5,18 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost',
 ]);
 
+// Em Preview, autoriza somente o hostname exato desta implantação Vercel.
+// Não libera indiscriminadamente todos os domínios *.vercel.app.
+function isCurrentVercelDeploymentOrigin(origin) {
+  const deploymentHost = String(process.env.VERCEL_URL || '').trim().toLowerCase();
+  if (!deploymentHost) return false;
+  return origin === `https://${deploymentHost}`;
+}
+
 export function handleCors(req, res) {
   const origin = req.headers?.origin;
 
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !isCurrentVercelDeploymentOrigin(origin)) {
     res.setHeader('Vary', 'Origin');
     res.status(403).json({ error: 'Origem não autorizada.' });
     return true;
