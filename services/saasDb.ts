@@ -16,6 +16,8 @@ export interface Family {
   name: string;
   plan: 'free' | 'premium';
   status: 'active' | 'inactive';
+  paidPlanId?: string;
+  lastPaymentId?: string;
   createdAt: string;
   expiresAt?: string;
   settings?: UserSettings;
