@@ -1588,7 +1588,7 @@ const SuperAdmin: React.FC = () => {
                       <label className="block text-sm font-semibold text-gray-800 mb-1">Duração do acesso após pagamento</label>
                       <p className="text-xs text-gray-600 mb-2">Define por quanto tempo a família terá o plano ativo. Alterar este prazo não modifica assinaturas já pagas.</p>
                       <select
-                        value={`${plan.durationUnit || 'months'}:${plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)}`}
+                        value={`${plan.durationUnit || (String(plan.period || '').toLowerCase().includes('ano') ? 'months' : 'days')}:${plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 30)}`}
                         onChange={e => {
                           const [durationUnit, rawValue] = e.target.value.split(':');
                           handleUpdatePlan({
@@ -1605,7 +1605,7 @@ const SuperAdmin: React.FC = () => {
                         <option value="months:12">12 meses</option>
                       </select>
                       <p className="text-xs text-gray-500 mt-2">
-                        Prazo configurado: {plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)} {(plan.durationUnit || 'months') === 'months' ? ((plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 1)) === 1 ? 'mês' : 'meses') : 'dias'}.
+                        Prazo configurado: {plan.durationValue ?? (String(plan.period || '').toLowerCase().includes('ano') ? 12 : 30)} {(plan.durationUnit || (String(plan.period || '').toLowerCase().includes('ano') ? 'months' : 'days')) === 'months' ? ((plan.durationValue ?? 12) === 1 ? 'mês' : 'meses') : 'dias'}.
                       </p>
                     </div>
 
