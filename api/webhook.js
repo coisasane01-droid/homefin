@@ -1,13 +1,21 @@
 import crypto from 'crypto';
 
 function getServerConfig() {
+  const testMode = process.env.VERCEL_ENV === 'preview';
+  const accessToken = testMode
+    ? process.env.MERCADO_PAGO_TEST_ACCESS_TOKEN
+    : process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error(testMode
+      ? 'MERCADO_PAGO_TEST_ACCESS_TOKEN não configurado para Preview.'
+      : 'MERCADO_PAGO_ACCESS_TOKEN não configurado para Produção.');
+  }
+  if (testMode) return { testMode: true, accessToken };
+
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-  if (!supabaseUrl || !serviceKey || !accessToken) {
-    throw new Error('Configuração server-side de pagamento incompleta.');
-  }
-  return { supabaseUrl: supabaseUrl.replace(/\/+$/, ''), serviceKey, accessToken };
+  if (!supabaseUrl || !serviceKey) throw new Error('Configuração server-side do Supabase ausente.');
+  return { testMode: false, supabaseUrl: supabaseUrl.replace(/\/+$/, ''), serviceKey, accessToken };
 }
 
 function extractPaymentId(req) {
@@ -98,6 +106,15 @@ export default async function handler(req, res) {
         message: payment?.message,
       });
       return res.status(502).json({ error: 'Não foi possível verificar o pagamento no Mercado Pago.' });
+    }
+
+    if (config.testMode) {
+      // Verify the sandbox payment with Mercado Pago, but never activate a family in Supabase.
+      console.log('Webhook de sandbox verificado; nenhuma assinatura foi alterada.', {
+        paymentId,
+        status: payment.status,
+      });
+      return res.status(200).json({ received: true, status: payment.status, activated: false, testMode: true });
     }
 
     const outcome = await activateApprovedPayment(payment, config);
