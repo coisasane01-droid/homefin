@@ -224,6 +224,18 @@ const Planos: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-20 px-4 relative">
       <div className="max-w-5xl mx-auto text-center">
+        {location.pathname === '/public-plans' && (
+          <div className="mb-8 flex justify-start">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50"
+            >
+              <span aria-hidden="true">←</span>
+              Voltar para Landing
+            </button>
+          </div>
+        )}
         <h2 className="text-4xl font-bold text-gray-900 mb-4">Escolha o plano ideal para sua família</h2>
         <p className="text-xl text-gray-500 mb-16">Comece a organizar suas finanças hoje mesmo.</p>
 
