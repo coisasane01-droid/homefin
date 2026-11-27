@@ -157,7 +157,14 @@ const Planos: React.FC = () => {
       );
 
       if (payment.status === 'approved') {
-        handleConfirmPayment();
+        const confirmation = await confirmMercadoPagoPayment(payment.id);
+        if (confirmation.approved) {
+          showNotification('Pagamento aprovado! Sua assinatura foi ativada.', 'success');
+          setIsCheckoutOpen(false);
+          window.location.reload();
+        } else {
+          showNotification('O Mercado Pago ainda está processando a confirmação. Aguarde alguns instantes.', 'info');
+        }
       } else {
         showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
