@@ -80,7 +80,7 @@ export default async function handler(req, res) {
 
   if (body.action === 'confirm') {
     const paymentId = String(body.paymentId || '').trim();
-    if (!/^\\d{1,30}$/.test(paymentId)) {
+    if (!/^\d{1,30}$/.test(paymentId)) {
       return jsonError(res, 400, 'Identificador de pagamento inválido.');
     }
     try {
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
       if (!supabaseUrl || !serviceKey) {
         return jsonError(res, 503, 'Configuração do servidor incompleta.');
       }
-      const rpc = await fetch(`${supabaseUrl.replace(/\\/+$/, '')}/rest/v1/rpc/homefin_confirm_mercado_pago_payment`, {
+      const rpc = await fetch(`${supabaseUrl.replace(/\/+$/, '')}/rest/v1/rpc/homefin_confirm_mercado_pago_payment`, {
         method: 'POST',
         headers: {
           apikey: serviceKey,
