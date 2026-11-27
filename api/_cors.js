@@ -5,12 +5,18 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost',
 ]);
 
-// Em Preview, autoriza somente o hostname exato desta implantação Vercel.
-// Não libera indiscriminadamente todos os domínios *.vercel.app.
+// Em Preview, autoriza apenas os hosts exatos atribuídos pela Vercel
+// à implantação e à branch. Não libera indiscriminadamente *.vercel.app.
 function isCurrentVercelDeploymentOrigin(origin) {
-  const deploymentHost = String(process.env.VERCEL_URL || '').trim().toLowerCase();
-  if (!deploymentHost) return false;
-  return origin === `https://${deploymentHost}`;
+  const assignedHosts = [
+    process.env.VERCEL_URL,
+    process.env.VERCEL_BRANCH_URL,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .map((value) => value.replace(/^https?:\\/\\//, '').replace(/\\/$/, ''))
+    .filter(Boolean);
+
+  return assignedHosts.some((host) => origin === `https://${host}`);
 }
 
 export function handleCors(req, res) {
