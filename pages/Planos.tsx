@@ -16,6 +16,7 @@ const Planos: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [loading, setLoading] = useState(false);
   const [currentFamilyPlan, setCurrentFamilyPlan] = useState<'free' | 'premium' | null>(null);
+  const [currentPaidPlanId, setCurrentPaidPlanId] = useState<string | null>(null);
   
   // Mercado Pago State
   const [mercadoPagoPayment, setMercadoPagoPayment] = useState<MercadoPagoPaymentResponse | null>(null);
@@ -27,26 +28,58 @@ const Planos: React.FC = () => {
   const [discountMessage, setDiscountMessage] = useState('');
 
   useEffect(() => {
+    let active = true;
     const config = saasDb.getPaymentConfig();
-    setPlans(saasDb.getPlans());
     setPaymentConfig(config);
 
-    const familyId = localStorage.getItem('homefin_current_family_id');
-    const family = familyId
-      ? saasDb.getFamilies().find(f => f.id === familyId)
-      : undefined;
-    setCurrentFamilyPlan(family?.plan ?? null);
+    const refreshFamilyPlan = async () => {
+      try {
+        // A ativação do pagamento ocorre no servidor. Buscar o SaaS remoto
+        // antes de decidir qual botão mostrar evita usar o cache antigo do aparelho.
+        await saasDb.syncFromSupabase();
+      } catch (error) {
+        console.error('Não foi possível atualizar o plano da família:', error);
+      }
+      if (!active) return;
+
+      const familyId = localStorage.getItem('homefin_current_family_id');
+      const family = familyId
+        ? saasDb.getFamilies().find(f => f.id === familyId)
+        : undefined;
+      setPlans(saasDb.getPlans());
+      setCurrentFamilyPlan(family?.plan ?? null);
+      setCurrentPaidPlanId(family?.paidPlanId ?? null);
+    };
+
+    void refreshFamilyPlan();
+
+    const handleSaasSynced = () => {
+      if (!active) return;
+      const familyId = localStorage.getItem('homefin_current_family_id');
+      const family = familyId
+        ? saasDb.getFamilies().find(f => f.id === familyId)
+        : undefined;
+      setPlans(saasDb.getPlans());
+      setCurrentFamilyPlan(family?.plan ?? null);
+      setCurrentPaidPlanId(family?.paidPlanId ?? null);
+    };
+    window.addEventListener('homefin-saas-synced', handleSaasSynced);
 
     if (config?.mercadoPagoPublicKey) {
       initMercadoPago(config.mercadoPagoPublicKey, { locale: 'pt-BR' });
     }
-    
+
     // Check for code passed from Landing Page
     if (location.state?.code && location.state?.discountPercent) {
       setDiscountCode(location.state.code);
       setAppliedDiscount(location.state.discountPercent);
       setDiscountMessage(`Desconto de ${location.state.discountPercent}% aplicado!`);
     }
+
+    return () => {
+      active = false;
+      window.removeEventListener('homefin-saas-synced', handleSaasSynced);
+    };
   }, [location.state]);
 
 
@@ -79,6 +112,10 @@ const Planos: React.FC = () => {
   }, [isCheckoutOpen, paymentMethod, mercadoPagoPayment?.id]);
 
   const handleSelectPlan = (plan: Plan) => {
+    if (currentFamilyPlan === 'premium' && currentPaidPlanId === plan.id) {
+      showNotification('Este plano já está ativo para sua família.', 'info');
+      return;
+    }
     if (plan.price === 0) {
       // Free flow
       navigate('/setup', { state: { plan: 'free' } });
@@ -194,7 +231,9 @@ const Planos: React.FC = () => {
           {[...plans]
             .filter(plan => !(location.state?.flow !== 'signup' && currentFamilyPlan === 'free' && plan.price === 0))
             .sort((a, b) => Number(Boolean(b.popular)) - Number(Boolean(a.popular)))
-            .map((plan) => (
+            .map((plan) => {
+            const isCurrentPlan = currentFamilyPlan === 'premium' && currentPaidPlanId === plan.id;
+            return (
             <div 
               key={plan.id}
               className={`relative bg-white rounded-3xl shadow-xl overflow-hidden border-2 transition-transform hover:scale-105 ${plan.popular ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-transparent'}`}
@@ -235,17 +274,21 @@ const Planos: React.FC = () => {
 
                 <button
                   onClick={() => handleSelectPlan(plan)}
+                  disabled={isCurrentPlan}
                   className={`w-full py-4 rounded-xl font-bold transition-all ${
-                    plan.popular 
-                      ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-500/30' 
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                    isCurrentPlan
+                      ? 'bg-green-100 text-green-800 cursor-default'
+                      : plan.popular
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-500/30'
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                   }`}
                 >
-                  {plan.cta}
+                  {isCurrentPlan ? 'Plano ativo' : plan.cta}
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mt-16 grid md:grid-cols-3 gap-8 text-left max-w-4xl mx-auto">
