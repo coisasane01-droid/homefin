@@ -355,6 +355,8 @@ const SuperAdmin: React.FC = () => {
       name: newPlanName,
       price: 0,
       period: '/mês',
+      durationValue: 30,
+      durationUnit: 'days',
       features: [],
       cta: 'Assinar',
       popular: false
@@ -1580,6 +1582,31 @@ const SuperAdmin: React.FC = () => {
                           className="w-full p-2 border rounded-lg"
                         />
                       </div>
+                    </div>
+
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-4">
+                      <label className="block text-sm font-semibold text-gray-800 mb-1">Duração do acesso após pagamento</label>
+                      <p className="text-xs text-gray-600 mb-2">Define por quanto tempo a família terá o plano ativo. Alterar este prazo não modifica assinaturas já pagas.</p>
+                      <select
+                        value={`${plan.durationUnit || 'days'}:${plan.durationValue ?? 30}`}
+                        onChange={e => {
+                          const [durationUnit, rawValue] = e.target.value.split(':');
+                          handleUpdatePlan({
+                            ...plan,
+                            durationUnit: durationUnit as 'days' | 'months',
+                            durationValue: Number(rawValue),
+                          });
+                        }}
+                        className="w-full p-2 border rounded-lg bg-white"
+                      >
+                        <option value="days:30">30 dias</option>
+                        <option value="days:90">90 dias</option>
+                        <option value="months:6">6 meses</option>
+                        <option value="months:12">12 meses</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Prazo configurado: {plan.durationValue ?? 30} {plan.durationUnit === 'months' ? ((plan.durationValue ?? 30) === 1 ? 'mês' : 'meses') : 'dias'}.
+                      </p>
                     </div>
 
                     <div>
