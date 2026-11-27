@@ -78,6 +78,67 @@ export default async function handler(req, res) {
     return jsonError(res, 401, 'Sessão inválida ou expirada. Entre novamente.');
   }
 
+  if (body.action === 'confirm') {
+    const paymentId = String(body.paymentId || '').trim();
+    if (!/^\\d{1,30}$/.test(paymentId)) {
+      return jsonError(res, 400, 'Identificador de pagamento inválido.');
+    }
+    try {
+      const check = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
+      });
+      const payment = await check.json().catch(() => ({}));
+      if (!check.ok) {
+        console.error('Falha ao consultar pagamento para confirmação:', { status: check.status, paymentId });
+        return jsonError(res, 502, 'Não foi possível consultar o pagamento no Mercado Pago.');
+      }
+      if (String(payment.external_reference || '') !== familyId ||
+          String(payment.metadata?.family_id || '') !== familyId) {
+        return jsonError(res, 403, 'Este pagamento não pertence a esta família.');
+      }
+      if (payment.status !== 'approved') {
+        return res.status(200).json({ approved: false, status: payment.status || 'unknown' });
+      }
+
+      const approvedPlanId = String(payment.metadata?.plan_id || '').trim();
+      const amount = Number(payment.transaction_amount);
+      if (!approvedPlanId || !Number.isFinite(amount) || amount <= 0 ||
+          String(payment.currency_id || '').toUpperCase() !== 'BRL') {
+        return jsonError(res, 400, 'Dados do pagamento aprovado são inválidos.');
+      }
+
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !serviceKey) {
+        return jsonError(res, 503, 'Configuração do servidor incompleta.');
+      }
+      const rpc = await fetch(`${supabaseUrl.replace(/\\/+$/, '')}/rest/v1/rpc/homefin_confirm_mercado_pago_payment`, {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          p_payment_id: String(payment.id),
+          p_family_id: familyId,
+          p_plan_id: approvedPlanId,
+          p_amount: amount,
+        }),
+      });
+      const rpcText = await rpc.text();
+      if (!rpc.ok) {
+        console.error('Falha ao ativar assinatura após confirmação:', { status: rpc.status, response: rpcText.slice(0, 500) });
+        return jsonError(res, 503, 'Pagamento aprovado, mas não foi possível atualizar a assinatura. Tente novamente.');
+      }
+      return res.status(200).json({ approved: true, status: 'approved' });
+    } catch (error) {
+      console.error('Erro na confirmação de pagamento:', error instanceof Error ? error.message : 'erro desconhecido');
+      return jsonError(res, 503, 'Não foi possível confirmar o pagamento agora.');
+    }
+  }
+
   if (!['pix', 'card'].includes(method)) {
     return jsonError(res, 400, 'Forma de pagamento inválida.');
   }
