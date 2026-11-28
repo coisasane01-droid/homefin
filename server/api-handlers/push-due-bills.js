@@ -250,12 +250,12 @@ export default async function handler(req, res) {
           !event ||
           typeof event.id !== 'string' ||
           !event.id.trim() ||
-          eventDate !== today
+          ![today, tomorrow].includes(eventDate)
         ) continue;
 
         checked++;
-        const noticeType = 'event_today';
-        const claimed = await claimNotice(familyId, event.id, today, noticeType);
+        const noticeType = eventDate === today ? 'event_today' : 'event_tomorrow';
+        const claimed = await claimNotice(familyId, event.id, eventDate, noticeType);
         if (!claimed) continue;
 
         const startText = typeof event.start === 'string' ? event.start.slice(11, 16) : '';
@@ -263,9 +263,10 @@ export default async function handler(req, res) {
         const location = typeof event.location === 'string' && event.location.trim()
           ? ` Local: ${event.location.trim().slice(0, 100)}.`
           : '';
-        const message = `${String(event.title || 'Evento da agenda').slice(0, 120)}. ${hasTime ? `Horário: ${startText}.` : 'Evento previsto para hoje.'}${location}`;
+        const whenText = noticeType === 'event_tomorrow' ? 'amanhã' : 'hoje';
+        const message = `${String(event.title || 'Evento da agenda').slice(0, 120)}. ${hasTime ? `Horário: ${startText}.` : `Evento previsto para ${whenText}.`}${location}`;
         const payload = JSON.stringify({
-          title: 'Você tem um evento hoje!',
+          title: noticeType === 'event_tomorrow' ? 'Lembrete: evento amanhã!' : 'Você tem um evento hoje!',
           body: message.slice(0, 500),
           icon: '/pwa-192x192.png',
           badge: '/pwa-192x192.png',
@@ -303,7 +304,7 @@ export default async function handler(req, res) {
           }
         }
 
-        await finishNotice(familyId, event.id, today, noticeType, successful > 0);
+        await finishNotice(familyId, event.id, eventDate, noticeType, successful > 0);
         if (successful > 0) sentNotices++;
         else failedNotices++;
       }
