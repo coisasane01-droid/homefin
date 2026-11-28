@@ -62,7 +62,8 @@ export const createCardPayment = async (
   installments: number,
   paymentMethodId: string,
   planId: string,
-  issuerId?: string
+  issuerId?: string,
+  identification?: { type: string; number: string }
 ): Promise<MercadoPagoPaymentResponse> => {
   return requestPayment({
     paymentMethod: 'card',
@@ -71,7 +72,8 @@ export const createCardPayment = async (
     installments,
     paymentMethodId,
     planId,
-    issuerId
+    issuerId,
+    identification
   });
 };
 
