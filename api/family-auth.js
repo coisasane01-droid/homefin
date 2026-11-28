@@ -353,6 +353,8 @@ export default async function handler(req, res) {
           primaryColor: String(suppliedSettings.primaryColor || 'indigo').slice(0, 40),
           backgroundImage: suppliedSettings.backgroundImage || '',
           logoImage: suppliedSettings.logoImage || '',
+          backgroundPosition: '50% 50%',
+          logoPosition: '50% 50%',
           backgroundZoom: 100,
           backgroundOpacity: 100,
           backgroundFit: 'cover',
