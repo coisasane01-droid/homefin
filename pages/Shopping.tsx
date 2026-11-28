@@ -20,11 +20,30 @@ const SEED_ITEMS = [
   { name: 'Detergente', emoji: '🧼' },
 ];
 
+const inferShoppingEmoji = (value: string): string => {
+  const name = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const rules: Array<[RegExp, string]> = [
+    [/leite|queijo|iogurte|manteiga|requeijao/, '🥛'], [/pao|bolo|biscoito|bolacha|farinha/, '🍞'],
+    [/ovo/, '🥚'], [/arroz/, '🍚'], [/feijao|lentilha/, '🫘'], [/cafe/, '☕'],
+    [/acucar|doce|chocolate/, '🍬'], [/oleo|azeite/, '🫒'], [/frango|carne|peixe/, '🥩'],
+    [/maca|banana|laranja|uva|fruta|morango/, '🍎'], [/tomate|batata|cebola|cenoura|alface|verdura/, '🥕'],
+    [/agua|suco|refrigerante/, '🧃'], [/papel higienico|papel toalha/, '🧻'],
+    [/detergente|sabao|amaciante|desinfetante|limpeza/, '🧼'],
+    [/shampoo|condicionador|sabonete|creme dental|pasta de dente/, '🧴'], [/racao|petisco/, '🐾']
+  ];
+  return rules.find(([pattern]) => pattern.test(name))?.[1] || '🛒';
+};
+
+const withShoppingEmoji = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  const first = Array.from(trimmed)[0];
+  return first && /\\p{Extended_Pictographic}/u.test(first) ? trimmed : `${inferShoppingEmoji(trimmed)} ${trimmed}`;
+};
 const Shopping: React.FC = () => {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [newItemName, setNewItemName] = useState('');
   const [newItemValue, setNewItemValue] = useState('');
-  const [newItemEmoji, setNewItemEmoji] = useState('🛒');
   const [newItemDueDate, setNewItemDueDate] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
@@ -114,14 +133,7 @@ const Shopping: React.FC = () => {
       return;
     }
 
-    let finalName = name.trim();
-    if (newItemEmoji && newItemEmoji !== '🛒' && !finalName.startsWith(newItemEmoji)) {
-        const firstChar = Array.from(finalName)[0];
-        const hasEmoji = /\p{Extended_Pictographic}/u.test(firstChar || '');
-        if (!hasEmoji) {
-            finalName = `${newItemEmoji} ${finalName}`;
-        }
-    }
+    const finalName = withShoppingEmoji(name);
 
     if (editingId) {
       // Update existing
@@ -148,7 +160,6 @@ const Shopping: React.FC = () => {
 
     setNewItemName('');
     setNewItemValue('');
-    setNewItemEmoji('🛒');
     setNewItemDueDate('');
     loadItems();
     
