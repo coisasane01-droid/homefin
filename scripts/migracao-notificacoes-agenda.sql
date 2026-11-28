@@ -7,7 +7,7 @@ ALTER TABLE public.homefin_push_due_notices
 
 ALTER TABLE public.homefin_push_due_notices
   ADD CONSTRAINT homefin_push_due_notices_notice_type_check
-  CHECK (notice_type IN ('due_today', 'due_tomorrow', 'event_today'));
+  CHECK (notice_type IN ('due_today', 'due_tomorrow', 'event_today', 'event_tomorrow'));
 
 CREATE OR REPLACE FUNCTION public.homefin_claim_push_due_bill(
   p_family_id text,
