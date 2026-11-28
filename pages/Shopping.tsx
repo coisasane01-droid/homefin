@@ -322,16 +322,7 @@ const Shopping: React.FC = () => {
   const startEdit = (e: React.MouseEvent, item: ShoppingItem) => {
     e.stopPropagation();
     
-    let extractedEmoji = '🛒';
-    let extractedName = item.name;
-    
-    const firstChar = Array.from(item.name)[0];
-    if (firstChar && /\p{Extended_Pictographic}/u.test(firstChar)) {
-        extractedEmoji = firstChar;
-        extractedName = item.name.substring(firstChar.length).trim();
-    }
-
-    setNewItemEmoji(extractedEmoji);
+    const extractedName = item.name.replace(/^\p{Extended_Pictographic}\s*/u, '');
     setNewItemName(extractedName);
     setNewItemValue(item.estimatedValue > 0 ? item.estimatedValue.toString() : '');
     setNewItemDueDate(item.dueDate || '');
@@ -464,15 +455,6 @@ const Shopping: React.FC = () => {
         <div className="flex flex-col gap-3">
             <div className="flex gap-2">
                 <input 
-                    type="text"
-                    value={newItemEmoji}
-                    onChange={e => setNewItemEmoji(e.target.value)}
-                    className="w-16 text-center text-2xl bg-gray-50 dark:bg-gray-700 border-0 rounded-lg px-2 py-3 focus:ring-2 ring-primary-500 outline-none"
-                    placeholder="🛒"
-                    maxLength={2}
-                    title="Emoji do item"
-                />
-                <input 
                     ref={inputRef}
                     type="text" 
                     value={newItemName}
@@ -527,13 +509,14 @@ const Shopping: React.FC = () => {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                         <Calendar size={18} />
                     </span>
+                    <label className="absolute -top-5 left-0 text-xs font-semibold text-gray-500 dark:text-gray-400">Data da compra (opcional)</label>
                     <input 
                         type="date" 
                         value={newItemDueDate}
                         onChange={e => setNewItemDueDate(e.target.value)}
                         className="block min-w-0 w-full max-w-full box-border appearance-none bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-2 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base text-gray-500"
                         style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
-                        title="Data limite para compra (Lembrete)"
+                        title="Data da compra: lembrete no dia programado"
                     />
                 </div>
             </div>
@@ -814,7 +797,7 @@ const Shopping: React.FC = () => {
                   <div>
                     <strong className="text-gray-800 dark:text-gray-200 block">Adicionar Itens:</strong>
                     <p className="mt-1 opacity-90">
-                      Digite o nome do produto, escolha um emoji e informe o valor estimado. O app vai somando tudo para você saber quanto vai gastar antes mesmo de chegar ao caixa.
+                      Digite o nome do produto: o HomeFin sugere automaticamente um emoji. Informe também o valor estimado. O app vai somando tudo para você saber quanto vai gastar antes mesmo de chegar ao caixa.
                     </p>
                   </div>
                 </div>
@@ -850,7 +833,7 @@ const Shopping: React.FC = () => {
                   <div>
                     <strong className="text-gray-800 dark:text-gray-200 block">Lembretes de Compra:</strong>
                     <p className="mt-1 opacity-90">
-                      Adicione uma data limite para comprar um item. O aplicativo enviará uma notificação para o seu dispositivo lembrando você de comprar os itens no dia programado!
+                      Defina a Data da compra para receber um lembrete no dia programado. O aplicativo enviará uma notificação para o seu dispositivo lembrando você de comprar os itens no dia programado!
                     </p>
                   </div>
                 </div>
