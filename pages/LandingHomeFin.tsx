@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Home, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
 import { saasDb, LandingConfig } from '../services/saasDb';
+import { supabaseService } from '../services/supabaseService';
 import LanguageSelector from '../components/LanguageSelector';
 
 const LandingHomeFin: React.FC = () => {
@@ -83,13 +84,17 @@ const LandingHomeFin: React.FC = () => {
 
     let syncedSaasData;
     try {
-      // A busca de família precisa usar a resposta confirmada do servidor.
-      // Não transforma falha de rede/CORS em "família não encontrada" usando cache antigo.
-      syncedSaasData = await saasDb.syncFromSupabase();
+      // Consulta direta: syncFromSupabase mantém cache local quando há falha,
+      // o que poderia transformar um erro de CORS/servidor em falso "não encontrada".
+      syncedSaasData = await supabaseService.getSaasData();
+      if (!syncedSaasData || !Array.isArray(syncedSaasData.families)) {
+        throw new Error('O servidor não retornou a lista de famílias.');
+      }
+      localStorage.setItem('homefin_saas_data_v1', JSON.stringify(syncedSaasData));
       window.dispatchEvent(new Event('homefin-saas-synced'));
     } catch (error) {
-      console.error('Erro ao atualizar famílias:', error);
-      setLoginError('Não foi possível consultar as famílias no servidor. Atualize a página e tente novamente.');
+      console.error('Erro ao consultar famílias no servidor:', error);
+      setLoginError('Não foi possível consultar as famílias no servidor. Verifique a conexão e tente novamente.');
       return;
     }
 
