@@ -190,7 +190,8 @@ const Planos: React.FC = () => {
         formData.installments,
         formData.payment_method_id,
         selectedPlan.id,
-        formData.issuer_id
+        formData.issuer_id,
+        formData.payer?.identification
       );
 
       if (payment.status === 'approved') {
