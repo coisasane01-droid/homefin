@@ -31,7 +31,7 @@ const defaultSettings: UserSettings = {
   backgroundFit: 'cover',
   cardOpacity: 40,
   cardFullScreen: false,
-  logoShape: 'square',
+  logoShape: 'circle',
   logoZoom: 100,
   customCategories: [],
   categories: ['Fixa', 'Variável', 'Cartão', 'Imposto'],
