@@ -75,7 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const pageGuide = PAGE_GUIDES[currentPageKey] || { title: 'Como usar o HomeFin', intro: 'Orientações gerais para aproveitar os recursos do aplicativo.', steps: ['Use o menu lateral para acessar cada módulo.', 'Cadastre e mantenha seus dados atualizados no módulo correspondente.', 'Use os botões de cada página para criar, editar, consultar ou exportar informações.', 'Consulte este guia sempre que precisar entender uma função.'], tips: ['As opções podem variar conforme o módulo e as permissões da família.', 'Se encontrar um problema, abra Suporte e informe a página e a ação realizada.'] };
   const [houseName, setHouseName] = useState('Carregando...');
   const [logoImage, setLogoImage] = useState('');
-  const [logoShape, setLogoShape] = useState<'circle' | 'square'>('square');
+  const [logoShape, setLogoShape] = useState<'circle' | 'square'>('circle');
   const [isDark, setIsDark] = useState(false);
   const [showPlanPage, setShowPlanPage] = useState(false);
   const [quickMenu, setQuickMenu] = useState<ReturnType<typeof normalizeQuickMenu>>(DEFAULT_QUICK_MENU);
@@ -146,7 +146,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const s = await db.getSettings();
     setHouseName(s.houseName);
     setLogoImage(s.logoImage || '');
-    setLogoShape(s.logoShape === 'circle' ? 'circle' : 'square');
+    setLogoShape(s.logoShape === 'square' ? 'square' : 'circle');
     setIsDark(s.theme === 'dark');
     setQuickMenu(normalizeQuickMenu(s.quickMenu));
     
