@@ -337,7 +337,6 @@ const Shopping: React.FC = () => {
     setEditingId(null);
     setNewItemName('');
     setNewItemValue('');
-    setNewItemEmoji('🛒');
     setNewItemDueDate('');
   };
 
