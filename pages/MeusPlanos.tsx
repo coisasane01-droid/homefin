@@ -35,7 +35,10 @@ const MeusPlanos: React.FC = () => {
       setFamily(foundFamily);
       
       const plans = saasDb.getPlans();
-      const plan = plans.find(p => p.id === foundFamily.plan);
+      // Famílias pagas guardam o identificador real do plano em paidPlanId.
+      // O campo family.plan permanece apenas como marcador genérico "premium".
+      const plan = plans.find(p => p.id === (foundFamily.paidPlanId || foundFamily.plan))
+        || plans.find(p => p.id === foundFamily.plan);
       setCurrentPlan(plan || null);
 
       if (foundFamily.expiresAt) {
