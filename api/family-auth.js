@@ -358,7 +358,7 @@ export default async function handler(req, res) {
           backgroundFit: 'cover',
           cardOpacity: 40,
           cardFullScreen: false,
-          logoShape: suppliedSettings.logoShape === 'circle' ? 'circle' : 'square',
+          logoShape: suppliedSettings.logoShape === 'square' ? 'square' : 'circle',
           logoZoom: 100,
           logoSize: 100,
           customCategories: [],
