@@ -290,7 +290,7 @@ const Shopping: React.FC = () => {
 
       await db.addShoppingItem({
         id: generateId(),
-        name: productName,
+        name: withShoppingEmoji(productName),
         estimatedValue: 0,
         checked: false,
       });
