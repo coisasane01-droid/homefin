@@ -26,6 +26,7 @@ const defaultSettings: UserSettings = {
   houseName: 'Minha Casa',
   primaryColor: 'indigo',
   homePage: '/dashboard',
+  backgroundPosition: '50% 50%',
   backgroundZoom: 100,
   backgroundOpacity: 100,
   backgroundFit: 'cover',
