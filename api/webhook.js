@@ -4,10 +4,16 @@ function getServerConfig() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-  if (!supabaseUrl || !serviceKey || !accessToken) {
+  const webhookSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
+  if (!supabaseUrl || !serviceKey || !accessToken || !webhookSecret) {
     throw new Error('Configuração server-side de pagamento incompleta.');
   }
-  return { supabaseUrl: supabaseUrl.replace(/\/+$/, ''), serviceKey, accessToken };
+  return {
+    supabaseUrl: supabaseUrl.replace(/\\/+$/, ''),
+    serviceKey,
+    accessToken,
+    webhookSecret,
+  };
 }
 
 function extractPaymentId(req) {
@@ -15,7 +21,39 @@ function extractPaymentId(req) {
   const query = req.query || {};
   const raw = body?.data?.id ?? body?.id ?? query['data.id'] ?? query.id;
   const id = String(raw || '').trim();
-  return /^\d{1,30}$/.test(id) ? id : '';
+  return /^\\d{1,30}$/.test(id) ? id : '';
+}
+
+function getHeader(req, name) {
+  const value = req.headers?.[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] : String(value || '');
+}
+
+// Valida a assinatura HMAC-SHA256 documentada pelo Mercado Pago.
+// O ID usado no manifesto é o data.id da notificação, em minúsculas.
+function isValidWebhookSignature(req, paymentId, secret) {
+  const signatureHeader = getHeader(req, 'x-signature');
+  const requestId = getHeader(req, 'x-request-id');
+  if (!signatureHeader || !requestId || !paymentId) return false;
+
+  const parts = Object.fromEntries(
+    signatureHeader.split(',').map(part => {
+      const separator = part.indexOf('=');
+      if (separator < 0) return ['', ''];
+      return [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
+    }).filter(([key, value]) => key && value)
+  );
+
+  const timestamp = parts.ts;
+  const receivedSignature = parts.v1;
+  if (!/^\\d+$/.test(timestamp || '') || !/^[a-f0-9]{64}$/i.test(receivedSignature || '')) {
+    return false;
+  }
+
+  const manifest = `id:${String(paymentId).toLowerCase()};request-id:${requestId};ts:${timestamp};`;
+  const expected = crypto.createHmac('sha256', secret).update(manifest).digest();
+  const received = Buffer.from(receivedSignature, 'hex');
+  return received.length === expected.length && crypto.timingSafeEqual(expected, received);
 }
 
 async function activateApprovedPayment(payment, config) {
@@ -69,8 +107,8 @@ async function activateApprovedPayment(payment, config) {
 }
 
 export default async function handler(req, res) {
-  if (!['POST', 'GET'].includes(req.method)) {
-    res.setHeader('Allow', ['POST', 'GET']);
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Método não permitido.' });
   }
 
@@ -82,7 +120,13 @@ export default async function handler(req, res) {
 
   try {
     const config = getServerConfig();
-    console.log(`Recebido webhook de pagamento: ${paymentId}`);
+
+    if (!isValidWebhookSignature(req, paymentId, config.webhookSecret)) {
+      console.warn('Webhook do Mercado Pago rejeitado: assinatura inválida.', { paymentId });
+      return res.status(401).json({ error: 'Assinatura do webhook inválida.' });
+    }
+
+    console.log(`Webhook assinado recebido do Mercado Pago: ${paymentId}`);
 
     // Nunca confiar no status enviado pelo webhook: consultar a API oficial.
     const mpResponse = await fetch(
