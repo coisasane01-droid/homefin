@@ -45,7 +45,7 @@ const Settings: React.FC = () => {
       backgroundFit: 'cover',
       cardOpacity: 40,
       cardFullScreen: false,
-      logoShape: 'square',
+      logoShape: 'circle',
       logoZoom: 100,
       logoSize: 100,
       customCategories: [],
@@ -85,7 +85,7 @@ const Settings: React.FC = () => {
   const [tempOpacity, setTempOpacity] = useState(100);
   const [tempCardOpacity, setTempCardOpacity] = useState(40);
   const [tempCardFullScreen, setTempCardFullScreen] = useState(false);
-  const [tempShape, setTempShape] = useState<'circle' | 'square'>('square');
+  const [tempShape, setTempShape] = useState<'circle' | 'square'>('circle');
   const [tempLogoSize, setTempLogoSize] = useState(100);
   const [tempFit, setTempFit] = useState<'cover' | 'contain'>('cover');
 
@@ -98,12 +98,14 @@ const Settings: React.FC = () => {
       setSettings({
           ...s,
           quickMenu: normalizeQuickMenu(s.quickMenu),
+          backgroundPosition: s.backgroundPosition ?? '50% 50%',
           backgroundZoom: s.backgroundZoom ?? 100,
           backgroundOpacity: s.backgroundOpacity ?? 100,
           backgroundFit: s.backgroundFit ?? 'cover',
           cardOpacity: s.cardOpacity ?? 40,
           cardFullScreen: s.cardFullScreen ?? false,
-          logoShape: s.logoShape ?? 'square',
+          logoPosition: s.logoPosition ?? '50% 50%',
+          logoShape: s.logoShape ?? 'circle',
           logoZoom: s.logoZoom ?? 100,
           logoSize: s.logoSize ?? 100,
           customCategories: s.customCategories ?? [],
@@ -412,7 +414,7 @@ const Settings: React.FC = () => {
         setTempCardFullScreen(settings.cardFullScreen ?? false);
     } else {
         setTempZoom(settings.logoZoom || 100);
-        setTempShape(settings.logoShape || 'square');
+        setTempShape(settings.logoShape || 'circle');
         setTempLogoSize(settings.logoSize || 100);
     }
 
@@ -1115,16 +1117,21 @@ const Settings: React.FC = () => {
 
       {/* Position Adjustment Modal */}
       {positionModal && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-gray-800 rounded-none sm:rounded-2xl shadow-xl w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[92dvh] overflow-hidden flex flex-col">
                 <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-700/50">
                     <h3 className="font-bold text-lg dark:text-white">Ajustar {positionModal === 'background' ? 'Fundo' : 'Logo'}</h3>
                     <button onClick={() => setPositionModal(null)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors text-gray-500 dark:text-gray-400"><X size={20} /></button>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    {/* Preview Area */}
-                    <div className="aspect-[9/16] w-full max-w-[240px] mx-auto bg-gray-900 rounded-2xl overflow-hidden relative border-4 border-gray-800 shadow-2xl">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 md:p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,0.8fr)_minmax(0,1.2fr)] md:items-start gap-5 md:gap-8">
+                    <div className="md:hidden text-center text-xs text-gray-500 dark:text-gray-400">
+                      Pré-visualização compacta. Ajuste os controles abaixo; você pode alterar tudo novamente quando quiser.
+                    </div>
+                    {/* Preview Area: compacto no celular e maior no computador */}
+                    <div className="flex justify-center md:sticky md:top-0 md:self-start">
+                    <div className="h-[28vh] max-h-[250px] aspect-[9/16] md:h-auto md:max-h-none md:w-full md:max-w-[240px] md:aspect-[9/16] bg-gray-900 rounded-2xl overflow-hidden relative border-4 border-gray-800 shadow-2xl">
                         {/* Background Layer */}
                         {(positionModal === 'background' || settings.backgroundImage) && (
                             <div 
@@ -1185,8 +1192,9 @@ const Settings: React.FC = () => {
                         </div>
                     </div>
 
+                    </div>
                     {/* Controls */}
-                    <div className="space-y-6">
+                    <div className="space-y-5 md:space-y-6">
                         {/* Common Position Controls */}
                         <div className="space-y-4">
                             <h4 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">Posição</h4>
@@ -1199,7 +1207,7 @@ const Settings: React.FC = () => {
                                     type="range" min="0" max="100" 
                                     value={tempPosition.x} 
                                     onChange={e => setTempPosition({...tempPosition, x: Number(e.target.value)})}
-                                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary-600"
+                                    className="w-full h-3 min-h-8 touch-pan-y bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary-600"
                                 />
                             </div>
                             <div>
@@ -1344,7 +1352,10 @@ const Settings: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex gap-3">
+                  </div>
+                </div>
+
+                <div className="shrink-0 p-3 sm:p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex gap-3">
                     <button 
                         onClick={() => setPositionModal(null)}
                         className="flex-1 py-3 text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 rounded-xl font-medium transition-colors"
