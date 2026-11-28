@@ -308,6 +308,50 @@ export default async function handler(req, res) {
         if (successful > 0) sentNotices++;
         else failedNotices++;
       }
+      // Lembretes da Lista de Compras: enviar no dia escolhido para comprar.
+      const shoppingItems = Array.isArray(data.shoppingList) ? data.shoppingList : [];
+      for (const item of shoppingItems) {
+        if (
+          !item ||
+          typeof item.id !== 'string' ||
+          item.checked === true ||
+          item.dueDate !== today
+        ) continue;
+
+        checked++;
+        const noticeType = 'shopping_due';
+        const claimed = await claimNotice(familyId, item.id, today, noticeType);
+        if (!claimed) continue;
+
+        const payload = JSON.stringify({
+          title: 'Dia de fazer compras! 🛒',
+          body: `Não esqueça de comprar: ${String(item.name || 'Item da lista').slice(0, 180)}.`,
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          url: notificationUrl(familyId),
+        });
+
+        const results = await Promise.allSettled(subscriptions.map(async subscription => {
+          if (!isSupportedPushEndpoint(subscription.endpoint)) return { sent: false, expired: false };
+          try {
+            await webpush.sendNotification(subscription.subscription, payload);
+            return { sent: true, expired: false };
+          } catch (error) {
+            const status = Number(error?.statusCode || 0);
+            return { sent: false, expired: status === 404 || status === 410, endpoint: subscription.endpoint };
+          }
+        }));
+        const outcomes = results.filter(result => result.status === 'fulfilled').map(result => result.value);
+        const successful = outcomes.filter(result => result.sent).length;
+        for (const expired of outcomes.filter(result => result.expired)) {
+          try { await removeExpired(expired.endpoint, familyId); } catch {
+            console.error('Não foi possível remover inscrição Push expirada.');
+          }
+        }
+        await finishNotice(familyId, item.id, today, noticeType, successful > 0);
+        if (successful > 0) sentNotices++;
+        else failedNotices++;
+      }
     }
 
     return res.status(200).json({
