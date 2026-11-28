@@ -1353,7 +1353,6 @@ const Settings: React.FC = () => {
                 </div>
 
                   </div>
-                </div>
 
                 <div className="shrink-0 p-3 sm:p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex gap-3">
                     <button 
