@@ -1,9 +1,17 @@
 import crypto from 'crypto';
 
+function getMercadoPagoAccessToken() {
+  // Preview/Development must never fall back to live credentials.
+  // Production uses the live token; all other Vercel environments use the test token.
+  return process.env.VERCEL_ENV === 'production'
+    ? process.env.MERCADO_PAGO_ACCESS_TOKEN
+    : process.env.MERCADO_PAGO_TEST_ACCESS_TOKEN;
+}
+
 function getServerConfig() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  const accessToken = getMercadoPagoAccessToken();
   if (!supabaseUrl || !serviceKey || !accessToken) {
     throw new Error('Configuração server-side de pagamento incompleta.');
   }
