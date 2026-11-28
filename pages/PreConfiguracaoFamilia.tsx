@@ -134,7 +134,7 @@ const PreConfiguracaoFamilia: React.FC = () => {
     color: 'indigo',
     backgroundImage: '',
     logoImage: '',
-    logoShape: 'square'
+    logoShape: 'circle'
   });
   const [error, setError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
