@@ -21,7 +21,7 @@ const SEED_ITEMS = [
 ];
 
 const inferShoppingEmoji = (value: string): string => {
-  const name = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const name = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const rules: Array<[RegExp, string]> = [
     [/leite|queijo|iogurte|manteiga|requeijao/, '🥛'], [/pao|bolo|biscoito|bolacha|farinha/, '🍞'],
     [/ovo/, '🥚'], [/arroz/, '🍚'], [/feijao|lentilha/, '🫘'], [/cafe/, '☕'],
@@ -38,7 +38,7 @@ const withShoppingEmoji = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
   const first = Array.from(trimmed)[0];
-  return first && /\\p{Extended_Pictographic}/u.test(first) ? trimmed : `${inferShoppingEmoji(trimmed)} ${trimmed}`;
+  return first && /\p{Extended_Pictographic}/u.test(first) ? trimmed : `${inferShoppingEmoji(trimmed)} ${trimmed}`;
 };
 const Shopping: React.FC = () => {
   const [items, setItems] = useState<ShoppingItem[]>([]);
