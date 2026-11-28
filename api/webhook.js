@@ -121,7 +121,11 @@ export default async function handler(req, res) {
   try {
     const config = getServerConfig();
 
-    if (!isValidWebhookSignature(req, paymentId, config.webhookSecret)) {
+    // O Mercado Pago define o data.id da URL (query string) como fonte do manifesto HMAC.
+    const signatureDataId = String(req.query?.['data.id'] || '').trim();
+    if (!/^\\d{1,30}$/.test(signatureDataId) ||
+        signatureDataId !== paymentId ||
+        !isValidWebhookSignature(req, signatureDataId, config.webhookSecret)) {
       console.warn('Webhook do Mercado Pago rejeitado: assinatura inválida.', { paymentId });
       return res.status(401).json({ error: 'Assinatura do webhook inválida.' });
     }
