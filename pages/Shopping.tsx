@@ -504,19 +504,26 @@ const Shopping: React.FC = () => {
                         className="w-full bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-4 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base"
                     />
                 </div>
-                <div className="relative min-w-0 w-full flex-1 overflow-hidden">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                        <Calendar size={18} />
-                    </span>
-                    <label className="absolute -top-5 left-0 text-xs font-semibold text-gray-500 dark:text-gray-400">Data da compra (opcional)</label>
-                    <input 
-                        type="date" 
-                        value={newItemDueDate}
-                        onChange={e => setNewItemDueDate(e.target.value)}
-                        className="block min-w-0 w-full max-w-full box-border appearance-none bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-2 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base text-gray-500"
-                        style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
-                        title="Data da compra: lembrete no dia programado"
-                    />
+                <div className="min-w-0 w-full flex-1">
+                    <label className="block mb-1 text-xs font-bold text-gray-600 dark:text-gray-300">
+                        Data em que você pretende fazer a compra (opcional)
+                    </label>
+                    <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                            <Calendar size={18} />
+                        </span>
+                        <input
+                            type="date"
+                            value={newItemDueDate}
+                            onChange={e => setNewItemDueDate(e.target.value)}
+                            className="block min-w-0 w-full max-w-full box-border appearance-none bg-gray-50 dark:bg-gray-700 border-0 rounded-lg pl-10 pr-2 py-3 focus:ring-2 ring-primary-500 dark:text-white text-base text-gray-500"
+                            style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
+                            title="Escolha o dia em que deseja comprar este item. O HomeFin enviará um lembrete nesse dia."
+                        />
+                    </div>
+                    <p className="mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                        Escolha o dia em que deseja comprar este produto. Você receberá um lembrete nesse dia.
+                    </p>
                 </div>
             </div>
             
