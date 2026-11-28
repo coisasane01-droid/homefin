@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saasDb, Family, Plan, PaymentConfig } from '../services/saasDb';
 import { CheckCircle2, AlertTriangle, CreditCard, QrCode, Copy, Shield, X, Loader2, Info } from 'lucide-react';
-import { createPixPayment, createCardPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
+import { createPixPayment, createCardPayment, confirmMercadoPagoPayment, MercadoPagoPaymentResponse } from '../services/mercadoPago';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
 
 const MeusPlanos: React.FC = () => {
@@ -80,11 +80,23 @@ const MeusPlanos: React.FC = () => {
     }
   };
 
-  const handleConfirmPayment = () => {
-    showNotification(
-      'A confirmação automática foi bloqueada por segurança. O plano só será liberado após a verificação do pagamento no servidor.',
-      'error'
-    );
+  const handleConfirmPayment = async () => {
+    if (!mercadoPagoPayment?.id) return;
+    setLoading(true);
+    try {
+      const result = await confirmMercadoPagoPayment(mercadoPagoPayment.id);
+      if (result.approved) {
+        await saasDb.syncFromSupabase();
+        showNotification('Pagamento confirmado! Sua assinatura foi renovada.', 'success');
+        window.location.reload();
+      } else {
+        showNotification('Pagamento ainda aguardando aprovação. A confirmação será atualizada automaticamente.', 'info');
+      }
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'Não foi possível confirmar o pagamento.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onCardPaymentSubmit = async (formData: any) => {
@@ -102,7 +114,14 @@ const MeusPlanos: React.FC = () => {
       );
 
       if (payment.status === 'approved') {
-        handleConfirmPayment();
+        const confirmation = await confirmMercadoPagoPayment(payment.id);
+        if (confirmation.approved) {
+          await saasDb.syncFromSupabase();
+          showNotification('Pagamento confirmado! Sua assinatura foi renovada.', 'success');
+          window.location.reload();
+        } else {
+          showNotification('Pagamento aprovado e aguardando atualização da assinatura. Ela será atualizada automaticamente.', 'info');
+        }
       } else {
         showNotification(`Pagamento não aprovado: ${payment.status_detail}`, 'error');
       }
@@ -116,6 +135,34 @@ const MeusPlanos: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isCheckoutOpen || paymentMethod !== 'pix' || !mercadoPagoPayment?.id) return;
+    let active = true;
+    let checking = false;
+    const verify = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        const result = await confirmMercadoPagoPayment(mercadoPagoPayment.id);
+        if (active && result.approved) {
+          await saasDb.syncFromSupabase();
+          showNotification('PIX recebido! Sua assinatura foi renovada.', 'success');
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Verificação automática do PIX na renovação:', error);
+      } finally {
+        checking = false;
+      }
+    };
+    const timer = window.setInterval(verify, 5000);
+    void verify();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isCheckoutOpen, paymentMethod, mercadoPagoPayment?.id]);
 
   const handleCopyPix = (text: string) => {
     navigator.clipboard.writeText(text);
