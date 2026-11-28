@@ -24,7 +24,7 @@ DECLARE
   affected integer;
 BEGIN
   IF p_family_id IS NULL OR p_bill_id IS NULL
-     OR p_notice_type NOT IN ('due_today', 'due_tomorrow', 'event_today') THEN
+     OR p_notice_type NOT IN ('due_today', 'due_tomorrow', 'event_today', 'event_tomorrow') THEN
     RAISE EXCEPTION 'Parâmetros inválidos';
   END IF;
 
