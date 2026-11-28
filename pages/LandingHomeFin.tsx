@@ -81,15 +81,18 @@ const LandingHomeFin: React.FC = () => {
     e.preventDefault();
     setLoginError('');
 
+    let syncedSaasData;
     try {
-      // Atualiza a lista de famílias antes de pesquisar.
-      // Se estiver offline, syncFromSupabase preserva o cache local.
-      await saasDb.syncFromSupabase();
+      // A busca de família precisa usar a resposta confirmada do servidor.
+      // Não transforma falha de rede/CORS em "família não encontrada" usando cache antigo.
+      syncedSaasData = await saasDb.syncFromSupabase();
       window.dispatchEvent(new Event('homefin-saas-synced'));
     } catch (error) {
       console.error('Erro ao atualizar famílias:', error);
+      setLoginError('Não foi possível consultar as famílias no servidor. Atualize a página e tente novamente.');
+      return;
     }
-    
+
     const normalizeFamilySearch = (value: string) =>
       value
         .trim()
@@ -104,7 +107,9 @@ const LandingHomeFin: React.FC = () => {
       return;
     }
 
-    const families = saasDb.getFamilies();
+    const families = Array.isArray(syncedSaasData?.families)
+      ? syncedSaasData.families
+      : [];
     // Busca exata pelo nome ou ID, ignorando maiúsculas/minúsculas e acentos
     const family = families.find(f => 
       normalizeFamilySearch(f.name) === nameToSearch || 
