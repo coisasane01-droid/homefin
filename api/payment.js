@@ -189,7 +189,7 @@ export default async function handler(req, res) {
       ? identification.type.trim().toUpperCase()
       : '';
     const identificationNumber = typeof identification.number === 'string'
-      ? identification.number.replace(/\\D/g, '')
+      ? identification.number.replace(/[^0-9]/g, '')
       : '';
 
     if (!token || token.length > 4096 || !paymentMethodId ||
