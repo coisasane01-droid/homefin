@@ -182,12 +182,31 @@ export default async function handler(req, res) {
     const installments = Number(body.installments);
     const paymentMethodId = typeof body.paymentMethodId === 'string' ? body.paymentMethodId : '';
     const issuerId = body.issuerId == null ? undefined : String(body.issuerId);
+    const identification = body.identification && typeof body.identification === 'object'
+      ? body.identification
+      : {};
+    const identificationType = typeof identification.type === 'string'
+      ? identification.type.trim().toUpperCase()
+      : '';
+    const identificationNumber = typeof identification.number === 'string'
+      ? identification.number.replace(/\\D/g, '')
+      : '';
 
     if (!token || token.length > 4096 || !paymentMethodId ||
         !Number.isInteger(installments) || installments < 1 || installments > 24) {
       return jsonError(res, 400, 'Dados do cartão incompletos ou inválidos.');
     }
 
+    if (!['CPF', 'CNPJ'].includes(identificationType) ||
+        (identificationType === 'CPF' && identificationNumber.length !== 11) ||
+        (identificationType === 'CNPJ' && identificationNumber.length !== 14)) {
+      return jsonError(res, 400, 'Informe o CPF ou CNPJ do titular do cartão.');
+    }
+
+    paymentBody.payer.identification = {
+      type: identificationType,
+      number: identificationNumber,
+    };
     paymentBody.token = token;
     paymentBody.installments = installments;
     paymentBody.payment_method_id = paymentMethodId;
