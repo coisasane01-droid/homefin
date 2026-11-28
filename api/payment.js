@@ -45,6 +45,14 @@ function jsonError(res, status, message) {
   return res.status(status).json({ error: message });
 }
 
+function getMercadoPagoAccessToken() {
+  // Preview/Development must never fall back to live credentials.
+  // Production uses the live token; all other Vercel environments use the test token.
+  return process.env.VERCEL_ENV === 'production'
+    ? process.env.MERCADO_PAGO_ACCESS_TOKEN
+    : process.env.MERCADO_PAGO_TEST_ACCESS_TOKEN;
+}
+
 export default async function handler(req, res) {
   if (handleCors(req, res)) return;
   if (req.method !== 'POST') {
@@ -52,9 +60,11 @@ export default async function handler(req, res) {
     return jsonError(res, 405, 'Método não permitido.');
   }
 
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  const accessToken = getMercadoPagoAccessToken();
   if (!accessToken) {
-    return jsonError(res, 503, 'Pagamento indisponível: integração do servidor não configurada.');
+    return jsonError(res, 503, process.env.VERCEL_ENV === 'production'
+      ? 'Pagamento indisponível: credencial de produção não configurada.'
+      : 'Pagamento de teste indisponível: credencial de teste não configurada.');
   }
 
   const body = req.body || {};
